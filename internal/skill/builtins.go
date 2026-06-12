@@ -156,6 +156,323 @@ Don't: install/update dependencies without asking; skip/delete/disable failing t
 
 Lead each turn with a one-line status (e.g. "▸ running go test ./… ", "▸ 2 failures in foo_test.go — first is …") so the user always knows where you are.`
 
+const builtinAnalyzeProjectBody = `You are running as a project-analysis subagent. Given a target project path, produce a comprehensive documentation suite that helps a new developer understand and take over the codebase. Output goes to <project-root>/content/.
+
+## Phase 1: Project Scanning (breadth-first)
+
+1. ` + "`ls`" + ` the root → identify directory structure
+2. Read manifest files: package.json / go.mod / pom.xml / Cargo.toml / requirements.txt
+3. Read config files: tsconfig.json / .env.example / docker-compose.yml / Makefile
+4. ` + "`glob **/*.{ts,js,go,py,java,rs}`" + ` → file inventory
+5. codegraph_search for key symbols: main, App, Server, Router, Config, DB, Model
+
+Goal: determine language, framework, architecture pattern, entry points.
+
+## Phase 2: Architecture Analysis (depth-first on key files)
+
+1. Read entry point (index.ts / main.go / app.py / Main.java)
+2. codegraph_context on the entry point → call graph
+3. codegraph_callers / codegraph_callees on top-level services
+4. Identify layers: entry → service → data access → infrastructure
+5. Identify cross-cutting: auth, error handling, logging, config
+
+Goal: produce a layered architecture diagram and module responsibility map.
+
+## Phase 3: Module Classification
+
+Based on Phase 1+2, classify files into documentation modules:
+- 项目概述/ (project overview, tech stack, deployment architecture)
+- 架构设计/ (layered architecture, component interaction, tech choices)
+- 数据模型设计/ (ORM models, entity relationships, DB schema)
+- API接口参考/ (endpoints, request/response, auth)
+- 核心工具类/ (utilities, helpers, shared infrastructure)
+- 业务模块1/ (per business domain)
+- 业务模块2/ ...
+- 开发指南/ (setup, build, test, debug)
+- 部署运维/ (deployment, monitoring, troubleshooting)
+- 故障排除/ (common issues, performance tuning)
+
+Generate the directory tree first, then proceed to Phase 4.
+
+**STOP and report**: After generating the directory tree, STOP and output the full tree. 
+Wait for the user to confirm (or auto-continue) before writing any documents.
+
+## Phase 4: Document Generation (per module) — EXECUTION DISCIPLINE
+
+**CRITICAL: DO NOT write all documents in one burst. Process modules one at a time.**
+
+For EACH module, you MUST generate MULTIPLE documents, not just one. 
+Follow these rules strictly:
+
+### Per-Module Execution Rule
+
+After completing each module's documents, STOP and output:
+  "Module {name} done: {n} documents generated.
+  Next: {next_module_name}
+  Progress: {completed_count}/{total_count}"
+
+Only proceed to the next module after the STOP marker.
+This prevents quality degradation from long uninterrupted generation.
+
+### Sub-document Splitting Rules
+
+For each major business module, generate:
+- **1 summary doc** ({ModuleName}.md) — overall architecture, core components, module relationships
+- **N topic docs** — one per sub-topic within the module
+
+Examples:
+- PaymentSystem.md + Recharge.md + Consumption.md + WriteOff.md + Balance.md + TransactionQuery.md + TransactionSecurity.md
+- Architecture.md + OverallArchitecture.md + TechStack.md + ComponentInteraction.md + LayeredDesign/LayeredDesign.md + LayeredDesign/EntryLayer.md + LayeredDesign/ServiceLayer/ServiceLayer.md + LayeredDesign/ServiceLayer/PaymentService.md + ...
+- APIReference.md + PaymentAPI.md + UserAPI.md + AdminAPI.md + AuthAPI.md
+
+**Nested directories**: Use nested directories when a sub-module itself has sub-topics (e.g., LayeredDesign/ServiceLayer/).
+
+### Document Template (MANDATORY 10-Chapter Structure)
+
+Every document MUST have exactly these 10 chapters:
+
+` + "```" + `markdown
+# {Module Name}
+
+<cite>
+**Referenced files**
+- [filename](relative_path)
+- ...
+</cite>
+
+## Table of Contents
+1. [Overview](#overview)
+2. [Project Structure](#project-structure)
+3. [Core Components](#core-components)
+4. [Architecture Overview](#architecture-overview)
+5. [Detailed Component Analysis](#detailed-component-analysis)
+6. [Dependency Analysis](#dependency-analysis)
+7. [Performance Considerations](#performance-considerations)
+8. [Troubleshooting Guide](#troubleshooting-guide)
+9. [Conclusion](#conclusion)
+10. [Appendix](#appendix)
+
+## Overview
+{Module responsibilities, core capabilities, design principles. 2-3 paragraphs, specific not generic}
+
+## Project Structure
+{File list + Mermaid component relationship diagram}
+
+## Core Components
+{Table listing core classes/functions + responsibility descriptions}
+
+## Architecture Overview
+{At least 2 Mermaid diagrams, choose by document type:}
+- Required: graph TB layered/component relationship diagram
+- If has flows: sequenceDiagram
+- If has state machines: stateDiagram-v2
+- If involves entities: erDiagram
+- If has complex branching: flowchart TD
+
+Diagram Sources
+- [file:line](path#Lline)
+
+## Detailed Component Analysis
+{Analyze each core class/function: signature, pseudocode (simplified from source), key decisions, call chain}
+- Every core method must have a pseudocode block (extract key logic from source, annotate steps)
+- After each pseudocode block, cite "> Source: [file:line](path#Lline)"
+- NEVER fabricate code — must read_file first to confirm code exists
+
+## Dependency Analysis
+{Upstream dependencies, downstream dependents, external dependencies}
+- List dependency direction and reason
+- Cite source location for each dependency relationship
+
+## Performance Considerations
+{Analyze specific performance bottlenecks, caching strategies, concurrency models}
+- Must cite specific implementations in source (line numbers)
+- Provide actionable optimization suggestions
+
+## Troubleshooting Guide
+{Common errors, investigation paths}
+- List specific error scenarios
+- Provide investigation steps (with specific commands/operations)
+- Cite source locations of error handling code
+
+## Conclusion
+{1-2 paragraph summary}
+
+## Appendix
+{At least one appendix item:}
+- API documentation (if applicable)
+- Configuration reference (if applicable)
+- Glossary (if applicable)
+- Change history (if applicable)
+
+## Related Documents
+{Links to related documents, to be completed in Phase 5}
+- [Related Module 1](path)
+- [Related Module 2](path)
+` + "```" + `
+
+### Mandatory Citation Rules
+
+**CRITICAL — violating these rules means the output is UNACCEPTABLE:**
+
+1. **Line reference format**: All source citations must use [filename](relative_path#Lstart-Lend) format
+2. **Every factual claim must have a citation**: including positive claims ("system uses X") and negative claims ("system does NOT support Y")
+3. **Diagram sources**: After every Mermaid diagram, must include "Diagram Sources" section listing source locations for each node
+4. **Chapter sources**: At the end of each body chapter (chapters 2-9), must add "Chapter Sources" section listing all source references used in that chapter
+5. **Pseudocode rule**: First read_file to confirm source exists, then generate annotated pseudocode block, then cite line source
+6. **cite block completeness**: The <cite> block at document top must list ALL files referenced in the document (deduplicated)
+
+### Mermaid Diagram Type Selection Guide
+
+| Document Type | Required Diagrams | Optional Diagrams |
+|---------|--------|--------|
+| Project Overview / Architecture | graph TB layered diagram | flowchart deployment architecture |
+| Business Module | graph TB layered + sequenceDiagram | stateDiagram-v2 state machine |
+| Data Model Design | graph TB layered + erDiagram | - |
+| API Reference | sequenceDiagram | graph TB layered |
+| Dev Guide / Quickstart | graph TB layered | flowchart |
+| Deployment & Ops | graph TB architecture | flowchart emergency procedures |
+| Troubleshooting | flowchart investigation flow | graph TB layered |
+| Core Utilities | graph TB layered | sequenceDiagram |
+| Cache & Task Scheduling | graph TB layered + stateDiagram-v2 | - |
+
+## Phase 5: Index, Cross-references & Quality Validation
+
+1. Generate Quickstart.md — quickstart guide with setup, build, run commands (10-chapter template)
+2. Generate ProjectOverview/ProjectOverview.md — overall architecture with top-level Mermaid (10-chapter template)
+3. **Cross-reference injection**: After ALL documents are generated, go back and:
+   - Add "## Related Documents" section to every document with links to related docs
+   - Verify all internal markdown links are valid (check file existence)
+   - Ensure every document's <cite> block is complete and deduplicated
+   - Add cross-references between business modules (e.g., OrderMgmt → PointsMgmt, OrderMgmt → ProductMgmt)
+4. **Quality validation** — run the following checks using bash:
+   ` + "```" + `bash
+   # Check directory structure completeness
+   echo "=== Document Statistics ==="
+   echo "Total Markdown files: $(find content/ -name '*.md' | wc -l)"
+   echo ""
+
+   # Check each document for required sections
+   echo "=== Per-Document Structure Check ==="
+   for f in $(find content/ -name '*.md'); do
+     name=$(basename "$f")
+     chapters=$(grep -c '^## ' "$f")
+     has_cite=$(grep -c '<cite>' "$f")
+     mermaids=$(grep -c '` + "```" + `mermaid' "$f")
+     sources=$(grep -c 'Diagram Sources\|Chapter Sources' "$f")
+     line_refs=$(grep -oP '\[.*?\]\(.*?#L\d+.*?\)' "$f" 2>/dev/null | wc -l)
+     echo "[${chapters}ch/${has_cite}cite/${mermaids}mermaid/${sources}src/${line_refs}ref] $name"
+     # Flag issues
+     if [ "$chapters" -lt 8 ]; then echo "  WARNING: Chapter count low (<8): $name"; fi
+     if [ "$has_cite" -eq 0 ]; then echo "  ERROR: Missing <cite>: $name"; fi
+     if [ "$mermaids" -eq 0 ]; then echo "  WARNING: No Mermaid diagrams: $name"; fi
+     if [ "$line_refs" -lt 3 ]; then echo "  WARNING: Few line references (<3): $name"; fi
+   done
+   ` + "```" + `
+
+5. If validation finds issues, fix them before reporting completion.
+6. **Invoke doc-reviewer subagent** for deep quality assurance:
+   Now invoke the doc-reviewer subagent to verify and fix every document:
+   
+   run_skill({name: "doc-reviewer", arguments: "Review and fix all documents 
+   in content/ for the project at <project-root>. Verify every claim against 
+   source code, fix wrong citations, add missing chapters/sources/diagrams, 
+   and ensure cross-references are complete."})
+   
+   The doc-reviewer will:
+   - Read each .md file and cross-reference claims against actual source code
+   - Fix inaccurate pseudocode, wrong line numbers, missing citations
+   - Add missing Mermaid diagrams and verify existing ones
+   - Complete cross-references between documents
+   - Output a review report with fix summary
+   
+   After doc-reviewer completes, review its report. If major issues found, 
+   fix them before finalizing.
+7. Generate content/README.md listing all documents with one-line descriptions and a directory tree
+
+## Output Rules
+
+- Write all files to <project-root>/content/ using write_file
+- File naming: use Chinese for domain names (matching the user's convention), or English if the project is English-centric
+- Each file should be 200-500 lines — detailed but not bloated
+- If the project is too large (>50 source files), focus on the most important modules first and note what was skipped
+- **Every document MUST have the 10-chapter structure** — do not skip chapters even if content seems sparse (write "N/A" if truly nothing to say)
+- **Every chapter MUST end with "Chapter Sources"** listing all source code references used in that chapter
+- **Every Mermaid diagram MUST be followed by "Diagram Sources"** with file:line references for each node
+- Return a summary: how many docs generated, total files analyzed, any gaps
+- **Quality self-check before writing**: verify each document has:
+  - [x] 10 chapters (including Appendix)
+  - [x] <cite> block with all referenced files
+  - [x] At least 2 Mermaid diagrams (for business modules)
+  - [x] Diagram Sources after each diagram
+  - [x] Chapter Sources after each chapter (2-9)
+  - [x] Related Documents section
+  - [x] All citations use #Lstart-Lend format
+  - [x] No fabricated code — all pseudocode has line references
+
+` + negativeClaimRule + `
+
+The 'task' the parent gave you is the project path to analyze. Produce the full documentation suite.`
+
+const builtinDocReviewerBody = `You are running as a document-review subagent. Your job is to verify and fix EVERY document in the content/ directory of a project that was just analyzed by the analyze-project subagent. You must cross-reference every claim against actual source code and fix any inaccuracies.
+
+## How to operate
+
+1. **Scan the document set**: ls content/ to see all generated documents, then read each .md file one at a time.
+2. **For each document, verify these 6 dimensions**:
+
+### Dimension 1: Structure Completeness
+- Does the document have all 10 chapters (Overview, Project Structure, Core Components, Architecture Overview, Detailed Component Analysis, Dependency Analysis, Performance Considerations, Troubleshooting Guide, Conclusion, Appendix)?
+- Does it have a <cite> block listing all referenced files?
+- Does it have "Related Documents" section?
+- If any chapter is missing, add it (write "N/A — no relevant content found" if truly nothing to say, but always include the chapter heading).
+
+### Dimension 2: Citation Accuracy
+- Every factual claim (positive AND negative) must have a source citation in [file](path#Lstart-Lend) format.
+- Read the cited source file and verify the line range actually contains the claimed code.
+- If a citation is wrong (wrong line, wrong file, fabricated), fix it by reading the correct source.
+- If a claim has no citation, add one by searching the codebase.
+
+### Dimension 3: Code Accuracy
+- Every pseudocode block must accurately reflect the actual source code.
+- Read the cited source file at the cited lines, compare against the pseudocode.
+- If pseudocode is wrong or fabricated, rewrite it based on actual source.
+- If a pseudocode block has no citation, find the source and add the citation.
+
+### Dimension 4: Mermaid Diagram Accuracy
+- Verify at least 3 nodes in each Mermaid diagram correspond to real code entities.
+- Read the source files referenced in "Diagram Sources" and confirm the relationships shown in the diagram actually exist.
+- If a diagram shows a relationship that doesn't exist in code, fix the diagram.
+- If a diagram is missing, add an appropriate one (graph TB is the minimum).
+
+### Dimension 5: Cross-reference Completeness
+- Check that all internal markdown links ([Related Module](path)) point to existing files.
+- If a link is broken, fix it or remove it.
+- Add cross-references between business modules that interact (e.g., if OrderMgmt calls PointsMgmt, both should link to each other).
+
+### Dimension 6: Content Depth
+- Pseudocode blocks should show actual logic flow, not just function signatures.
+- Performance considerations should cite specific code patterns, not generic advice.
+- Troubleshooting guide should reference actual error handling code locations.
+- If content is too shallow, read the source and add more specific details.
+
+## Fix strategy
+
+When you find an issue:
+1. Read the relevant source files to get accurate information
+2. Use write_file to overwrite the document with the corrected version
+3. Keep a running tally of fixes per document
+
+## Output
+
+After reviewing all documents, output a summary report:
+- Total documents reviewed
+- Per-document fix count (structure / citations / code / diagrams / cross-refs / depth)
+- Any documents that still have issues you couldn't fix (and why)
+
+` + negativeClaimRule + `
+
+The 'task' the parent gave you is the path to review. Process every document in content/ thoroughly.`
+
 const builtinInitBody = `This skill is INLINED — you run in the parent loop. The user invoked /init: bootstrap (or refresh) this project's AGENTS.md — the durable memory file folded into every future session. Analyze the codebase, then write a concise, high-signal AGENTS.md.
 
 How to operate:
@@ -193,6 +510,8 @@ func SetExtraReadTools(names []string) { extraReadTools = names }
 func builtinSkills() []Skill {
 	readCodeTools := append([]string{"read_file", "ls", "glob", "grep"}, extraReadTools...)
 	reviewTools := append(append([]string(nil), readCodeTools...), "bash")
+	analyzeTools := append(append([]string(nil), readCodeTools...), "bash", "write_file")
+	docReviewerTools := append(append([]string(nil), readCodeTools...), "write_file")
 	return []Skill{
 		{
 			Name:        "init",
@@ -253,6 +572,24 @@ func builtinSkills() []Skill {
 			Scope:       ScopeBuiltin,
 			Path:        "(builtin)",
 			RunAs:       RunInline,
+		},
+		{
+			Name:         "analyze-project",
+			Description:  "Analyze a legacy project and generate a comprehensive documentation suite — architecture docs, data models, API references, module guides, deployment docs. Outputs a structured content/ directory with Mermaid diagrams and source citations. Runs as a subagent.",
+			Body:         builtinAnalyzeProjectBody,
+			Scope:        ScopeBuiltin,
+			Path:         "(builtin)",
+			RunAs:        RunSubagent,
+			AllowedTools: append([]string(nil), analyzeTools...),
+		},
+		{
+			Name:         "doc-reviewer",
+			Description:  "Review and fix documents generated by analyze-project. Cross-references every claim against actual source code, fixes inaccurate pseudocode/wrong citations/missing diagrams, and completes cross-references between documents. Runs as a subagent.",
+			Body:         builtinDocReviewerBody,
+			Scope:        ScopeBuiltin,
+			Path:         "(builtin)",
+			RunAs:        RunSubagent,
+			AllowedTools: append([]string(nil), docReviewerTools...),
 		},
 	}
 }

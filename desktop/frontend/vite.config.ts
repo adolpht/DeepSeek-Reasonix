@@ -16,6 +16,7 @@ function stripCrossorigin(): Plugin {
 
 // base: "./" so built asset URLs are relative. Wails serves the embedded dist from
 // the app root over the wails:// scheme, where absolute "/assets/..." URLs 404.
+
 export default defineConfig({
   plugins: [react(), stripCrossorigin()],
   base: "./",
