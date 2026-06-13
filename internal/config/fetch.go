@@ -42,9 +42,14 @@ func (e *ProviderEntry) FetchModels(ctx context.Context) ([]string, error) {
 			return models, nil
 		}
 		lastErr = err
-		if !openai.IsModelFetchEndpointMiss(err) {
+		// Continue trying alternate endpoints on 404/405 (endpoint not found)
+		// or when the response is non-JSON HTML (wrong base_url without /v1).
+		if !openai.IsModelFetchEndpointMiss(err) && !openai.IsModelFetchNonJSONResponse(err) {
 			break
 		}
+	}
+	if lastErr != nil && openai.IsModelFetchNonJSONResponse(lastErr) {
+		return nil, fmt.Errorf("fetch models: all candidate endpoints returned HTML instead of JSON — check that base_url points to an OpenAI-compatible API (e.g. ending in /v1) and that the API key is valid (tried %s)", strings.Join(candidates, ", "))
 	}
 	return nil, lastErr
 }

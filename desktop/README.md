@@ -188,6 +188,24 @@ handled here, and what to reach for if a target misbehaves:
 - **First paint** — the window background is set to the dark shell color so there's
   no white flash before CSS loads (most visible on WebKitGTK).
 
+## Settings > Model
+
+The Settings panel's **Models** tab manages provider access and model selection:
+
+- **Usage** — pick the default, planner, and subagent models from all configured
+  providers; adjust subagent effort.
+- **Access** — add, configure, and remove providers:
+  - **Official presets** — one-click setup for DeepSeek, Mimo, OpenAI, Anthropic,
+    Gemini, and Qwen. Enter an API key and the provider is ready.
+  - **Custom providers** — manually configure `base_url`, `kind` (openai or
+    anthropic), `models`, `api_key_env`, and advanced options (reasoning protocol,
+    effort levels, context window, balance URL). Anthropic providers have an
+    optional `base_url` (defaults to `https://api.anthropic.com`).
+  - **Test & fetch models** — probes the provider's `/v1/models` endpoint and
+    auto-fills the model list. If `base_url` lacks `/v1`, the system tries
+    alternate paths automatically; `base_url` is also auto-normalized at runtime
+    for chat requests.
+
 ## Files
 
 ```

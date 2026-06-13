@@ -21,6 +21,18 @@ func (e modelFetchStatusError) Error() string {
 	return fmt.Sprintf("fetch models: status %d: %s", e.status, strings.TrimSpace(e.body))
 }
 
+// modelFetchDecodeError wraps a JSON decode failure, carrying the raw body so
+// callers (e.g. config/fetch.go retry logic) can inspect it.
+type modelFetchDecodeError struct {
+	Body string
+	Err  error
+}
+
+func (e modelFetchDecodeError) Error() string {
+	return fmt.Sprintf("fetch models: decode response: %s", e.Err)
+}
+func (e modelFetchDecodeError) Unwrap() error { return e.Err }
+
 // IsModelFetchEndpointMiss reports whether a model-list request reached a
 // plausible endpoint path that the provider does not implement.
 func IsModelFetchEndpointMiss(err error) bool {
@@ -29,6 +41,18 @@ func IsModelFetchEndpointMiss(err error) bool {
 		return false
 	}
 	return statusErr.status == http.StatusNotFound || statusErr.status == http.StatusMethodNotAllowed
+}
+
+// IsModelFetchNonJSONResponse reports whether a model-list request got a
+// non-JSON response (HTML page, redirect, etc.), typically because base_url
+// points to a website rather than an API endpoint.
+func IsModelFetchNonJSONResponse(err error) bool {
+	var decodeErr modelFetchDecodeError
+	if !errors.As(err, &decodeErr) {
+		return false
+	}
+	trimmed := strings.TrimSpace(decodeErr.Body)
+	return len(trimmed) > 0 && trimmed[0] == '<'
 }
 
 // FetchModels calls the OpenAI-compatible GET /models endpoint and returns the
@@ -68,7 +92,9 @@ func FetchModels(ctx context.Context, baseURL, apiKey string) ([]string, error) 
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("fetch models: decode response: %w", err)
+		// Wrap as modelFetchDecodeError so callers can detect non-JSON (HTML)
+		// responses and retry with alternate endpoints.
+		return nil, modelFetchDecodeError{Body: string(body), Err: err}
 	}
 
 	ids := make([]string, 0, len(result.Data))

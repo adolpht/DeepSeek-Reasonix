@@ -1460,6 +1460,10 @@ function makeMockApp(): AppBindings {
         deepseek: { name: "deepseek", builtIn: true, added: true, kind: "openai", baseUrl: "https://api.deepseek.com", modelsUrl: "", models: ["deepseek-v4-flash", "deepseek-v4-pro"], default: "deepseek-v4-flash", apiKeyEnv: "DEEPSEEK_API_KEY", keySet: !!key.trim(), balanceUrl: "https://api.deepseek.com/user/balance", contextWindow: 1_000_000, reasoningProtocol: "", supportedEfforts: [], defaultEffort: "" },
         "mimo-api": { name: "mimo-api", builtIn: true, added: true, kind: "openai", baseUrl: "https://api.xiaomimimo.com/v1", modelsUrl: "", models: ["mimo-v2.5-pro"], default: "mimo-v2.5-pro", apiKeyEnv: "MIMO_API_KEY", keySet: !!key.trim(), balanceUrl: "", contextWindow: 1_048_576, reasoningProtocol: "", supportedEfforts: [], defaultEffort: "" },
         "mimo-token-plan": { name: "mimo-token-plan", builtIn: true, added: true, kind: "openai", baseUrl: "https://token-plan-cn.xiaomimimo.com/v1", modelsUrl: "", models: ["mimo-v2.5-pro"], default: "mimo-v2.5-pro", apiKeyEnv: "MIMO_API_KEY", keySet: !!key.trim(), balanceUrl: "", contextWindow: 1_048_576, reasoningProtocol: "", supportedEfforts: [], defaultEffort: "" },
+        openai: { name: "openai", builtIn: true, added: true, kind: "openai", baseUrl: "https://api.openai.com/v1", modelsUrl: "", models: ["gpt-4o", "o4-mini"], default: "gpt-4o", apiKeyEnv: "OPENAI_API_KEY", keySet: !!key.trim(), balanceUrl: "", contextWindow: 128_000, reasoningProtocol: "openai", supportedEfforts: [], defaultEffort: "" },
+        anthropic: { name: "claude", builtIn: true, added: true, kind: "anthropic", baseUrl: "", modelsUrl: "", models: ["claude-sonnet-4-20250514"], default: "claude-sonnet-4-20250514", apiKeyEnv: "ANTHROPIC_API_KEY", keySet: !!key.trim(), balanceUrl: "", contextWindow: 200_000, reasoningProtocol: "", supportedEfforts: [], defaultEffort: "" },
+        gemini: { name: "gemini", builtIn: true, added: true, kind: "openai", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", modelsUrl: "", models: ["gemini-2.5-flash"], default: "gemini-2.5-flash", apiKeyEnv: "GEMINI_API_KEY", keySet: !!key.trim(), balanceUrl: "", contextWindow: 1_000_000, reasoningProtocol: "openai", supportedEfforts: [], defaultEffort: "" },
+        qwen: { name: "qwen", builtIn: true, added: true, kind: "openai", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", modelsUrl: "", models: ["qwen-plus-latest"], default: "qwen-plus-latest", apiKeyEnv: "DASHSCOPE_API_KEY", keySet: !!key.trim(), balanceUrl: "", contextWindow: 131_072, reasoningProtocol: "", supportedEfforts: [], defaultEffort: "" },
       };
       const next = templates[kind] ?? templates.deepseek;
       const i = settings.providers.findIndex((x) => x.name === next.name);
@@ -1467,11 +1471,15 @@ function makeMockApp(): AppBindings {
       else settings.providers.push(next);
     },
     async FetchProviderModels(p: ProviderView) {
-      if (!p.baseUrl.trim()) throw new Error(t("settings.fetchModelsMissingBaseUrl"));
+      if (!p.baseUrl.trim() && p.kind !== "anthropic") throw new Error(t("settings.fetchModelsMissingBaseUrl"));
       if (!p.apiKeyEnv.trim()) throw new Error(t("settings.fetchModelsMissingKeyEnv"));
       await delay(350);
+      if (p.kind === "anthropic") return ["claude-sonnet-4-20250514", "claude-opus-4-20250514"];
       if (p.baseUrl.includes("deepseek")) return ["deepseek-v4-flash", "deepseek-v4-pro"];
       if (p.baseUrl.includes("mimo") || p.baseUrl.includes("xiaomimimo")) return ["mimo-v2.5", "mimo-v2.5-pro"];
+      if (p.baseUrl.includes("openai")) return ["gpt-4o", "o4-mini"];
+      if (p.baseUrl.includes("generativelanguage.googleapis.com")) return ["gemini-2.5-flash", "gemini-2.5-pro"];
+      if (p.baseUrl.includes("dashscope")) return ["qwen-plus-latest", "qwen-max-latest"];
       return ["gpt-5", "gpt-5-mini", "qwen3-coder"];
     },
     async DeleteProvider(name: string) {

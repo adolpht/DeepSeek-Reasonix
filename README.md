@@ -114,6 +114,25 @@ model       = "deepseek-v4-flash"
 api_key_env = "DEEPSEEK_API_KEY"
 # also preset: deepseek-pro, mimo-pro (mimo-v2.5-pro), mimo-flash (mimo-v2-flash) @ api.xiaomimimo.com/v1
 
+# Custom provider — any OpenAI-compatible or Anthropic service.
+# For OpenAI-compatible proxies/aggregators, set kind = "openai" and base_url.
+# base_url without a version segment (e.g. /v1) is auto-normalized at runtime.
+[[providers]]
+name        = "my-proxy"
+kind        = "openai"
+base_url    = "https://my-proxy.example.com/v1"
+models      = ["gpt-4o", "claude-3-opus"]
+default     = "gpt-4o"
+api_key_env = "MY_PROXY_API_KEY"
+
+# Anthropic-native provider — kind = "anthropic"; base_url is optional
+# (defaults to https://api.anthropic.com). Set it only for proxies.
+[[providers]]
+name        = "claude"
+kind        = "anthropic"
+model       = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_API_KEY"
+
 [tools]
 enabled = []   # omit/empty = all built-ins
 bash_timeout_seconds = 120   # foreground safety cap; set 0 for no tool-local cap

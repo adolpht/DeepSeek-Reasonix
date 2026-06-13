@@ -299,7 +299,7 @@ func validateProvider(e ProviderEntry) error {
 		return fmt.Errorf("provider: name is required")
 	case strings.TrimSpace(e.Kind) == "":
 		return fmt.Errorf("provider %q: kind is required", e.Name)
-	case strings.TrimSpace(e.BaseURL) == "":
+	case strings.TrimSpace(e.BaseURL) == "" && strings.TrimSpace(e.Kind) != "anthropic":
 		return fmt.Errorf("provider %q: base_url is required", e.Name)
 	case !providerHasAnyModel(e):
 		return fmt.Errorf("provider %q: model is required", e.Name)

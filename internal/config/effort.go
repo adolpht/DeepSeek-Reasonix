@@ -28,8 +28,12 @@ type modelReasoningCapability struct {
 }
 
 var modelReasoningCapabilities = map[string]modelReasoningCapability{
-	"deepseek-v4-flash": {Protocol: ReasoningProtocolDeepSeek, Levels: []string{"high", "max"}, Default: "high"},
-	"deepseek-v4-pro":   {Protocol: ReasoningProtocolDeepSeek, Levels: []string{"high", "max"}, Default: "high"},
+	"deepseek-v4-flash":    {Protocol: ReasoningProtocolDeepSeek, Levels: []string{"high", "max"}, Default: "high"},
+	"deepseek-v4-pro":      {Protocol: ReasoningProtocolDeepSeek, Levels: []string{"high", "max"}, Default: "high"},
+	"o4-mini":              {Protocol: ReasoningProtocolOpenAI, Levels: []string{"low", "medium", "high"}, Default: "medium"},
+	"gpt-4o":              {Protocol: ReasoningProtocolOpenAI, Levels: []string{"low", "medium", "high"}, Default: "medium"},
+	"gemini-2.5-flash":     {Protocol: ReasoningProtocolOpenAI, Levels: []string{"low", "medium", "high"}, Default: "auto"},
+	"qwen-plus-latest":     {Protocol: ReasoningProtocolOpenAI, Levels: []string{"low", "medium", "high"}, Default: "medium"},
 }
 
 // EffortCapabilityForEntry returns the user-facing /effort levels for a resolved

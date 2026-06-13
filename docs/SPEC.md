@@ -383,6 +383,25 @@ base_url    = "https://api.xiaomimimo.com/v1"
 model       = "mimo-v2-flash"
 api_key_env = "MIMO_API_KEY"
 
+# Custom provider — any OpenAI-compatible service (proxies, aggregators, self-hosted).
+# base_url without a version segment (e.g. /v1) is auto-normalized at runtime,
+# so "https://my-proxy.example.com" becomes "https://my-proxy.example.com/v1".
+[[providers]]
+name        = "my-proxy"
+kind        = "openai"
+base_url    = "https://my-proxy.example.com/v1"
+models      = ["gpt-4o", "claude-3-opus"]
+default     = "gpt-4o"
+api_key_env = "MY_PROXY_API_KEY"
+
+# Anthropic-native provider. base_url is optional — defaults to
+# https://api.anthropic.com; set it only when using a proxy or custom endpoint.
+[[providers]]
+name        = "claude"
+kind        = "anthropic"
+model       = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_API_KEY"
+
 [tools]
 enabled = []   # omit/empty = all built-ins
 bash_timeout_seconds = 120   # foreground safety cap; set 0 for no tool-local cap
@@ -482,6 +501,10 @@ running unconfined. The escape-prompt and Linux support are Phase 1's remainder 
   `list_changed` live updates; channels / elicitation / roots; plugins that
   provide *providers*, not just tools.
 - An Anthropic-native provider `kind` (native prompt-cache control), proving the
-  registry generalises beyond one wire format.
+  registry generalises beyond one wire format. **Shipped** — `kind = "anthropic"`
+  is now a first-class provider kind. `base_url` is optional (defaults to
+  `https://api.anthropic.com`); set it only for proxies or custom endpoints.
+  The desktop Settings > Model > Add provider panel offers Anthropic as both an
+  official preset and a custom kind option.
 - "Always allow" persistence writing learned rules back to project config; a
   per-session permission override flag for `reasonix run`.

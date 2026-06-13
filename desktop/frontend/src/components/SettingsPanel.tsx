@@ -1186,12 +1186,16 @@ type ProviderFetchResult = {
 };
 
 type AddProviderMode = null | "official" | "custom";
-type OfficialProviderKind = "deepseek" | "mimo-api" | "mimo-token-plan";
+type OfficialProviderKind = "deepseek" | "mimo-api" | "mimo-token-plan" | "openai" | "anthropic" | "gemini" | "qwen";
 
 const OFFICIAL_PROVIDER_CHOICES: Array<{ kind: OfficialProviderKind; labelKey: DictKey; descKey: DictKey; keyEnv: string }> = [
   { kind: "deepseek", labelKey: "settings.addProvider.official.deepseek", descKey: "settings.addProvider.official.deepseekDesc", keyEnv: "DEEPSEEK_API_KEY" },
   { kind: "mimo-api", labelKey: "settings.addProvider.official.mimoApi", descKey: "settings.addProvider.official.mimoApiDesc", keyEnv: "MIMO_API_KEY" },
   { kind: "mimo-token-plan", labelKey: "settings.addProvider.official.mimoTokenPlan", descKey: "settings.addProvider.official.mimoTokenPlanDesc", keyEnv: "MIMO_API_KEY" },
+  { kind: "openai", labelKey: "settings.addProvider.official.openai", descKey: "settings.addProvider.official.openaiDesc", keyEnv: "OPENAI_API_KEY" },
+  { kind: "anthropic", labelKey: "settings.addProvider.official.anthropic", descKey: "settings.addProvider.official.anthropicDesc", keyEnv: "ANTHROPIC_API_KEY" },
+  { kind: "gemini", labelKey: "settings.addProvider.official.gemini", descKey: "settings.addProvider.official.geminiDesc", keyEnv: "GEMINI_API_KEY" },
+  { kind: "qwen", labelKey: "settings.addProvider.official.qwen", descKey: "settings.addProvider.official.qwenDesc", keyEnv: "DASHSCOPE_API_KEY" },
 ];
 
 function AddProviderPanel({
@@ -1508,6 +1512,10 @@ function providerGroupID(p: ProviderView): string {
   if (p.apiKeyEnv === "DEEPSEEK_API_KEY" || base.includes("deepseek")) return "builtin:deepseek";
   if (base.includes("token-plan-cn.xiaomimimo.com")) return "builtin:mimo-token-plan";
   if (base.includes("api.xiaomimimo.com") || base.includes("mimo") || base.includes("xiaomimimo")) return "builtin:mimo-api";
+  if (p.apiKeyEnv === "OPENAI_API_KEY" || base.includes("openai")) return "builtin:openai";
+  if (p.apiKeyEnv === "ANTHROPIC_API_KEY" || p.kind === "anthropic") return "builtin:anthropic";
+  if (p.apiKeyEnv === "GEMINI_API_KEY" || base.includes("generativelanguage.googleapis.com")) return "builtin:gemini";
+  if (p.apiKeyEnv === "DASHSCOPE_API_KEY" || base.includes("dashscope")) return "builtin:qwen";
   return `builtin:${p.name}`;
 }
 
@@ -1516,6 +1524,10 @@ function providerGroupLabel(p: ProviderView, t?: ReturnType<typeof useT>): strin
   if (id === "builtin:deepseek") return t ? t("settings.providerLabel.deepseek") : "DeepSeek";
   if (id === "builtin:mimo-api") return t ? t("settings.providerLabel.mimoApi") : "Mimo API";
   if (id === "builtin:mimo-token-plan") return t ? t("settings.providerLabel.mimoTokenPlan") : "Mimo Token Plan";
+  if (id === "builtin:openai") return t ? t("settings.providerLabel.openai") : "OpenAI";
+  if (id === "builtin:anthropic") return t ? t("settings.providerLabel.anthropic") : "Anthropic";
+  if (id === "builtin:gemini") return t ? t("settings.providerLabel.gemini") : "Gemini";
+  if (id === "builtin:qwen") return t ? t("settings.providerLabel.qwen") : "Qwen";
   return p.name;
 }
 
@@ -1524,6 +1536,10 @@ function providerGroupDescription(p: ProviderView, t: ReturnType<typeof useT>): 
   if (id === "builtin:deepseek") return t("settings.providerDesc.deepseek");
   if (id === "builtin:mimo-api") return t("settings.providerDesc.mimoApi");
   if (id === "builtin:mimo-token-plan") return t("settings.providerDesc.mimoTokenPlan");
+  if (id === "builtin:openai") return t("settings.providerDesc.openai");
+  if (id === "builtin:anthropic") return t("settings.providerDesc.anthropic");
+  if (id === "builtin:gemini") return t("settings.providerDesc.gemini");
+  if (id === "builtin:qwen") return t("settings.providerDesc.qwen");
   return p.baseUrl;
 }
 
@@ -1717,21 +1733,24 @@ function ProviderEditor({
     .split(",")
     .map((m) => m.trim())
     .filter(Boolean);
-  const canFetch = Boolean(name.trim() && baseUrl.trim() && (keyDraft.trim() || apiKeyEnv.trim()));
+  const canFetch = Boolean(name.trim() && (kind === "anthropic" || baseUrl.trim()) && (keyDraft.trim() || apiKeyEnv.trim()));
 
   const protocolField = initial ? (
     <select className="mem-select" value={kind} onChange={(e) => setKind(e.target.value)}>
       {kindOptions.map((k) => (
         <option key={k} value={k}>
-          {k === "openai" ? t("settings.providerProtocolOpenAI") : k}
+          {k === "openai" ? t("settings.providerProtocolOpenAI") : k === "anthropic" ? t("settings.providerProtocolAnthropic") : k}
         </option>
       ))}
     </select>
   ) : (
-    <div className="provider-readonly-field provider-readonly-field--stacked" aria-readonly="true">
-      <strong>{t("settings.providerProtocolOpenAI")}</strong>
-      <span>{t("settings.providerProtocolOpenAIHint")}</span>
-    </div>
+    <select className="mem-select" value={kind} onChange={(e) => setKind(e.target.value)}>
+      {kindOptions.map((k) => (
+        <option key={k} value={k}>
+          {k === "openai" ? t("settings.providerProtocolOpenAI") : k === "anthropic" ? t("settings.providerProtocolAnthropic") : k}
+        </option>
+      ))}
+    </select>
   );
 
   const advancedFields = (
@@ -1847,7 +1866,8 @@ function ProviderEditor({
       <label className="set-label">{t("settings.providerProtocol")}</label>
       {protocolField}
       <label className="set-label">{t("settings.providerBaseUrlLabel")}</label>
-      <input className="mem-input" placeholder={t("settings.providerBaseUrl")} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+      <input className="mem-input" placeholder={t(kind === "anthropic" ? "settings.providerBaseUrlAnthropicPlaceholder" : "settings.providerBaseUrl")} value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+      {kind === "anthropic" && <div className="mem-hint">{t("settings.providerBaseUrlAnthropicHint")}</div>}
       {!initial && (
         <>
           <label className="set-label">{t("settings.providerKey")}</label>
@@ -1905,7 +1925,7 @@ function ProviderEditor({
         <button className="btn btn--small" onClick={onCancel} disabled={busy}>
           {t("common.cancel")}
         </button>
-        <button className="btn btn--primary btn--small" onClick={() => void save()} disabled={busy || !name.trim() || !baseUrl.trim() || !models.trim()}>
+        <button className="btn btn--primary btn--small" onClick={() => void save()} disabled={busy || !name.trim() || (kind !== "anthropic" && !baseUrl.trim()) || !models.trim()}>
           {t("common.save")}
         </button>
       </div>

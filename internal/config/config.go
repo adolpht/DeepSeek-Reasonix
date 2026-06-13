@@ -734,6 +734,11 @@ func Default() *Config {
 			{Name: "deepseek-pro", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-pro", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.025, Input: 3, Output: 6, Currency: "¥"}},
 			{Name: "mimo-pro", Kind: "openai", BaseURL: "https://token-plan-cn.xiaomimimo.com/v1", Model: "mimo-v2.5-pro", APIKeyEnv: "MIMO_API_KEY", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.025, Input: 3, Output: 6, Currency: "¥"}, NoProxy: true},
 			{Name: "mimo-flash", Kind: "openai", BaseURL: "https://token-plan-cn.xiaomimimo.com/v1", Model: "mimo-v2.5", APIKeyEnv: "MIMO_API_KEY", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.02, Input: 1, Output: 2, Currency: "¥"}, NoProxy: true},
+			{Name: "openai-gpt4o", Kind: "openai", BaseURL: "https://api.openai.com/v1", Model: "gpt-4o", APIKeyEnv: "OPENAI_API_KEY", ContextWindow: 128_000, Price: &provider.Pricing{Input: 2.5, Output: 10, Currency: "$"}, ReasoningProtocol: "openai"},
+			{Name: "openai-o4-mini", Kind: "openai", BaseURL: "https://api.openai.com/v1", Model: "o4-mini", APIKeyEnv: "OPENAI_API_KEY", ContextWindow: 200_000, Price: &provider.Pricing{Input: 1.1, Output: 4.4, Currency: "$"}, ReasoningProtocol: "openai"},
+			{Name: "claude-sonnet", Kind: "anthropic", Model: "claude-sonnet-4-20250514", APIKeyEnv: "ANTHROPIC_API_KEY", ContextWindow: 200_000, Price: &provider.Pricing{Input: 3, Output: 15, Currency: "$"}},
+			{Name: "gemini-flash", Kind: "openai", BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", Model: "gemini-2.5-flash", APIKeyEnv: "GEMINI_API_KEY", ContextWindow: 1_000_000, Price: &provider.Pricing{Input: 0.15, Output: 0.6, Currency: "$"}, ReasoningProtocol: "openai"},
+			{Name: "qwen-plus", Kind: "openai", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", Model: "qwen-plus-latest", APIKeyEnv: "DASHSCOPE_API_KEY", ContextWindow: 131_072, Price: &provider.Pricing{Input: 0.8, Output: 2, Currency: "¥"}},
 		},
 	}
 }
@@ -1593,7 +1598,7 @@ func (c *Config) Validate(model string) error {
 	if e.Kind == "" {
 		return fmt.Errorf("provider %q: kind is required", model)
 	}
-	if e.BaseURL == "" {
+	if e.BaseURL == "" && e.Kind != "anthropic" {
 		return fmt.Errorf("provider %q: base_url is required", model)
 	}
 	if e.APIKey() == "" {

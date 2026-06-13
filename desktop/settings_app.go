@@ -137,7 +137,7 @@ func builtInProviderNames() map[string]bool {
 	for _, p := range config.Default().Providers {
 		out[p.Name] = true
 	}
-	for _, name := range []string{"deepseek", "deepseek-flash", "mimo-api", "mimo-token-plan", "mimo-pro"} {
+	for _, name := range []string{"deepseek", "deepseek-flash", "mimo-api", "mimo-token-plan", "mimo-pro", "openai", "anthropic", "gemini", "qwen"} {
 		out[name] = true
 	}
 	return out
@@ -196,7 +196,7 @@ func providerViewFromEntry(p config.ProviderEntry, builtIn, added bool) Provider
 
 func officialProviderViews(added map[string]bool) []ProviderView {
 	var out []ProviderView
-	for _, kind := range []string{"deepseek", "mimo-api", "mimo-token-plan"} {
+	for _, kind := range []string{"deepseek", "mimo-api", "mimo-token-plan", "openai", "anthropic", "gemini", "qwen"} {
 		entries, _, err := officialProviderTemplate(kind)
 		if err != nil {
 			continue
@@ -625,7 +625,7 @@ func officialProviderTemplate(kind string) ([]config.ProviderEntry, string, erro
 			ContextWindow: 1_048_576,
 			NoProxy:       true,
 		}}, "MIMO_API_KEY", nil
-	case "mimo-token-plan", "xiaomi-mimo-token-plan", "xiaomi_mimo_token_plan":
+	case "mimo-token-plan", "xiaomi-mimo-token-plan", "xiaomimimo_token_plan":
 		return []config.ProviderEntry{{
 			Name:          "mimo-token-plan",
 			Kind:          "openai",
@@ -636,6 +636,47 @@ func officialProviderTemplate(kind string) ([]config.ProviderEntry, string, erro
 			ContextWindow: 1_048_576,
 			NoProxy:       true,
 		}}, "MIMO_API_KEY", nil
+	case "openai", "openai-official":
+		return []config.ProviderEntry{{
+			Name:              "openai",
+			Kind:              "openai",
+			BaseURL:           "https://api.openai.com/v1",
+			Models:            []string{"gpt-4o", "o4-mini"},
+			Default:           "gpt-4o",
+			APIKeyEnv:         "OPENAI_API_KEY",
+			ContextWindow:     128_000,
+			ReasoningProtocol: "openai",
+		}}, "OPENAI_API_KEY", nil
+	case "anthropic", "claude":
+		return []config.ProviderEntry{{
+			Name:          "claude",
+			Kind:          "anthropic",
+			Models:        []string{"claude-sonnet-4-20250514"},
+			Default:       "claude-sonnet-4-20250514",
+			APIKeyEnv:     "ANTHROPIC_API_KEY",
+			ContextWindow: 200_000,
+		}}, "ANTHROPIC_API_KEY", nil
+	case "gemini", "google-gemini":
+		return []config.ProviderEntry{{
+			Name:              "gemini",
+			Kind:              "openai",
+			BaseURL:           "https://generativelanguage.googleapis.com/v1beta/openai",
+			Models:            []string{"gemini-2.5-flash"},
+			Default:           "gemini-2.5-flash",
+			APIKeyEnv:         "GEMINI_API_KEY",
+			ContextWindow:     1_000_000,
+			ReasoningProtocol: "openai",
+		}}, "GEMINI_API_KEY", nil
+	case "qwen", "aliyun-qwen", "dashscope":
+		return []config.ProviderEntry{{
+			Name:          "qwen",
+			Kind:          "openai",
+			BaseURL:       "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			Models:        []string{"qwen-plus-latest"},
+			Default:       "qwen-plus-latest",
+			APIKeyEnv:     "DASHSCOPE_API_KEY",
+			ContextWindow: 131_072,
+		}}, "DASHSCOPE_API_KEY", nil
 	default:
 		return nil, "", fmt.Errorf("unknown official provider template %q", kind)
 	}

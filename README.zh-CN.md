@@ -110,6 +110,25 @@ model       = "deepseek-v4-flash"
 api_key_env = "DEEPSEEK_API_KEY"
 # 还有预设：deepseek-pro、mimo-pro（mimo-v2.5-pro）、mimo-flash（mimo-v2-flash） @ api.xiaomimimo.com/v1
 
+# 自定义供应商 — 支持任何 OpenAI-compatible 或 Anthropic 服务。
+# OpenAI-compatible 代理/聚合平台设 kind = "openai" 并填 base_url。
+# base_url 不含版本段（如 /v1）时运行时会自动补全。
+[[providers]]
+name        = "my-proxy"
+kind        = "openai"
+base_url    = "https://my-proxy.example.com/v1"
+models      = ["gpt-4o", "claude-3-opus"]
+default     = "gpt-4o"
+api_key_env = "MY_PROXY_API_KEY"
+
+# Anthropic 原生供应商 — kind = "anthropic"；base_url 可选
+# （默认为 https://api.anthropic.com）。仅使用代理或自定义端点时才需填写。
+[[providers]]
+name        = "claude"
+kind        = "anthropic"
+model       = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_API_KEY"
+
 [tools]
 enabled = []   # 省略/为空 = 全部内置工具
 bash_timeout_seconds = 120   # 前台安全上限；设为 0 表示不设工具层超时

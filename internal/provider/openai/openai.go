@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -22,6 +23,25 @@ import (
 
 func init() {
 	provider.Register("openai", New)
+}
+
+// endsWithVersionSegment reports whether the URL already ends with an API
+// version path like /v1, /v1beta, etc.
+func endsWithVersionSegment(u string) bool {
+	return versionPathRegexp.MatchString(u)
+}
+
+var versionPathRegexp = regexp.MustCompile(`/(v\d+[a-z]*|v\d+\.\d+)(/)?$`)
+
+// normalizeBaseURL ensures baseURL ends with an API version segment (e.g. /v1)
+// so that downstream paths like /chat/completions resolve correctly.
+// If the URL already ends with a version segment it is kept as-is.
+func normalizeBaseURL(baseURL string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if endsWithVersionSegment(baseURL) {
+		return baseURL
+	}
+	return baseURL + "/v1"
 }
 
 // New builds an OpenAI-compatible provider from a resolved config.
@@ -74,7 +94,7 @@ func New(cfg provider.Config) (provider.Provider, error) {
 		name:     name,
 		apiKey:   cfg.APIKey,
 		keyEnv:   keyEnv,
-		baseURL:  strings.TrimRight(cfg.BaseURL, "/"),
+		baseURL:  normalizeBaseURL(cfg.BaseURL),
 		model:    cfg.Model,
 		deepseek: deepseek,
 		effort:   effort,
