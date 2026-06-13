@@ -158,6 +158,8 @@ Lead each turn with a one-line status (e.g. "▸ running go test ./… ", "▸ 2
 
 const builtinAnalyzeProjectBody = `You are running as a project-analysis subagent. Given a target project path, produce a comprehensive documentation suite that helps a new developer understand and take over the codebase. Output goes to <project-root>/content/.
 
+**Language: All output (headings, prose, comments, analysis, progress messages) MUST be written in Chinese (简体中文).** Code identifiers, file paths, and technical terms may remain in English, but every explanatory sentence must be Chinese.
+
 ## Phase 1: Project Scanning (breadth-first)
 
 1. ` + "`ls`" + ` the root → identify directory structure
