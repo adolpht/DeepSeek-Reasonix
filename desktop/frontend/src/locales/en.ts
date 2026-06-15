@@ -40,6 +40,7 @@ export const en = {
   "sidebar.conversations": "Chats",
   "sidebar.allHistory": "History",
   "sidebar.trash": "Trash",
+  "sidebar.repoWiki": "Repo Wiki",
   "sidebar.workspace": "Workspace",
   "sidebar.changeWorkspace": "Change",
   "sidebar.navigation": "Reasonix navigation",
@@ -214,6 +215,16 @@ export const en = {
   "caps.skillRootShowAllSkills": "View all {count}",
   "caps.showDiagnostics": "View {count} hidden paths",
   "caps.hideDiagnostics": "Hide diagnostic paths",
+
+  // repo wiki panel
+  "repoWiki.title": "Repo Wiki",
+  "repoWiki.summary": "Generate project documentation",
+  "repoWiki.description": "Analyze the project and generate a comprehensive documentation suite — architecture, data models, API references, module guides, deployment docs — as a structured content/ directory with Mermaid diagrams and source citations.",
+  "repoWiki.projectPath": "Project path",
+  "repoWiki.pathPlaceholder": "Leave empty for current project",
+  "repoWiki.pathHint": "Defaults to the current workspace if left empty.",
+  "repoWiki.launch": "Generate Wiki",
+  "repoWiki.launching": "Launching…",
 
   // welcome / empty state
   "welcome.tagline": "A coding agent — describe a task or ask anything.",

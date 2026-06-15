@@ -16,6 +16,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Trash2,
+  BookOpen,
 } from "lucide-react";
 import logoWordmark from "./assets/logo-wordmark.svg";
 import { asArray } from "./lib/array";
@@ -39,6 +40,7 @@ import { OnboardingOverlay } from "./components/OnboardingOverlay";
 import { TabBar } from "./components/TabBar";
 import { ProjectTree } from "./components/ProjectTree";
 import { CopyButton } from "./components/CopyButton";
+import { RepoWikiPanel } from "./components/RepoWikiPanel";
 import { parseTodos } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
 import type { ComposerInsertRequest, Meta, Mode, SessionMeta, SettingsTab, TabMeta } from "./lib/types";
@@ -381,6 +383,7 @@ export default function App() {
   // clearing the key mid-session is the Settings panel's job, not the gate's.
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   const [settingsTarget, setSettingsTarget] = useState<SettingsTab | null>(null);
+  const [repoWikiOpen, setRepoWikiOpen] = useState(false);
   const [histView, setHistView] = useState<HistoryViewState | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
@@ -1348,6 +1351,15 @@ export default function App() {
           </section>
 
           <nav className="sidebar__nav">
+            <Tooltip label={t("sidebar.repoWiki")} fill side="right" disabled={sidebarNavTooltipDisabled}>
+              <button
+                className="sidebar__navitem"
+                onClick={() => setRepoWikiOpen(true)}
+              >
+                <BookOpen size={15} />
+                <span>{t("sidebar.repoWiki")}</span>
+              </button>
+            </Tooltip>
             <Tooltip label={t("sidebar.allHistory")} fill side="right" disabled={sidebarNavTooltipDisabled}>
               <button
                 className="sidebar__navitem"
@@ -1711,6 +1723,13 @@ export default function App() {
           initialTab={settingsTarget}
           onClose={() => setSettingsTarget(null)}
           onChanged={() => void refreshMeta()}
+        />
+      )}
+
+      {repoWikiOpen && (
+        <RepoWikiPanel
+          onClose={() => setRepoWikiOpen(false)}
+          cwd={state.meta?.cwd}
         />
       )}
 

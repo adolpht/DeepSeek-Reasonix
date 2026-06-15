@@ -11031,3 +11031,54 @@ a[href] {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* --- Repo Wiki Panel (rw- prefix) --- */
+
+.rw-section {
+  padding: 16px 20px;
+}
+.rw-description {
+  color: var(--fg-dim);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.rw-label {
+  display: block;
+  font-size: var(--font-control);
+  font-weight: 500;
+  color: var(--fg);
+  margin-bottom: 4px;
+  margin-top: 12px;
+}
+.rw-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--font-control);
+  padding: 6px 8px;
+  box-sizing: border-box;
+}
+.rw-input:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.rw-hint {
+  margin-top: 6px;
+  font-size: var(--font-caption);
+  color: var(--fg-faint);
+}
+.rw-launch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+.rw-launch:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}

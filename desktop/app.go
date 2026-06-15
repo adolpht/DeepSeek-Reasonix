@@ -532,6 +532,17 @@ func (a *App) SubmitDisplayToTab(tabID, display, input string) {
 	ctrl.SubmitDisplay(display, input)
 }
 
+// RunAnalyzeProject submits the /analyze-project slash command as a turn. The
+// display string is the user-friendly "Repo Wiki" label; the input carries the
+// slash command + project path so the model resolves it through the skill runner.
+func (a *App) RunAnalyzeProject(projectPath string) {
+	input := "/analyze-project"
+	if p := strings.TrimSpace(projectPath); p != "" {
+		input = input + " " + p
+	}
+	a.SubmitToTab("", input)
+}
+
 func (a *App) bindControllerDisplayRecorder(ctrl *control.Controller) {
 	if ctrl == nil {
 		return

@@ -41,6 +41,7 @@ export const zh: Record<DictKey, string> = {
   "sidebar.conversations": "会话",
   "sidebar.allHistory": "历史",
   "sidebar.trash": "回收站",
+  "sidebar.repoWiki": "仓库 Wiki",
   "sidebar.workspace": "工作区",
   "sidebar.changeWorkspace": "更改",
   "sidebar.navigation": "Reasonix 导航",
@@ -215,6 +216,16 @@ export const zh: Record<DictKey, string> = {
   "caps.skillRootShowAllSkills": "查看全部 {count} 个",
   "caps.showDiagnostics": "查看隐藏路径 {count}",
   "caps.hideDiagnostics": "隐藏诊断路径",
+
+  // 仓库 Wiki 面板
+  "repoWiki.title": "仓库 Wiki",
+  "repoWiki.summary": "生成项目文档",
+  "repoWiki.description": "分析项目并生成完整文档体系 —— 架构、数据模型、API 参考、模块指南、部署文档 —— 输出为结构化的 content/ 目录，含 Mermaid 图表和源码引用。",
+  "repoWiki.projectPath": "项目路径",
+  "repoWiki.pathPlaceholder": "留空则使用当前项目",
+  "repoWiki.pathHint": "留空时默认使用当前工作区。",
+  "repoWiki.launch": "生成 Wiki",
+  "repoWiki.launching": "启动中…",
 
   // 欢迎 / 空状态
   "welcome.tagline": "一个编码智能体 —— 描述任务或随便问点什么。",
