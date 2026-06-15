@@ -24,12 +24,13 @@ import {
 import { app } from "../lib/bridge";
 import { useT } from "../lib/i18n";
 import { loadLayoutSize, saveLayoutSize } from "../lib/layoutPreferences";
-import type { DirEntry, FilePreview, WorkspaceChangeView, WorkspaceChangesView } from "../lib/types";
+import type { DirEntry, FilePreview, WorkspaceChangesView } from "../lib/types";
 import { formatWorkspaceReference, WORKSPACE_REF_DRAG_TYPE } from "../lib/workspaceDrag";
 import { CodeViewer } from "./CodeViewer";
 import { ContextMenu, contextMenuPointFromEvent, type ContextMenuItem, type ContextMenuPoint } from "./ContextMenu";
 import { FloatingMenu, FloatingMenuItems } from "./FloatingMenu";
 import { Markdown } from "./Markdown";
+import { SourceControlPanel } from "./SourceControlPanel";
 import { Tooltip } from "./Tooltip";
 import { AnchoredPopover } from "./AnchoredPopover";
 
@@ -160,17 +161,6 @@ function formatBytes(n: number): string {
   return `${n} B`;
 }
 
-function isDeletedChange(row: WorkspaceChangeView): boolean {
-  return !!row.gitStatus && row.gitStatus.includes("D");
-}
-
-function changeDetail(row: WorkspaceChangeView): string {
-  if (row.latestPrompt) return row.latestPrompt;
-  if (row.oldPath) return `← ${row.oldPath}`;
-  if (row.turns && row.turns.length > 0) return `#${row.turns.join(", #")}`;
-  return row.path;
-}
-
 export function WorkspacePanel({
   open,
   cwd,
@@ -210,7 +200,7 @@ export function WorkspacePanel({
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [viewMode, setViewMode] = useState<"files" | "changed">(initialViewMode);
   const [changes, setChanges] = useState<WorkspaceChangesView | null>(null);
-  const [loadingChanges, setLoadingChanges] = useState(false);
+  const [, setLoadingChanges] = useState(false);
   const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number; text: string; path: string } | null>(null);
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
   const [treeBlankMenuPoint, setTreeBlankMenuPoint] = useState<ContextMenuPoint | null>(null);
@@ -415,12 +405,6 @@ export function WorkspacePanel({
       .sort((a, b) => a.path.localeCompare(b.path));
   }, [entriesByDir, filter]);
 
-  const changedRows = useMemo(() => {
-    const rows = changes?.files ?? [];
-    const q = filter.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => `${row.path} ${row.oldPath ?? ""} ${row.gitStatus ?? ""}`.toLowerCase().includes(q));
-  }, [changes?.files, filter]);
   const searchPlaceholder = viewMode === "changed" ? t("workspace.filterChanges") : t("workspace.filter");
 
   const effectiveTreeWidth = useMemo(() => clampWorkspaceTreeWidth(treeWidth, panelWidth), [panelWidth, treeWidth]);
@@ -588,41 +572,6 @@ export function WorkspacePanel({
     } catch {
       onAddToChat?.(formatWorkspaceReference(target.path, false));
     }
-  };
-
-  const renderChangedRows = () => {
-    if (loadingChanges) return <div className="workspace-empty">{t("workspace.loadingChanges")}</div>;
-    if (!changes) return null;
-    if (changedRows.length === 0) return <div className="workspace-empty">{t("workspace.noChanges")}</div>;
-    return changedRows.map((row) => {
-      const deleted = isDeletedChange(row);
-      return (
-        <button
-          key={`${row.path}-${row.sources.join("-")}`}
-          className={`workspace-change${selectedPath === row.path ? " workspace-change--active" : ""}${deleted ? " workspace-change--disabled" : ""}`}
-          draggable
-          onDragStart={(event) => startTreeDrag(event, row.path, false)}
-          onContextMenu={(event) => openTreeMenu(event, row.path, false)}
-          onClick={() => {
-            if (!deleted) selectFile(row.path);
-          }}
-          type="button"
-        >
-          <FileText size={14} className="workspace-tree__icon" />
-          <span className="workspace-change__body">
-            <span className="workspace-change__name">{basename(row.path)}</span>
-            <span className="workspace-change__path">{row.path}</span>
-            <span className="workspace-change__detail">{changeDetail(row)}</span>
-          </span>
-          <span className="workspace-change__meta">
-            {row.gitStatus && <span className="workspace-change__badge workspace-change__badge--git">{row.gitStatus}</span>}
-            {deleted && <span className="workspace-change__badge">{t("workspace.deleted")}</span>}
-            {row.sources.includes("session") && <span className="workspace-change__badge">{t("workspace.sourceSession")}</span>}
-            {row.sources.includes("git") && <span className="workspace-change__badge">{t("workspace.sourceGit")}</span>}
-          </span>
-        </button>
-      );
-    });
   };
 
   const renderRows = (dir: string, depth: number): JSX.Element[] => {
@@ -914,7 +863,7 @@ export function WorkspacePanel({
         )}
         <div className="workspace-tree" onContextMenu={openTreeBlankMenu}>
           {viewMode === "changed"
-            ? renderChangedRows()
+            ? <SourceControlPanel refreshKey={refreshKey} />
             : flattened
             ? flattened.map(({ path, entry }) => {
                 const dir = parentPath(path);

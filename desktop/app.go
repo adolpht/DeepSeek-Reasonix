@@ -3688,3 +3688,339 @@ func (a *App) ConnectKey(apiKey string) error {
 	}
 	return nil
 }
+
+// --- Source control (Git) bindings ---
+
+// GitStatus returns the full git status view for the active workspace.
+func (a *App) GitStatus() GitStatusView {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitStatusView{GitAvailable: false, GitErr: err.Error()}
+	}
+	return gitStatusView(base)
+}
+
+// GitBranches returns the list of branches for the active workspace.
+func (a *App) GitBranches() []BranchView {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return nil
+	}
+	return gitBranches(base)
+}
+
+// GitLog returns the last n commits for the active workspace.
+func (a *App) GitLog(n int) []CommitView {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return nil
+	}
+	return gitLog(base, n)
+}
+
+// GitDiff returns the diff for a file. If path is empty, returns the full diff.
+// If staged is true, shows the index diff against HEAD.
+func (a *App) GitDiff(path string, staged bool) GitDiffView {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitDiffView{Err: err.Error()}
+	}
+	return gitDiff(base, path, staged)
+}
+
+// GitRemotes returns the remote names and URLs for the active workspace.
+func (a *App) GitRemotes() map[string]string {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return nil
+	}
+	return gitRemotes(base)
+}
+
+// GitAdd stages the given paths. If paths is empty, stages all changes.
+func (a *App) GitAdd(paths []string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitAdd(base, paths)
+}
+
+// GitReset unstages the given paths. If paths is empty, unstages everything.
+func (a *App) GitReset(paths []string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitReset(base, paths)
+}
+
+// GitCommit creates a commit with the given message.
+func (a *App) GitCommit(message string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitCommit(base, message)
+}
+
+// GitPush pushes to the remote. If upstream is empty, pushes with --set-upstream.
+func (a *App) GitPush(upstream string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitPush(base, upstream)
+}
+
+// GitPull pulls from the remote for the current branch.
+func (a *App) GitPull() GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitPull(base)
+}
+
+// GitFetch fetches from all remotes.
+func (a *App) GitFetch() GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitFetch(base)
+}
+
+// GitCheckout switches to or creates a branch.
+func (a *App) GitCheckout(branch string, create bool) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitCheckout(base, branch, create)
+}
+
+// GitRestore discards working-tree changes for the given paths.
+func (a *App) GitRestore(paths []string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitRestore(base, paths)
+}
+
+// GitRestoreStaged unstages the given paths (restores index from HEAD).
+func (a *App) GitRestoreStaged(paths []string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitRestoreStaged(base, paths)
+}
+
+// GitStashPush creates a new stash with an optional message.
+func (a *App) GitStashPush(message string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitStashPush(base, message)
+}
+
+// GitStashPop applies and removes the stash at the given index.
+func (a *App) GitStashPop(index int) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitStashPop(base, index)
+}
+
+// GitStashApply applies the stash at the given index without removing it.
+func (a *App) GitStashApply(index int) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitStashApply(base, index)
+}
+
+// GitStashList returns the list of stash entries.
+func (a *App) GitStashList() []StashEntryView {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return nil
+	}
+	return gitStashList(base)
+}
+
+// GitDeleteBranch deletes the given branch.
+func (a *App) GitDeleteBranch(branch string, force bool) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitDeleteBranch(base, branch, force)
+}
+
+// GitRenameBranch renames the current branch.
+func (a *App) GitRenameBranch(newName string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitRenameBranch(base, newName)
+}
+
+// GitInit initialises a new git repository in the active workspace.
+func (a *App) GitInit() GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitInit(base)
+}
+
+// GitMerge merges the given branch into the current branch.
+func (a *App) GitMerge(branch string, noFF bool) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitMerge(base, branch, noFF)
+}
+
+// GitRebase rebases the current branch onto the given branch.
+func (a *App) GitRebase(branch string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitRebase(base, branch)
+}
+
+// GitRebaseAbort aborts an in-progress rebase.
+func (a *App) GitRebaseAbort() GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitRebaseAbort(base)
+}
+
+// GitRebaseContinue continues an in-progress rebase.
+func (a *App) GitRebaseContinue() GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitRebaseContinue(base)
+}
+
+// GitCherryPick cherry-picks the given commit.
+func (a *App) GitCherryPick(hash string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitCherryPick(base, hash)
+}
+
+// GitMergeAbort aborts an in-progress merge.
+func (a *App) GitMergeAbort() GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitMergeAbort(base)
+}
+
+// GitConflictFiles returns files with merge conflicts.
+func (a *App) GitConflictFiles() []string {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return nil
+	}
+	return gitConflictFiles(base)
+}
+
+// GitResolveConflict marks a file as resolved.
+func (a *App) GitResolveConflict(path string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitResolveConflict(base, path)
+}
+
+// GitCheckoutOurs resolves a conflict using "ours" version.
+func (a *App) GitCheckoutOurs(path string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitCheckoutOurs(base, path)
+}
+
+// GitCheckoutTheirs resolves a conflict using "theirs" version.
+func (a *App) GitCheckoutTheirs(path string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitCheckoutTheirs(base, path)
+}
+
+// GitTags returns the list of tags.
+func (a *App) GitTags() []TagView {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return nil
+	}
+	return gitTags(base)
+}
+
+// GitCreateTag creates a tag.
+func (a *App) GitCreateTag(name string, message string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitCreateTag(base, name, message)
+}
+
+// GitDeleteTag deletes a tag.
+func (a *App) GitDeleteTag(name string) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitDeleteTag(base, name)
+}
+
+// GitRevert creates a revert commit for the given hash.
+func (a *App) GitRevert(hash string, noCommit bool) GitOperationResult {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitOperationResult{Success: false, Message: err.Error()}
+	}
+	return gitRevert(base, hash, noCommit)
+}
+
+// GitShowCommit returns the full diff of a specific commit.
+func (a *App) GitShowCommit(hash string) GitDiffView {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return GitDiffView{Err: err.Error()}
+	}
+	return gitShowCommit(base, hash)
+}
+
+// GitFileHistory returns the commit log for a specific file.
+func (a *App) GitFileHistory(path string, n int) []CommitView {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return nil
+	}
+	return gitFileHistory(base, path, n)
+}

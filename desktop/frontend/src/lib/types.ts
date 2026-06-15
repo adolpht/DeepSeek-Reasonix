@@ -553,3 +553,67 @@ export interface UpdateProgress {
   total: number;
   err?: string;
 }
+
+// --- Source control (Git) types ---
+
+export interface GitFileStatus {
+  path: string;
+  oldPath?: string;
+  x: string; // index status letter
+  y: string; // worktree status letter
+}
+
+export interface GitStatusView {
+  branch: string;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  staged: GitFileStatus[];
+  unstaged: GitFileStatus[];
+  untracked: GitFileStatus[];
+  conflicted: GitFileStatus[];
+  stashCount: number;
+  gitAvailable: boolean;
+  gitErr?: string;
+}
+
+export interface BranchView {
+  name: string;
+  isCurrent: boolean;
+  isRemote: boolean;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+}
+
+export interface CommitView {
+  hash: string;
+  shortHash: string;
+  author: string;
+  date: string;
+  subject: string;
+  body?: string;
+  refs?: string[];
+}
+
+export interface TagView {
+  name: string;
+  hash: string;
+  subject?: string;
+}
+
+export interface GitDiffView {
+  path?: string;
+  content: string;
+  err?: string;
+}
+
+export interface StashEntryView {
+  index: number;
+  message: string;
+}
+
+export interface GitOperationResult {
+  success: boolean;
+  message?: string;
+}

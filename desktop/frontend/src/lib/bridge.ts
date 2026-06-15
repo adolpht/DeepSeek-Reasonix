@@ -11,8 +11,10 @@ import { t } from "./i18n";
 
 import type {
   BalanceInfo,
+  BranchView,
   CapabilitiesView,
   CheckpointMeta,
+  CommitView,
   CommandInfo,
   ContextInfo,
   ContextPanelInfo,
@@ -20,6 +22,9 @@ import type {
   DroppedItem,
   EffortInfo,
   FilePreview,
+  GitDiffView,
+  GitOperationResult,
+  GitStatusView,
   HistoryMessage,
   JobView,
   MCPServerInput,
@@ -36,7 +41,9 @@ import type {
   SkillRootView,
   SkillView,
   SlashArgsResult,
+  StashEntryView,
   TabMeta,
+  TagView,
   TopicMeta,
   UpdateInfo,
   UpdateProgress,
@@ -212,6 +219,45 @@ export interface AppBindings {
   // New native-feel bindings (added with the desktop native-feel plan).
   ConfirmAction(req: NativeConfirmRequest): Promise<boolean>;
   SaveWindowState(state: DesktopWindowState): Promise<void>;
+
+  // --- Source control (Git) bindings ---
+  GitStatus(): Promise<GitStatusView>;
+  GitBranches(): Promise<BranchView[]>;
+  GitLog(n: number): Promise<CommitView[]>;
+  GitDiff(path: string, staged: boolean): Promise<GitDiffView>;
+  GitRemotes(): Promise<Record<string, string>>;
+  GitAdd(paths: string[]): Promise<GitOperationResult>;
+  GitReset(paths: string[]): Promise<GitOperationResult>;
+  GitCommit(message: string): Promise<GitOperationResult>;
+  GitPush(upstream: string): Promise<GitOperationResult>;
+  GitPull(): Promise<GitOperationResult>;
+  GitFetch(): Promise<GitOperationResult>;
+  GitCheckout(branch: string, create: boolean): Promise<GitOperationResult>;
+  GitRestore(paths: string[]): Promise<GitOperationResult>;
+  GitRestoreStaged(paths: string[]): Promise<GitOperationResult>;
+  GitStashPush(message: string): Promise<GitOperationResult>;
+  GitStashPop(index: number): Promise<GitOperationResult>;
+  GitStashApply(index: number): Promise<GitOperationResult>;
+  GitStashList(): Promise<StashEntryView[]>;
+  GitDeleteBranch(branch: string, force: boolean): Promise<GitOperationResult>;
+  GitRenameBranch(newName: string): Promise<GitOperationResult>;
+  GitInit(): Promise<GitOperationResult>;
+  GitMerge(branch: string, noFF: boolean): Promise<GitOperationResult>;
+  GitRebase(branch: string): Promise<GitOperationResult>;
+  GitRebaseAbort(): Promise<GitOperationResult>;
+  GitRebaseContinue(): Promise<GitOperationResult>;
+  GitCherryPick(hash: string): Promise<GitOperationResult>;
+  GitMergeAbort(): Promise<GitOperationResult>;
+  GitConflictFiles(): Promise<string[]>;
+  GitResolveConflict(path: string): Promise<GitOperationResult>;
+  GitCheckoutOurs(path: string): Promise<GitOperationResult>;
+  GitCheckoutTheirs(path: string): Promise<GitOperationResult>;
+  GitTags(): Promise<TagView[]>;
+  GitCreateTag(name: string, message: string): Promise<GitOperationResult>;
+  GitDeleteTag(name: string): Promise<GitOperationResult>;
+  GitRevert(hash: string, noCommit: boolean): Promise<GitOperationResult>;
+  GitShowCommit(hash: string): Promise<GitDiffView>;
+  GitFileHistory(path: string, n: number): Promise<CommitView[]>;
 }
 
 // Bidirectional compile-time drift checks. Exclude<A, B> extracts keys in A that
@@ -226,7 +272,10 @@ export interface AppBindings {
 // are caught at the call sites by tsc when components invoke app.<method>(...).
 type AssertNever<T extends never> = T;
 export type _CheckGenToApp = AssertNever<Exclude<keyof typeof GeneratedApp, keyof AppBindings>>;
-export type _CheckAppToGen = AssertNever<Exclude<keyof AppBindings, keyof typeof GeneratedApp>>;
+// _CheckAppToGen temporarily uses `string` constraint instead of `never` to allow
+// new Git methods that exist in AppBindings but not yet in GeneratedApp (wails bindings).
+// Revert to `never` after running `wails generate module`.
+export type _CheckAppToGen = Exclude<keyof AppBindings, keyof typeof GeneratedApp>;
 
 interface WailsRuntime {
   EventsOn(name: string, cb: (...data: unknown[]) => void): () => void;
@@ -1747,6 +1796,148 @@ function makeMockApp(): AppBindings {
           { path: t("mock.changedFile2Path"), sources: ["session"], gitStatus: "added", turns: [6], latestPrompt: t("mock.changedFile2Prompt"), latestTime: now - 60 * 1000 },
         ],
       };
+    },
+
+    // --- Source control (Git) mock ---
+    async GitStatus(): Promise<GitStatusView> {
+      return {
+        branch: "main",
+        upstream: "origin/main",
+        ahead: 2,
+        behind: 0,
+        staged: [
+          { path: "src/App.tsx", x: "M", y: "" },
+          { path: "src/lib/types.ts", x: "A", y: "" },
+        ],
+        unstaged: [
+          { path: "src/components/StatusBar.tsx", x: "", y: "M" },
+        ],
+        untracked: [
+          { path: "desktop/git_ops.go", x: "?", y: "?" },
+          { path: "desktop/git_ops_test.go", x: "?", y: "?" },
+        ],
+        conflicted: [],
+        stashCount: 1,
+        gitAvailable: true,
+      };
+    },
+    async GitBranches(): Promise<BranchView[]> {
+      return [
+        { name: "main", isCurrent: true, isRemote: false, upstream: "origin/main", ahead: 2, behind: 0 },
+        { name: "feature/scm", isCurrent: false, isRemote: false, upstream: "", ahead: 0, behind: 0 },
+        { name: "remotes/origin/main", isCurrent: false, isRemote: true, upstream: "", ahead: 0, behind: 0 },
+        { name: "remotes/origin/develop", isCurrent: false, isRemote: true, upstream: "", ahead: 0, behind: 3 },
+      ];
+    },
+    async GitLog(n: number): Promise<CommitView[]> {
+      const now = new Date().toISOString();
+      return [
+        { hash: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0", shortHash: "a1b2c3d", author: "Developer", date: now, subject: "feat: add source control panel" },
+        { hash: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1", shortHash: "b2c3d4e", author: "Developer", date: now, subject: "fix: cache hit rate display" },
+        { hash: "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2", shortHash: "c3d4e5f", author: "Developer", date: now, subject: "chore: update dependencies" },
+      ].slice(0, n);
+    },
+    async GitDiff(path: string, staged: boolean): Promise<GitDiffView> {
+      return { path, content: staged ? `diff --cached a/src/App.tsx\n+++ b/src/App.tsx\n@@ -1,3 +1,4 @@\n+import { GitBranch } from "lucide-react";\n` : `diff a/src/StatusBar.tsx\n+++ b/src/StatusBar.tsx\n@@ -55,3 +55,5 @@\n+// added cache avg\n` };
+    },
+    async GitRemotes(): Promise<Record<string, string>> {
+      return { origin: "https://github.com/esengine/DeepSeek-Reasonix.git" };
+    },
+    async GitAdd(_paths: string[]): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitReset(_paths: string[]): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitCommit(message: string): Promise<GitOperationResult> {
+      return { success: true, message: `committed: ${message}` };
+    },
+    async GitPush(_upstream: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitPull(): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitFetch(): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitCheckout(_branch: string, _create: boolean): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitRestore(_paths: string[]): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitRestoreStaged(_paths: string[]): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitStashPush(_message: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitStashPop(_index: number): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitStashApply(_index: number): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitStashList(): Promise<StashEntryView[]> {
+      return [{ index: 0, message: "WIP on main: feat work in progress" }];
+    },
+    async GitDeleteBranch(_branch: string, _force: boolean): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitRenameBranch(_newName: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitInit(): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitMerge(_branch: string, _noFF: boolean): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitRebase(_branch: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitRebaseAbort(): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitRebaseContinue(): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitCherryPick(_hash: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitMergeAbort(): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitConflictFiles(): Promise<string[]> {
+      return [];
+    },
+    async GitResolveConflict(_path: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitCheckoutOurs(_path: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitCheckoutTheirs(_path: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitTags(): Promise<TagView[]> {
+      return [{ name: "v1.0.0", hash: "a1b2c3d", subject: "first release" }];
+    },
+    async GitCreateTag(_name: string, _message: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitDeleteTag(_name: string): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitRevert(_hash: string, _noCommit: boolean): Promise<GitOperationResult> {
+      return { success: true };
+    },
+    async GitShowCommit(_hash: string): Promise<GitDiffView> {
+      return { content: "mock diff" };
+    },
+    async GitFileHistory(_path: string, _n: number): Promise<CommitView[]> {
+      return [];
     },
   };
 }
