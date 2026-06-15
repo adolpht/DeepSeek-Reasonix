@@ -938,6 +938,7 @@ export const zh: Record<DictKey, string> = {
   "git.more": "更多操作",
   "git.commit": "提交",
   "git.commitPlaceholder": "提交消息（Ctrl+Enter 提交）",
+  "git.generateCommitMsg": "AI 生成提交消息",
   "git.stage": "暂存",
   "git.unstage": "取消暂存",
   "git.stageAll": "全部暂存",

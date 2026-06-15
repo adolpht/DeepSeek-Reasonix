@@ -936,6 +936,7 @@ export const en = {
   "git.more": "More actions",
   "git.commit": "Commit",
   "git.commitPlaceholder": "Commit message (Ctrl+Enter to commit)",
+  "git.generateCommitMsg": "AI generate commit message",
   "git.stage": "Stage",
   "git.unstage": "Unstage",
   "git.stageAll": "Stage all",

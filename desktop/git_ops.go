@@ -2,14 +2,32 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"reasonix/internal/proc"
 )
+
+var versionPathRegexp = regexp.MustCompile(`/(v\d+[a-z]*|v\d+\.\d+)(/)?$`)
+
+// normalizeBaseURL ensures baseURL ends with an API version segment (e.g. /v1)
+// so that /chat/completions resolves correctly. Mirrors the openai provider's
+// normalizeBaseURL.
+func normalizeBaseURL(baseURL string) string {
+	baseURL = strings.TrimRight(baseURL, "/")
+	if versionPathRegexp.MatchString(baseURL) {
+		return baseURL
+	}
+	return baseURL + "/v1"
+}
 
 // git_ops.go provides the desktop's source-control command surface: a thin
 // wrapper around the git CLI that the Wails-bound App methods call into. Every
@@ -126,7 +144,13 @@ func isGitRepo(dir string) bool {
 
 // gitStatusView builds a full GitStatusView for the workspace.
 func gitStatusView(dir string) GitStatusView {
-	out := GitStatusView{GitAvailable: true}
+	out := GitStatusView{
+		GitAvailable: true,
+		Staged:       []GitFileStatus{},
+		Unstaged:     []GitFileStatus{},
+		Untracked:    []GitFileStatus{},
+		Conflicted:   []GitFileStatus{},
+	}
 	if !isGitRepo(dir) {
 		out.GitAvailable = false
 		out.GitErr = "not a git repository"
@@ -188,15 +212,24 @@ func gitStatusView(dir string) GitStatusView {
 			oldPath = workspaceRelPathFromGitStatus(repoRoot, dir, entry.OldPath)
 		}
 
+		// Status is exactly 2 chars: X (index) and Y (worktree). Do NOT trim.
+		x := ""
+		y := ""
+		if len(entry.Status) >= 2 {
+			x = string(entry.Status[0])
+			y = string(entry.Status[1])
+		} else if len(entry.Status) == 1 {
+			x = string(entry.Status[0])
+		}
+
 		fs := GitFileStatus{
 			Path:    path,
 			OldPath: oldPath,
-			X:       strings.TrimSpace(string(entry.Status[0])),
-			Y:       strings.TrimSpace(string(entry.Status[1])),
+			X:       x,
+			Y:       y,
 		}
 
 		// Classify: conflicted, staged, unstaged, or untracked.
-		x, y := fs.X, fs.Y
 		switch {
 		case x == "U" || y == "U" || x == "A" && y == "A" || x == "D" && y == "D":
 			out.Conflicted = append(out.Conflicted, fs)
@@ -341,6 +374,177 @@ func gitDiff(dir string, path string, staged bool) GitDiffView {
 	return GitDiffView{Path: path, Content: string(raw)}
 }
 
+// gitDiffSummaryForCommit returns a concise summary of changes suitable for
+// generating a commit message. If there are staged changes, it shows the staged
+// diff. Otherwise, it shows all unstaged and untracked changes so the AI can
+// still suggest a commit message.
+func gitDiffSummaryForCommit(dir string) string {
+	status := gitStatusView(dir)
+
+	var filePaths []string
+	var stagedOnly bool
+
+	if len(status.Staged) > 0 {
+		for _, f := range status.Staged {
+			filePaths = append(filePaths, f.Path)
+		}
+		stagedOnly = true
+	} else {
+		// No staged files — include all changes so AI can still generate a message.
+		for _, f := range status.Unstaged {
+			filePaths = append(filePaths, f.Path)
+		}
+		for _, f := range status.Conflicted {
+			filePaths = append(filePaths, f.Path)
+		}
+		for _, f := range status.Untracked {
+			filePaths = append(filePaths, f.Path)
+		}
+	}
+
+	if len(filePaths) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	if stagedOnly {
+		sb.WriteString("Staged files:\n")
+	} else {
+		sb.WriteString("Changed files (not yet staged):\n")
+	}
+	for _, f := range filePaths {
+		sb.WriteString("  " + f + "\n")
+	}
+	sb.WriteString("\nDiff:\n")
+
+	// Get the diff, truncated to ~8000 chars.
+	const maxDiffLen = 8000
+
+	if stagedOnly {
+		// Staged diff is straightforward.
+		raw, err := gitRunRaw(dir, "diff", "--cached")
+		if err == nil {
+			diff := string(raw)
+			if len(diff) > maxDiffLen {
+				diff = diff[:maxDiffLen] + "\n... (truncated)"
+			}
+			sb.WriteString(diff)
+		}
+	} else {
+		// No staged files — gather diffs for unstaged and untracked files.
+		// Unstaged (tracked) modifications.
+		if raw, err := gitRunRaw(dir, "diff"); err == nil {
+			diff := string(raw)
+			if len(diff) > maxDiffLen {
+				diff = diff[:maxDiffLen] + "\n... (truncated)"
+			}
+			sb.WriteString(diff)
+		}
+		// Untracked files: show their content (first N lines) since git diff
+		// does not include them by default.
+		for _, f := range status.Untracked {
+			if sb.Len() > maxDiffLen {
+				break
+			}
+			sb.WriteString("\n--- new file: " + f.Path + "\n")
+			// Use git diff --no-index /dev/null to show the full new file.
+			if raw, err := gitRunRaw(dir, "diff", "--no-index", "--", "/dev/null", f.Path); err == nil {
+				content := string(raw)
+				if len(content) > 2000 {
+					content = content[:2000] + "\n... (truncated)"
+				}
+				sb.WriteString(content)
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+// generateCommitMessage calls the OpenAI-compatible chat completion API to
+// generate a commit message from the given diff summary.
+func generateCommitMessage(ctx context.Context, baseURL, apiKey, model, diffSummary string) (string, error) {
+	prompt := `你是一个擅长撰写简洁、准确的 git 提交消息的专家。
+分析下面的代码变更，生成一条提交消息，要求：
+1. 使用 conventional commits 格式：type(scope): description
+   - type: feat/fix/refactor/docs/style/test/chore/perf
+   - scope: 可选，受影响的模块或区域
+2. 主题行：不超过72个字符，简要描述改了什么
+3. 正文：必须包含，列出具体改动的要点（如新增的函数、修改的逻辑、新增的UI组件等），每条要点一行
+4. 关注实际代码变更——函数名、新增功能、修复的bug等
+5. 不要用代码块或引号包裹
+6. 主题行用中文，正文也用中文
+
+重要：提交消息必须反映 diff 中展示的具体变更，不要使用"同步变更"或"更新文件"等泛泛的消息。
+
+变更内容：
+` + diffSummary
+
+	type msg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	type reqBody struct {
+		Model       string  `json:"model"`
+		Messages    []msg   `json:"messages"`
+		Temperature float64 `json:"temperature"`
+		MaxTokens   int     `json:"max_tokens"`
+	}
+
+	body, _ := json.Marshal(reqBody{
+		Model: model,
+		Messages: []msg{
+			{Role: "system", Content: "你是一个提交消息生成器。只输出提交消息文本，不要输出其他内容。"},
+			{Role: "user", Content: prompt},
+		},
+		Temperature: 0.3,
+		MaxTokens:   512,
+	})
+
+	url := normalizeBaseURL(baseURL) + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("no response from model")
+	}
+
+	message := strings.TrimSpace(result.Choices[0].Message.Content)
+	// Strip markdown code block wrappers if the model wraps them.
+	message = strings.TrimPrefix(message, "```")
+	message = strings.TrimPrefix(message, "git\n")
+	message = strings.TrimSuffix(message, "```")
+	return strings.TrimSpace(message), nil
+}
+
 // gitRemotes returns the list of remote names and URLs.
 func gitRemotes(dir string) map[string]string {
 	out, err := gitRun(dir, "remote", "-v")
@@ -406,6 +610,16 @@ func gitReset(dir string, paths []string) GitOperationResult {
 func gitCommit(dir string, message string) GitOperationResult {
 	if strings.TrimSpace(message) == "" {
 		return GitOperationResult{Success: false, Message: "commit message is empty"}
+	}
+	// Auto-stage all changes if nothing is staged yet.
+	status := gitStatusView(dir)
+	if len(status.Staged) == 0 {
+		if len(status.Unstaged)+len(status.Untracked)+len(status.Conflicted) == 0 {
+			return GitOperationResult{Success: false, Message: "no changes to commit"}
+		}
+		if _, err := gitRun(dir, "add", "-A"); err != nil {
+			return GitOperationResult{Success: false, Message: "auto-stage failed: " + err.Error()}
+		}
 	}
 	_, err := gitRun(dir, "commit", "-m", message)
 	if err != nil {

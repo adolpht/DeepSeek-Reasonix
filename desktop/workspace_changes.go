@@ -140,7 +140,7 @@ func parseGitStatusPorcelainZ(raw []byte) []gitStatusEntry {
 		}
 		status := string(part[:2])
 		path := string(part[3:])
-		entry := gitStatusEntry{Path: path, Status: strings.TrimSpace(status)}
+		entry := gitStatusEntry{Path: path, Status: status}
 		if strings.ContainsAny(status, "RC") && i+1 < len(parts) {
 			i++
 			entry.OldPath = string(parts[i])

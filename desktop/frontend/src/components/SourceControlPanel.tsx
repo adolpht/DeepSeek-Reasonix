@@ -6,6 +6,7 @@ import {
   GitMerge,
   Plus,
   RefreshCw,
+  Sparkles,
   Tag,
   Trash2,
   Upload,
@@ -83,7 +84,7 @@ function formatDate(iso: string): string {
 
 type ScmSubView = "status" | "log" | "branches" | "stash" | "tags";
 
-export function SourceControlPanel({ refreshKey }: { refreshKey?: number }) {
+export function SourceControlPanel({ refreshKey, onStatusChange }: { refreshKey?: number; onStatusChange?: (count: number) => void }) {
   const t = useT();
   const [status, setStatus] = useState<GitStatusView | null>(null);
   const [loading, setLoading] = useState(false);
@@ -121,22 +122,38 @@ export function SourceControlPanel({ refreshKey }: { refreshKey?: number }) {
   const [tagName, setTagName] = useState("");
   const [tagMessage, setTagMessage] = useState("");
 
+  // AI commit message generation
+  const [generating, setGenerating] = useState(false);
+
   const loadStatus = useCallback(async () => {
     setLoading(true);
     try {
       const s = await app.GitStatus();
+      // Ensure array fields are never null (Go may return null for empty slices)
+      if (s) {
+        s.staged = s.staged ?? [];
+        s.unstaged = s.unstaged ?? [];
+        s.untracked = s.untracked ?? [];
+        s.conflicted = s.conflicted ?? [];
+      }
       setStatus(s);
+      if (s && onStatusChange) {
+        onStatusChange(s.staged.length + s.unstaged.length + s.untracked.length + s.conflicted.length);
+      } else if (onStatusChange) {
+        onStatusChange(0);
+      }
     } catch {
       setStatus(null);
+      if (onStatusChange) onStatusChange(0);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onStatusChange]);
 
   const loadLog = useCallback(async () => {
     try {
       const c = await app.GitLog(50);
-      setCommits(c ?? []);
+      setCommits((c ?? []).map((cv) => ({ ...cv, refs: cv.refs ?? [] })));
     } catch {
       setCommits([]);
     }
@@ -214,6 +231,17 @@ export function SourceControlPanel({ refreshKey }: { refreshKey?: number }) {
       return result;
     });
   }, [commitMsg, execOp]);
+
+  const handleGenerateCommitMsg = useCallback(() => {
+    setGenerating(true);
+    app.GitGenerateCommitMessage().then((msg) => {
+      if (msg) setCommitMsg(msg);
+    }).catch((e) => {
+      setOpResult({ success: false, message: String(e) });
+    }).finally(() => {
+      setGenerating(false);
+    });
+  }, []);
 
   const handleDiff = useCallback((path: string, staged: boolean) => {
     setDiffLoading(true);
@@ -462,10 +490,21 @@ export function SourceControlPanel({ refreshKey }: { refreshKey?: number }) {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleCommit(); }
             }}
           />
-          <button className="scm-commit-btn" onClick={handleCommit} disabled={!commitMsg.trim() || status.staged.length === 0}>
-            <GitCommit size={14} />
-            {t("git.commit")}
-          </button>
+          <div className="scm-commit-actions">
+            <Tooltip label={t("git.generateCommitMsg")}>
+              <button
+                className="scm-icon-btn scm-ai-btn"
+                onClick={handleGenerateCommitMsg}
+                disabled={generating || (status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length === 0)}
+              >
+                <Sparkles size={14} className={generating ? "scm-ai-spin" : ""} />
+              </button>
+            </Tooltip>
+            <button className="scm-commit-btn" onClick={handleCommit} disabled={!commitMsg.trim() || (status.staged.length + status.unstaged.length + status.untracked.length + status.conflicted.length === 0)}>
+              <GitCommit size={14} />
+              {t("git.commit")}
+            </button>
+          </div>
         </div>
 
         {/* Conflicted */}

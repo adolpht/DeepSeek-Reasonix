@@ -197,6 +197,7 @@ export function WorkspacePanel({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [preview, setPreview] = useState<FilePreview | null>(null);
+  const [uncommittedCount, setUncommittedCount] = useState(0);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [viewMode, setViewMode] = useState<"files" | "changed">(initialViewMode);
   const [changes, setChanges] = useState<WorkspaceChangesView | null>(null);
@@ -841,6 +842,7 @@ export function WorkspacePanel({
                 >
                   <GitBranch size={13} />
                   {t("workspace.changedTab")}
+                  {uncommittedCount > 0 && <span className="workspace-tab-badge">{uncommittedCount}</span>}
                 </button>
               </div>
             )}
@@ -863,7 +865,7 @@ export function WorkspacePanel({
         )}
         <div className="workspace-tree" onContextMenu={openTreeBlankMenu}>
           {viewMode === "changed"
-            ? <SourceControlPanel refreshKey={refreshKey} />
+            ? <SourceControlPanel refreshKey={refreshKey} onStatusChange={setUncommittedCount} />
             : flattened
             ? flattened.map(({ path, entry }) => {
                 const dir = parentPath(path);

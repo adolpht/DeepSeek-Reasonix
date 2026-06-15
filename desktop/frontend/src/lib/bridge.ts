@@ -258,6 +258,7 @@ export interface AppBindings {
   GitRevert(hash: string, noCommit: boolean): Promise<GitOperationResult>;
   GitShowCommit(hash: string): Promise<GitDiffView>;
   GitFileHistory(path: string, n: number): Promise<CommitView[]>;
+  GitGenerateCommitMessage(): Promise<string>;
 }
 
 // Bidirectional compile-time drift checks. Exclude<A, B> extracts keys in A that
@@ -1938,6 +1939,9 @@ function makeMockApp(): AppBindings {
     },
     async GitFileHistory(_path: string, _n: number): Promise<CommitView[]> {
       return [];
+    },
+    async GitGenerateCommitMessage(): Promise<string> {
+      return "feat: update staged files";
     },
   };
 }

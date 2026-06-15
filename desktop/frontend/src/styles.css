@@ -4085,6 +4085,21 @@ a[href] {
   color: var(--fg);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
 }
+.workspace-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--fg-on-accent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
 .workspace-files__mode-label {
   flex: 1 1 auto;
   min-width: 0;
@@ -10511,6 +10526,25 @@ a[href] {
 }
 .scm-commit-btn:hover:not(:disabled) { background: var(--accent-strong); }
 .scm-commit-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.scm-commit-actions {
+  display: flex;
+  gap: 4px;
+}
+.scm-ai-btn {
+  border-radius: 6px;
+  padding: 5px 6px;
+}
+.scm-ai-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.scm-ai-spin {
+  animation: scm-ai-spin-anim 1s linear infinite;
+}
+@keyframes scm-ai-spin-anim {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 /* File groups */
 .scm-group {

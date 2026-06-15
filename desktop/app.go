@@ -4024,3 +4024,46 @@ func (a *App) GitFileHistory(path string, n int) []CommitView {
 	}
 	return gitFileHistory(base, path, n)
 }
+
+// GitGenerateCommitMessage uses the current AI model to generate a commit
+// message based on staged changes. Returns the generated message or an error.
+func (a *App) GitGenerateCommitMessage() (string, error) {
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return "", fmt.Errorf("no workspace: %w", err)
+	}
+
+	summary := gitDiffSummaryForCommit(base)
+	if summary == "" {
+		return "", fmt.Errorf("no changes to generate a commit message from")
+	}
+
+	// Resolve the current model and provider.
+	a.mu.RLock()
+	tab := a.activeTabLocked()
+	a.mu.RUnlock()
+	if tab == nil {
+		return "", fmt.Errorf("no active tab")
+	}
+
+	root := a.activeWorkspaceRoot()
+	cfg, err := config.LoadForRoot(root)
+	if err != nil {
+		return "", fmt.Errorf("load config: %w", err)
+	}
+
+	modelRef := tab.model
+	if modelRef == "" {
+		modelRef = cfg.DefaultModel
+	}
+	entry, ok := cfg.ResolveModel(modelRef)
+	if !ok {
+		return "", fmt.Errorf("cannot resolve model %q", modelRef)
+	}
+	apiKey := entry.APIKey()
+	if apiKey == "" {
+		return "", fmt.Errorf("provider %q has no API key configured", entry.Name)
+	}
+
+	return generateCommitMessage(a.reqCtx(), entry.BaseURL, apiKey, entry.Model, summary)
+}
