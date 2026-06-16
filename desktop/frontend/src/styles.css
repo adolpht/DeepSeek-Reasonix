@@ -1728,6 +1728,40 @@ a[href] {
   border-radius: 5px;
   padding: 1px 5px;
 }
+
+/* mermaid diagram blocks inside .md */
+.mermaid-block {
+  margin: 0 0 12px;
+  padding: 12px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
+.mermaid-block--loading {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-faint);
+}
+.mermaid-block--error {
+  text-align: left;
+}
+.mermaid-block--error .mermaid-block__source {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-dim);
+}
+
 .md table {
   border-collapse: collapse;
   margin: 0 0 12px;
