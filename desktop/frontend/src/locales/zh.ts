@@ -224,6 +224,8 @@ export const zh: Record<DictKey, string> = {
   "repoWiki.projectPath": "项目路径",
   "repoWiki.pathPlaceholder": "留空则使用当前项目",
   "repoWiki.pathHint": "留空时默认使用当前工作区。",
+  "repoWiki.model": "模型",
+  "repoWiki.modelHint": "执行分析时使用的模型，默认为当前活跃模型。",
   "repoWiki.launch": "生成 Wiki",
   "repoWiki.launching": "启动中…",
 

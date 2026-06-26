@@ -223,6 +223,8 @@ export const en = {
   "repoWiki.projectPath": "Project path",
   "repoWiki.pathPlaceholder": "Leave empty for current project",
   "repoWiki.pathHint": "Defaults to the current workspace if left empty.",
+  "repoWiki.model": "Model",
+  "repoWiki.modelHint": "Model to use for analysis. Defaults to the currently active model.",
   "repoWiki.launch": "Generate Wiki",
   "repoWiki.launching": "Launching…",
 

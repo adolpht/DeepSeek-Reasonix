@@ -90,7 +90,7 @@ export interface AppBindings {
   SubmitDisplayToTab(tabID: string, display: string, input: string): Promise<void>;
   RunShell(command: string): Promise<void>;
   RunShellForTab(tabID: string, command: string): Promise<void>;
-  RunAnalyzeProject(projectPath: string): Promise<void>;
+  RunAnalyzeProject(projectPath: string, model: string): Promise<void>;
   Cancel(): Promise<void>;
   CancelTab(tabID: string): Promise<void>;
   Approve(id: string, allow: boolean, session: boolean, persist: boolean): Promise<void>;
@@ -960,7 +960,7 @@ function makeMockApp(): AppBindings {
         async RunShellForTab(_tabID, command) {
           await this.RunShell(command);
         },
-        async RunAnalyzeProject(_projectPath) {
+        async RunAnalyzeProject(_projectPath, _model) {
           await this.Submit("/analyze-project " + (_projectPath || ""));
         },
         async Cancel() {

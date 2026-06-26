@@ -535,7 +535,11 @@ func (a *App) SubmitDisplayToTab(tabID, display, input string) {
 // RunAnalyzeProject submits the /analyze-project slash command as a turn. The
 // display string is the user-friendly "Repo Wiki" label; the input carries the
 // slash command + project path so the model resolves it through the skill runner.
-func (a *App) RunAnalyzeProject(projectPath string) {
+// If model is non-empty the active model is switched first (same as /model).
+func (a *App) RunAnalyzeProject(projectPath string, model string) {
+	if model != "" {
+		_ = a.SetModel(model)
+	}
 	input := "/analyze-project"
 	if p := strings.TrimSpace(projectPath); p != "" {
 		input = input + " " + p
