@@ -3675,7 +3675,7 @@ func (a *App) ConfirmAction(req NativeConfirmRequest) (bool, error) {
 }
 
 func (a *App) NeedsOnboarding() bool {
-	return strings.TrimSpace(os.Getenv(onboardingKeyEnv)) == ""
+	return len(a.Models()) == 0
 }
 
 // ConnectKey validates apiKey against the balance endpoint, persists it to the

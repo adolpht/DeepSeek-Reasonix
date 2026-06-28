@@ -1629,10 +1629,9 @@ function makeMockApp(): AppBindings {
         window.open("https://github.com/esengine/reasonix/releases/latest", "_blank", "noopener");
       }
     },
-    // Dev seam: drives the overlay flow in the browser until ConnectKey sets the
-    // key. Matches ConnectKey on apiKeyEnv so the two stay in sync.
+    // Dev seam: drives the overlay flow in the browser until any provider has a key.
     async NeedsOnboarding() {
-      return !settings.providers.find((p) => p.apiKeyEnv === "DEEPSEEK_API_KEY")?.keySet;
+      return !settings.providers.some((p) => p.keySet);
     },
     async ConnectKey(apiKey: string) {
       if (!apiKey.trim()) throw new Error("key is required");

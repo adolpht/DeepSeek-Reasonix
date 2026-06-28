@@ -68,6 +68,19 @@ func TestResolveModelWithFallbackSkipsKeylessProvider(t *testing.T) {
 	}
 }
 
+func TestResolveModelWithFallbackSkipsSelectedKeylessProvider(t *testing.T) {
+	c := testModelFallbackConfig(t)
+	c.Providers[0].APIKeyEnv = "REASONIX_TEST_EMPTY"
+
+	got, fallback, ok := c.ResolveModelWithFallback("prov-a")
+	if !ok || !fallback {
+		t.Fatalf("ResolveModelWithFallback(\"prov-a\") = (%q, %v, %v), want a fallback", got, fallback, ok)
+	}
+	if got != "prov-b/model-b1" {
+		t.Errorf("fallback = %q, want prov-b/model-b1 (selected prov-a is keyless and must be skipped)", got)
+	}
+}
+
 func TestModelRefsProvider(t *testing.T) {
 	if !ModelRefsProvider("deepseek-flash", "deepseek-flash") {
 		t.Fatal("bare provider ref should match provider")
