@@ -53,11 +53,12 @@ type WorkspaceTab struct {
 	readTelemetry []readFileRecord
 	telemMu       sync.Mutex
 
-	model       string // active model ref (for meta)
-	effort      *string
-	mode        string // "normal" | "plan" | "yolo"; yolo is runtime-only
-	disabledMCP map[string]ServerView
-	mcpOrder    []string
+	model         string // active model ref (for meta)
+	effort        *string
+	mode          string // "normal" | "plan" | "yolo"; yolo is runtime-only
+	workspaceType string // "coding" | "office"; coding is default
+	disabledMCP   map[string]ServerView
+	mcpOrder      []string
 }
 
 type readFileRecord struct {
@@ -245,6 +246,7 @@ type TabMeta struct {
 	Ready         bool   `json:"ready"`
 	Running       bool   `json:"running"`
 	Mode          string `json:"mode"`
+	WorkspaceType string `json:"workspaceType"` // "coding" | "office"
 	StartupErr    string `json:"startupErr,omitempty"`
 	Active        bool   `json:"active"`
 	Cwd           string `json:"cwd"`
@@ -261,6 +263,7 @@ func (a *App) tabMeta(tab *WorkspaceTab, active bool) TabMeta {
 		Label:         tab.Label,
 		Ready:         tab.Ready,
 		Mode:          currentTabMode(tab),
+		WorkspaceType: normalizeWorkspaceType(tab.workspaceType),
 		StartupErr:    tab.StartupErr,
 		Active:        active,
 		Cwd:           tab.WorkspaceRoot,
@@ -877,6 +880,7 @@ type desktopTabEntry struct {
 	Model         string  `json:"model,omitempty"`
 	Effort        *string `json:"effort,omitempty"`
 	Mode          string  `json:"mode,omitempty"`
+	WorkspaceType string  `json:"workspaceType,omitempty"` // "coding" | "office"
 }
 
 type desktopTabsFile struct {
@@ -908,6 +912,7 @@ func (a *App) saveTabsLocked() {
 				Model:         tab.model,
 				Effort:        cloneStringPtr(tab.effort),
 				Mode:          persistedTabMode(currentTabMode(tab)),
+				WorkspaceType: normalizeWorkspaceType(tab.workspaceType),
 			})
 		}
 	}
@@ -2281,6 +2286,15 @@ func normalizeTabMode(mode string) string {
 	default:
 		return "normal"
 	}
+}
+
+// normalizeWorkspaceType maps a workspace type value to the canonical form.
+// "office" means the office-capability panel is shown; everything else is "coding".
+func normalizeWorkspaceType(wt string) string {
+	if wt == "office" {
+		return "office"
+	}
+	return "coding"
 }
 
 func currentTabMode(tab *WorkspaceTab) string {

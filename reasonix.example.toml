@@ -152,3 +152,17 @@ bash_timeout_seconds = 120   # foreground safety cap; set 0 for no tool-local ca
 # command = "reasonix-plugin-example"
 # # Enabled MCP servers connect automatically in the background after session
 # # start. Use /mcp or the desktop MCP panel to refresh, reconnect, or disable.
+
+# Personal-agent office plugin (Phase 3). Provides read_docx/write_docx/
+# render_template/md_to_pdf tools — enables the doc-generation skills
+# (.reasonix/skills/weekly-report.md, meeting-minutes.md, contract-draft.md).
+# Pandoc is optional; md_to_pdf only registers when pandoc is in PATH.
+# [[plugins]]
+# name    = "office"
+# command = "reasonix-plugin-office"
+
+# Personal-agent spreadsheet plugin (Phase 2). Provides read_sheet/write_sheet/
+# query_sheet/chart_sheet tools — returns model-consumable Markdown/JSON/base64.
+# [[plugins]]
+# name    = "sheet"
+# command = "reasonix-plugin-sheet"

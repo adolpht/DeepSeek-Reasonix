@@ -48,7 +48,14 @@ export function subjectOf(name: string, args: string): string {
     case "todo_write":
     case "exit_plan_mode":
       return ""; // these get dedicated cards, not a subject line
+    case "doc_export":
+      return str(a, "path") || str(a, "rel_path");
     default:
+      // office plugin tools surface under mcp__office__<tool>; the path arg
+      // (or rel_path for write_docx/write_sheet) is the most useful subject.
+      if (name.startsWith("mcp__office__")) {
+        return str(a, "path") || str(a, "rel_path") || str(a, "output_path");
+      }
       return str(a, "path") || str(a, "file_path");
   }
 }
@@ -88,6 +95,35 @@ export interface Todo {
   status: TodoStatus | string;
   activeForm?: string;
   level?: number; // 0 = phase, 1 = sub-step of the phase above it
+}
+
+// docExportPath returns the absolute path to render via DocPreviewer inline,
+// or "" if this tool call isn't a doc-emitting one. Two paths produce a path:
+//   - the office plugin's write_docx/write_sheet tools return a path in their
+//     output (the abs path the plugin wrote)
+//   - the agent-side `doc_export` tool surfaces the path in args
+// In both cases the tool card can render the artifact inline + show export
+// actions (roadmap §5.4: "Agent 生成 docx 后，前端可内嵌预览前 5 页").
+export function docExportPath(name: string, args: string, output?: string): string {
+  if (name === "doc_export") {
+    const a = parse(args);
+    return str(a, "path") || str(a, "rel_path") || str(a, "output_path");
+  }
+  if (name === "mcp__office__write_docx" || name === "mcp__office__write_sheet" || name === "mcp__office__md_to_pdf") {
+    // The plugin's tool output is the absolute path it wrote; prefer it
+    // because args may carry only rel_path.
+    const trimmed = (output ?? "").trim();
+    if (trimmed) {
+      // Heuristic: the office plugin's write tools return just the path or a
+      // one-line "wrote <path>" summary; extract the last path-looking token.
+      const match = trimmed.match(/([A-Za-z]:[\\\/][^\s]+|[\/~][^\s]+)/);
+      if (match) return match[1];
+      return trimmed.split(/\n/)[0];
+    }
+    const a = parse(args);
+    return str(a, "output_path") || str(a, "rel_path") || str(a, "path");
+  }
+  return "";
 }
 
 // parseTodos pulls the task list out of a todo_write call's args.

@@ -1,9 +1,10 @@
 import { memo, useEffect, useState } from "react";
 import { CodeViewer } from "./CodeViewer";
 import { DiffView } from "./DiffView";
+import { DocPreviewer } from "./DocPreviewer";
 import { ProcessCard, ProcessStatusIcon, ProcessToolIcon, type ProcessState, type ProcessTone } from "./ProcessCard";
 import { useT } from "../lib/i18n";
-import { diffsFor, subjectOf, summarize } from "../lib/tools";
+import { diffsFor, docExportPath, subjectOf, summarize } from "../lib/tools";
 import { useShellExpand } from "../lib/shellExpand";
 import type { Item } from "../lib/useController";
 
@@ -165,6 +166,21 @@ export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolI
           )}
         </div>
       )}
+
+      {/* Phase 5: doc-emitting tools (office plugin + doc_export) get an inline
+          preview + export actions once they finish successfully. The card stays
+          collapsed by default for the args/output block above; the preview is
+          always rendered for finished doc artifacts so the user can click
+          "Open" or "Export to workspace" without expanding. */}
+      {item.status === "done" && !item.error && (() => {
+        const docPath = docExportPath(item.name, item.args, item.output);
+        if (!docPath) return null;
+        return (
+          <div className="tool__docpreview">
+            <DocPreviewer path={docPath} compact />
+          </div>
+        );
+      })()}
 
       {item.error && <div className="tool__err">{item.error}</div>}
     </ProcessCard>

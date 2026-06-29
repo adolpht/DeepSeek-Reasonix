@@ -19,6 +19,7 @@ import type {
   ContextInfo,
   ContextPanelInfo,
   DirEntry,
+  DocPreviewPage,
   DroppedItem,
   EffortInfo,
   FilePreview,
@@ -44,11 +45,13 @@ import type {
   StashEntryView,
   TabMeta,
   TagView,
+  TemplateMeta,
   TopicMeta,
   UpdateInfo,
   UpdateProgress,
   WireEvent,
   WorkspaceChangesView,
+  WorkspaceType,
   WorkspaceView,
 } from "./types";
 
@@ -100,6 +103,11 @@ export interface AppBindings {
   SetPlanMode(on: boolean): Promise<void>;
   SetMode(mode: string): Promise<void>;
   SetModeForTab(tabID: string, mode: string): Promise<void>;
+  // SetWorkspaceType switches the active tab between "coding" and "office".
+  // In office mode the frontend shows the office-capability panel.
+  SetWorkspaceType(wt: WorkspaceType): Promise<void>;
+  // WorkspaceType returns the active tab's workspace type.
+  WorkspaceType(): Promise<WorkspaceType>;
   Compact(): Promise<void>;
   NewSession(): Promise<void>;
   History(): Promise<HistoryMessage[]>;
@@ -260,6 +268,24 @@ export interface AppBindings {
   GitShowCommit(hash: string): Promise<GitDiffView>;
   GitFileHistory(path: string, n: number): Promise<CommitView[]>;
   GitGenerateCommitMessage(): Promise<string>;
+
+  // --- Phase 5: personal-agent template library & doc preview ---
+  // ListTemplates scans <workspace>/.reasonix/templates/ for the library grid.
+  // kind filters by file type ("docx" | "xlsx" | "md" | "tmpl" | "txt" | "csv");
+  // pass "" to list all known kinds. Newest-first ordering.
+  ListTemplates(kind: string): Promise<TemplateMeta[]>;
+  // ExportToWorkspace writes agent-produced content (e.g. a rendered docx) to
+  // relPath under the active workspace. The frontend wraps the call with
+  // ApprovalModal — this method itself never prompts; it just writes when called.
+  ExportToWorkspace(tabID: string, relPath: string, content: string): Promise<string>;
+  // OpenInOSDefault opens an absolute path with the OS default app (Word/WPS for
+  // docx, Preview for png, etc.). Use for the "open in default app" chip on a
+  // doc-export tool result. Rejects empty/missing paths.
+  OpenInOSDefault(path: string): Promise<void>;
+  // RenderDocPreview registers a doc/image with the media-token store and
+  // returns URLs the frontend can inline-render (image) or surface as a
+  // download chip (docx/pdf). `page` is forward-compat for future pagination.
+  RenderDocPreview(absPath: string, page: number): Promise<DocPreviewPage[]>;
 }
 
 // Bidirectional compile-time drift checks. Exclude<A, B> extracts keys in A that
@@ -698,6 +724,7 @@ function makeMockApp(): AppBindings {
       ready: true,
       running: false,
       mode: "normal",
+      workspaceType: "coding",
       active: true,
       cwd: globalWorkspaceRoot,
     },
@@ -714,6 +741,7 @@ function makeMockApp(): AppBindings {
 	      ready: true,
 	      running: false,
 	      mode: "normal",
+	      workspaceType: "coding",
 	      active: true,
 	      cwd: "~/projects/joyquant-db",
     },
@@ -729,6 +757,7 @@ function makeMockApp(): AppBindings {
 	      ready: true,
 	      running: false,
 	      mode: "normal",
+	      workspaceType: "coding",
 	      active: false,
 	      cwd: "~/projects/joyquant-sys",
     },
@@ -743,6 +772,7 @@ function makeMockApp(): AppBindings {
 	      ready: true,
 	      running: false,
 	      mode: "normal",
+	      workspaceType: "coding",
 	      active: false,
 	      cwd: "~/projects/joyquant-db",
     },
@@ -1008,6 +1038,13 @@ function makeMockApp(): AppBindings {
 	          const nextMode = mode === "plan" || mode === "yolo" ? mode : "normal";
 	          mockTabs = mockTabs.map((tab) => tab.id === tabID ? { ...tab, mode: nextMode } : tab);
 	        },
+    async SetWorkspaceType(wt) {
+      mockTabs = mockTabs.map((tab) => tab.active ? { ...tab, workspaceType: wt } : tab);
+    },
+    async WorkspaceType() {
+      const active = mockTabs.find((t) => t.active);
+      return (active?.workspaceType as WorkspaceType) ?? "coding";
+    },
     async Compact() {},
     async NewSession() {},
     async Checkpoints() {
@@ -1662,6 +1699,7 @@ function makeMockApp(): AppBindings {
 	        ready: true,
 	        running: false,
 	        mode: "normal",
+	        workspaceType: "coding",
 	        active: true,
 	        cwd: workspaceRoot,
       };
@@ -1685,6 +1723,7 @@ function makeMockApp(): AppBindings {
 	        ready: true,
 	        running: false,
 	        mode: "normal",
+	        workspaceType: "coding",
 	        active: true,
 	        cwd: "",
       };
@@ -1945,6 +1984,67 @@ function makeMockApp(): AppBindings {
     },
     async GitGenerateCommitMessage(): Promise<string> {
       return "feat: update staged files";
+    },
+
+    // --- Phase 5 mocks: template library & doc preview ---
+    // Two demo templates so the TemplateLibrary grid has visible content in
+    // browser dev. The kinds cover the two main preview paths (md inline, docx
+    // download-chip); a third (tmpl) shows the description-from-frontmatter path.
+    async ListTemplates(kind: string): Promise<TemplateMeta[]> {
+      const now = Math.floor(Date.now() / 1000);
+      const all: TemplateMeta[] = freshMock ? [] : [
+        {
+          name: "weekly-report",
+          kind: "md",
+          path: "~/projects/joyquant-db/.reasonix/templates/weekly-report.md",
+          relPath: ".reasonix/templates/weekly-report.md",
+          description: "Weekly status report skeleton — fill the {{week}} placeholder.",
+          size: 412,
+          modTime: now - 3_600,
+        },
+        {
+          name: "service-contract",
+          kind: "docx",
+          path: "~/projects/joyquant-db/.reasonix/templates/service-contract.docx",
+          relPath: ".reasonix/templates/service-contract.docx",
+          description: "",
+          size: 18_245,
+          modTime: now - 86_400,
+        },
+        {
+          name: "cover-letter",
+          kind: "tmpl",
+          path: "~/projects/joyquant-db/.reasonix/templates/cover-letter.tmpl",
+          relPath: ".reasonix/templates/cover-letter.tmpl",
+          description: "Dear {{.name}}, I am writing to apply for…",
+          size: 286,
+          modTime: now - 7_200,
+        },
+      ];
+      if (!kind) return all;
+      return all.filter((t) => t.kind === kind);
+    },
+    async ExportToWorkspace(_tabID: string, relPath: string, _content: string): Promise<string> {
+      // Browser dev has no real FS — surface a synthetic absolute path so the
+      // approval modal's "will write to …" preview reads naturally.
+      const abs = `${cwd}/${relPath}`.replace(/\\/g, "/");
+      emit({ kind: "notice", level: "info", text: `exported → ${abs}` });
+      return abs;
+    },
+    async OpenInOSDefault(path: string): Promise<void> {
+      console.info("mock OpenInOSDefault", path);
+    },
+    async RenderDocPreview(absPath: string, _page: number): Promise<DocPreviewPage[]> {
+      // Mirror the Go behaviour: images return an inline-renderable URL,
+      // everything else returns a download-chip URL pointing at the same path.
+      const name = absPath.split(/[/\\]/).filter(Boolean).pop() ?? absPath;
+      const isImage = /\.(png|jpe?g|gif|svg|webp)$/i.test(name);
+      const kind = isImage ? "image" : "binary";
+      return [{
+        url: `/__reasonix_workspace_media/mock-${kind}-${name}/${encodeURIComponent(name)}`,
+        page: 1,
+        total: 1,
+      }];
     },
   };
 }

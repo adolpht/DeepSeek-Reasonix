@@ -41,9 +41,11 @@ import { TabBar } from "./components/TabBar";
 import { ProjectTree } from "./components/ProjectTree";
 import { CopyButton } from "./components/CopyButton";
 import { RepoWikiPanel } from "./components/RepoWikiPanel";
+import { TemplateLibrary } from "./components/TemplateLibrary";
+import { OfficePanel, WorkspaceTypeSwitch } from "./components/OfficePanel";
 import { parseTodos } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
-import type { ComposerInsertRequest, Meta, Mode, SessionMeta, SettingsTab, TabMeta } from "./lib/types";
+import type { ComposerInsertRequest, Meta, Mode, SessionMeta, SettingsTab, TabMeta, WorkspaceType } from "./lib/types";
 import { loadLayoutSize, saveLayoutSize } from "./lib/layoutPreferences";
 import {
   applyTheme,
@@ -375,6 +377,7 @@ export default function App() {
   const { locale, setPref: setLocalePref } = useI18n();
   const t = useT();
   const [modesByTab, setModesByTab] = useState<Record<string, Mode>>({});
+  const [wsTypeByTab, setWsTypeByTab] = useState<Record<string, WorkspaceType>>({});
   const [tabMetas, setTabMetas] = useState<TabMeta[]>([]);
   const [tabOrderIds, setTabOrderIds] = useState<string[]>([]);
   const [tabRevealSignal, setTabRevealSignal] = useState(0);
@@ -384,6 +387,7 @@ export default function App() {
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
   const [settingsTarget, setSettingsTarget] = useState<SettingsTab | null>(null);
   const [repoWikiOpen, setRepoWikiOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const [histView, setHistView] = useState<HistoryViewState | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
@@ -492,6 +496,7 @@ export default function App() {
   );
   const startupSplashHold = state.meta?.ready !== true && !state.meta?.startupErr;
   const mode = activeTabId ? modesByTab[activeTabId] ?? "normal" : "normal";
+  const workspaceType = activeTabId ? wsTypeByTab[activeTabId] ?? "coding" : "coding";
   const setMode = useCallback(
     (next: Mode | ((prev: Mode) => Mode)) => {
       if (!activeTabId) return;
@@ -545,6 +550,33 @@ export default function App() {
       return changed ? next : current;
     });
   }, [tabMetas]);
+
+  // Sync workspaceType from tabMetas → wsTypeByTab (mirrors modesByTab sync).
+  useEffect(() => {
+    const ids = new Set(tabMetas.map((tab) => tab.id));
+    setWsTypeByTab((current) => {
+      let changed = false;
+      const next: Record<string, WorkspaceType> = {};
+      for (const tab of tabMetas) {
+        const wt: WorkspaceType = tab.workspaceType === "office" ? "office" : "coding";
+        next[tab.id] = wt;
+        if (current[tab.id] !== wt) changed = true;
+      }
+      for (const id of Object.keys(current)) {
+        if (!ids.has(id)) changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [tabMetas]);
+
+  const applyWorkspaceType = useCallback(
+    (wt: WorkspaceType) => {
+      if (!activeTabId) return;
+      setWsTypeByTab((current) => ({ ...current, [activeTabId]: wt }));
+      void app.SetWorkspaceType(wt);
+    },
+    [activeTabId],
+  );
 
   useEffect(() => {
     if (!renamingTopicId || activeTab?.topicId === renamingTopicId) return;
@@ -1334,6 +1366,15 @@ export default function App() {
             </button>
           </Tooltip>
 
+          {workspaceType === "office" && (
+            <OfficePanel
+              onActivateSkill={(name) => {
+                addWorkspaceTextToComposer(`/skill ${name}`);
+              }}
+              onOpenTemplates={() => setTemplatesOpen(true)}
+            />
+          )}
+
           <section className="sidebar__section sidebar__section--projects">
             <ProjectTree
               activeScope={activeTab?.scope}
@@ -1351,6 +1392,7 @@ export default function App() {
           </section>
 
           <nav className="sidebar__nav">
+            <WorkspaceTypeSwitch value={workspaceType} onChange={applyWorkspaceType} />
             <Tooltip label={t("sidebar.repoWiki")} fill side="right" disabled={sidebarNavTooltipDisabled}>
               <button
                 className="sidebar__navitem"
@@ -1358,6 +1400,15 @@ export default function App() {
               >
                 <BookOpen size={15} />
                 <span>{t("sidebar.repoWiki")}</span>
+              </button>
+            </Tooltip>
+            <Tooltip label={t("sidebar.templates")} fill side="right" disabled={sidebarNavTooltipDisabled}>
+              <button
+                className="sidebar__navitem"
+                onClick={() => setTemplatesOpen(true)}
+              >
+                <FileText size={15} />
+                <span>{t("sidebar.templates")}</span>
               </button>
             </Tooltip>
             <Tooltip label={t("sidebar.allHistory")} fill side="right" disabled={sidebarNavTooltipDisabled}>
@@ -1531,6 +1582,7 @@ export default function App() {
                 <span className="loading-screen__text">{t("common.loading")}</span>
               </div>
             ) : (
+              <>
 	              <Transcript
 	                items={deferredItems}
 	                live={state.live}
@@ -1541,6 +1593,7 @@ export default function App() {
 	                actionPending={state.messageAction != null}
 	                rewindDisabled={state.running || state.messageAction != null || state.approval != null || state.ask != null}
 	              />
+              </>
             )}
           </main>
 
@@ -1572,8 +1625,8 @@ export default function App() {
                 onDismiss={() => answerQuestion(state.ask!.id, [])}
               />
             )}
-	              <Composer
-	              running={state.running}
+            <Composer
+              running={state.running}
               mode={mode}
               cwd={state.meta?.cwd}
               modelLabel={state.meta?.label ?? t("status.connecting")}
@@ -1730,6 +1783,20 @@ export default function App() {
         <RepoWikiPanel
           onClose={() => setRepoWikiOpen(false)}
           cwd={state.meta?.cwd}
+        />
+      )}
+
+      {templatesOpen && (
+        <TemplateLibrary
+          onClose={() => setTemplatesOpen(false)}
+          onApply={(tmpl) => {
+            // Apply inserts the template path into the composer so the user
+            // can ask the agent to render it via mcp__office__render_template.
+            // (The desktop surface never grows its own template engine —
+            // rendering stays in the office plugin per the architecture.)
+            addWorkspaceTextToComposer(`/skill ${tmpl.name} ${tmpl.relPath}`);
+            setTemplatesOpen(false);
+          }}
         />
       )}
 

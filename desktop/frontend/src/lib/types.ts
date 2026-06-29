@@ -131,6 +131,7 @@ export interface TabMeta {
   ready: boolean;
   running: boolean;
   mode: Mode;
+  workspaceType: WorkspaceType;
   startupErr?: string;
   active: boolean;
   cwd: string;
@@ -213,6 +214,27 @@ export interface HistoryToolCall {
   arguments: string;
 }
 
+// Phase 5 — personal-agent template library & doc preview payloads
+// (desktop/phase5_app.go). ListTemplates scans .reasonix/templates/;
+// RenderDocPreview registers a file with the media-token store and returns
+// a URL the frontend can inline-render (image) or surface as a download
+// chip (docx/pdf — page-by-page rendering is a future enhancement).
+export interface TemplateMeta {
+  name: string; // file stem, e.g. "weekly-report"
+  kind: "docx" | "xlsx" | "md" | "tmpl" | "txt" | "csv";
+  path: string; // absolute path
+  relPath: string; // relative to workspace root ("" if outside)
+  description: string; // first non-empty line of file (text templates only)
+  size: number;
+  modTime: number; // unix seconds
+}
+
+export interface DocPreviewPage {
+  url: string; // media token URL, e.g. /__reasonix_workspace_media/<tok>/<name>
+  page: number; // 1-based
+  total: number; // total pages available
+}
+
 // CheckpointMeta is one rewind point (a user turn) for the rewind UI.
 export interface CheckpointMeta {
   turn: number;
@@ -265,6 +287,11 @@ export interface Meta {
 // Mode is the input mode cycled by Shift+Tab: normal (shown as auto) → plan
 // (read-only) → yolo (auto-approve every tool call; deny rules still apply).
 export type Mode = "normal" | "plan" | "yolo";
+
+// WorkspaceType is the workspace surface mode: "coding" (default, code-centric
+// layout) or "office" (shows the office-capability panel with skill cards
+// instead of requiring slash commands).
+export type WorkspaceType = "coding" | "office";
 
 export interface CommandInfo {
   name: string; // without the leading slash

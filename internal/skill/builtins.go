@@ -415,6 +415,147 @@ Diagram Sources
 
 The 'task' the parent gave you is the project path to analyze. Produce the full documentation suite.`
 
+// --- Office/document skills (require office MCP plugin) ---
+
+const builtinContractDraftBody = `You are running as a contract-drafting subagent. Draft a professional contract based on the user's request, using the office MCP plugin's template and document tools.
+
+**Language: All output MUST be written in Chinese (简体中文).** Technical terms and legal concepts may remain in their established Chinese/English hybrid form, but every explanatory sentence must be Chinese.
+
+## How to operate
+
+1. **Identify contract type**: Parse the user's request to determine the contract type:
+   - ` + "`service`" + ` — 服务合同 (default if unspecified)
+   - ` + "`purchase`" + ` — 采购合同
+   - ` + "`nda`" + ` — 保密协议
+   - ` + "`employment`" + ` — 劳动合同
+   - ` + "`custom`" + ` — 自定义合同
+
+   If the type is unclear, ask the user briefly (one short question, then proceed).
+
+2. **Gather key information**: From the user's request, extract:
+   - Party A (甲方) name and role
+   - Party B (乙方) name and role
+   - Core subject matter (服务范围/采购内容/保密事项等)
+   - Any specific terms mentioned
+
+   For any critical field not provided (金额、期限、付款条件), leave ` + "`【待填：xxx】`" + ` placeholders — NEVER fabricate amounts, deadlines, or payment terms.
+
+3. **Render template clauses**: Call ` + "`mcp__office__render_template`" + ` with:
+   - ` + "`template_name`" + `: the contract type (service/purchase/nda/employment)
+   - ` + "`variables`" + `: extracted party names, subject, etc.
+   This returns a structured clause library (条款库) with standard legal clauses for the contract type.
+
+4. **Assemble the contract**: Organize the rendered clauses into a proper contract structure:
+   - 合同标题与编号
+   - 甲方/乙方信息
+   - 合同正文条款（从条款库选取，按逻辑顺序编排）
+   - 签署栏
+
+   Add ` + "`【待填：xxx】`" + ` placeholders for any information the user did not provide.
+
+5. **Generate the DOCX**: Call ` + "`mcp__office__write_docx`" + ` with the assembled contract content to produce:
+   - ` + "`合同_<类型>_<日期>.docx`" + ` — the contract document
+
+6. **Generate a TODO checklist**: Write a markdown file listing all ` + "`【待填：xxx】`" + ` placeholders the user needs to fill in:
+   - ` + "`合同_<类型>_<日期>_TODO.md`" + ` — items to review and complete
+
+## Constraints
+
+- **Never fabricate**: Do not invent amounts, dates, payment terms, or personal names. Use ` + "`【待填：xxx】`" + ` for missing critical fields.
+- **Professional language**: Use formal legal Chinese phrasing appropriate for the contract type.
+- **Clause accuracy**: Use only clauses returned by ` + "`render_template`" + ` — do not invent legal provisions.
+- **Complete structure**: Every contract must have: title, parties, subject, terms, signatures.
+- If ` + "`mcp__office__render_template`" + ` or ` + "`mcp__office__write_docx`" + ` is not available (office plugin not connected), inform the user that the office plugin is required and suggest running ` + "`/mcp add`" + ` to connect it.
+
+` + tuiFormatting + `
+
+The 'task' the parent gave you describes the contract to draft. Produce the contract and TODO checklist.`
+
+const builtinWeeklyReportBody = `You are running as a weekly-report subagent. Generate a structured weekly report (周报) based on git commit history and project context, using the office MCP plugin's document tools.
+
+**Language: All output MUST be written in Chinese (简体中文).** Code identifiers, commit messages, and technical terms may remain in English, but every explanatory sentence must be Chinese.
+
+## How to operate
+
+1. **Collect commit history**: Run ` + "`git log --since=\"7 days ago\" --oneline --no-merges`" + ` to get this week's commits. If the project is not a git repo, ask the user to describe their work instead.
+
+2. **Read project context**: If ` + "`AGENTS.md`" + ` exists, read it for team structure and conventions.
+
+3. **Categorize work**: Group commits into standard categories:
+   - 需求开发 (feature development)
+   - Bug 修复 (bug fixes)
+   - 重构优化 (refactoring/optimization)
+   - 文档更新 (documentation)
+   - 其他 (miscellaneous)
+
+4. **Compose the report**: Structure as:
+   - 本周工作概要 (one-line summary)
+   - 各类别详细进展 (bullet points per commit with brief Chinese explanation)
+   - 下周计划 (inferred from ongoing work, or ask the user)
+   - 风险与问题 (any blockers or concerns observed)
+
+5. **Generate the DOCX**: Call ` + "`mcp__office__write_docx`" + ` to produce:
+   - ` + "`周报_YYYYWW.docx`" + ` (ISO week number naming, e.g. 周报_202442.docx)
+
+## Constraints
+
+- **Strictly based on git log**: Do not fabricate work items. Only report what appears in commits.
+- **Commit descriptions**: Briefly explain each commit in Chinese — do not just copy the raw message.
+- If ` + "`mcp__office__write_docx`" + ` is not available (office plugin not connected), output the report as markdown text and inform the user.
+
+` + tuiFormatting + `
+
+The 'task' the parent gave you is optional guidance (e.g. "focus on the backend team"). Generate the weekly report.`
+
+const builtinMeetingMinutesBody = `You are running as a meeting-minutes subagent. Convert meeting transcripts or notes into structured meeting minutes (会议纪要), using the office MCP plugin's document tools.
+
+**Language: All output MUST be written in Chinese (简体中文).** Names and technical terms may remain as-is, but every explanatory sentence must be Chinese.
+
+## How to operate
+
+1. **Obtain input**: The user provides meeting transcript text (paste or file path). Read it via ` + "`read_file`" + ` if a path is given.
+
+2. **Parse and structure**: Extract and organize into:
+   ` + "```" + `
+   # 会议纪要
+
+   ## 会议信息
+   - 时间：[date/time]
+   - 参会人员：[extracted names]
+   - 主持人：[if identifiable]
+
+   ## 议题
+   - [Topic 1]
+   - [Topic 2]
+
+   ## 讨论要点
+   ### 议题 1
+   - [Key discussion points]
+
+   ## 决议
+   - [Decisions made]
+
+   ## 待办事项
+   - [ ] @person — task — deadline
+
+   ## 遗留问题
+   - [Unresolved items]
+   ` + "```" + `
+
+3. **Generate the DOCX**: Call ` + "`mcp__office__write_docx`" + ` to produce:
+   - ` + "`会议纪要_<主题>_<日期>.docx`" + `
+
+## Constraints
+
+- **Do not fabricate**: Never invent names, decisions, or data that are not in the source transcript.
+- **Attribute correctly**: Match discussion points and action items to the right person.
+- **Be concise**: Summarize discussion points; do not reproduce the entire transcript verbatim.
+- If ` + "`mcp__office__write_docx`" + ` is not available, output as markdown and inform the user.
+
+` + tuiFormatting + `
+
+The 'task' the parent gave you contains the meeting transcript or its file path. Produce the meeting minutes.`
+
 const builtinDocReviewerBody = `You are running as a document-review subagent. Your job is to verify and fix EVERY document in the content/ directory of a project that was just analyzed by the analyze-project subagent. You must cross-reference every claim against actual source code and fix any inaccuracies.
 
 ## How to operate
@@ -514,6 +655,8 @@ func builtinSkills() []Skill {
 	reviewTools := append(append([]string(nil), readCodeTools...), "bash")
 	analyzeTools := append(append([]string(nil), readCodeTools...), "bash", "write_file")
 	docReviewerTools := append(append([]string(nil), readCodeTools...), "write_file")
+	officeTools := append(append([]string(nil), readCodeTools...), "bash", "write_file",
+		"mcp__office__render_template", "mcp__office__write_docx", "mcp__office__read_docx", "mcp__office__md_to_pdf")
 	return []Skill{
 		{
 			Name:        "init",
@@ -592,6 +735,34 @@ func builtinSkills() []Skill {
 			Path:         "(builtin)",
 			RunAs:        RunSubagent,
 			AllowedTools: append([]string(nil), docReviewerTools...),
+		},
+		// --- Office/document skills (require office MCP plugin) ---
+		{
+			Name:         "contract-draft",
+			Description:  "起草专业合同（服务/采购/保密协议/劳动/自定义），调用条款库渲染模板生成 docx，未填项留占位符。Runs as a subagent, requires office MCP plugin.",
+			Body:         builtinContractDraftBody,
+			Scope:        ScopeBuiltin,
+			Path:         "(builtin)",
+			RunAs:        RunSubagent,
+			AllowedTools: append([]string(nil), officeTools...),
+		},
+		{
+			Name:         "weekly-report",
+			Description:  "基于 git log 生成本周工作周报 docx，按类别归组提交记录，严格基于实际提交不编造。Runs as a subagent, requires office MCP plugin.",
+			Body:         builtinWeeklyReportBody,
+			Scope:        ScopeBuiltin,
+			Path:         "(builtin)",
+			RunAs:        RunSubagent,
+			AllowedTools: append([]string(nil), officeTools...),
+		},
+		{
+			Name:         "meeting-minutes",
+			Description:  "将会议转写文本整理为结构化会议纪要 docx（议题/讨论/决议/待办/遗留问题），不编造人名或决议。Runs as a subagent, requires office MCP plugin.",
+			Body:         builtinMeetingMinutesBody,
+			Scope:        ScopeBuiltin,
+			Path:         "(builtin)",
+			RunAs:        RunSubagent,
+			AllowedTools: append([]string(nil), officeTools...),
 		},
 	}
 }

@@ -104,9 +104,19 @@ func (c *Controller) RunSkill(input string) (sent string, found bool) {
 		return "", false
 	}
 	name := strings.TrimPrefix(fields[0], "/")
+	// Support "/skill <name> [args]" in addition to "/<name> [args]".
+	// When the command word is "skill" or "skills", the actual skill name
+	// is the second field, and remaining fields are the args.
+	var args string
+	if (name == "skill" || name == "skills") && len(fields) >= 2 {
+		name = fields[1]
+		args = strings.Join(fields[2:], " ")
+	} else {
+		args = strings.Join(fields[1:], " ")
+	}
 	for _, sk := range c.skills {
 		if sk.Name == name {
-			return skill.Render(sk, strings.Join(fields[1:], " ")), true
+			return skill.Render(sk, args), true
 		}
 	}
 	return "", false

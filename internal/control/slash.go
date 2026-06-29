@@ -339,6 +339,12 @@ func (c *Controller) managementNotice(trimmed string) bool {
 			}
 			return true
 		}
+		// If a second argument is provided and it is not a management
+		// sub-command (list/show/new/paths), treat it as a skill name and
+		// fall through to RunSkill instead of listing all skills.
+		if sub != "" && sub != "list" && sub != "show" && sub != "new" && sub != "paths" {
+			return false
+		}
 		c.notice(c.skillListText())
 	case "/hooks":
 		c.notice(c.hookListText())

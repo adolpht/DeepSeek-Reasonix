@@ -352,6 +352,7 @@ func (a *App) restoreOrBuildTabs() {
 			tab.model = entry.Model
 			tab.effort = cloneStringPtr(entry.Effort)
 			tab.mode = persistedTabMode(entry.Mode)
+			tab.workspaceType = normalizeWorkspaceType(entry.WorkspaceType)
 			tab.SessionPath = strings.TrimSpace(entry.SessionPath)
 			tab.sink = &tabEventSink{tabID: tab.ID, app: a, ctx: ctx}
 			a.mu.Lock()
