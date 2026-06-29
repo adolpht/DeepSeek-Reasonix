@@ -1,114 +1,155 @@
-package main
+package builtin
 
 import (
+	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"reasonix/internal/tool"
+
 	"github.com/xuri/excelize/v2"
 )
 
-// writeSheetTool writes rows to an xlsx/csv file. Overwrite replaces the sheet;
-// append adds after the last used row. NOT read-only: it mutates files, so the
-// permission layer will prompt unless the user has allow-listed it.
-var writeSheetTool = toolDef{
-	name: "write_sheet",
-	description: "Write rows to an xlsx/csv file. 'data' may be a 2D array or a Markdown table. " +
-		"mode=overwrite (default) replaces the sheet; mode=append adds after the last used row.",
-	readOnly: false,
-	schema: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":       map[string]any{"type": "string", "description": "Absolute path to the target file"},
-			"sheet":      map[string]any{"type": "string", "description": "Sheet name (xlsx); default Sheet1"},
-			"data":       map[string]any{"type": "array", "description": "2D array of rows, or a Markdown table string"},
-			"mode":       map[string]any{"type": "string", "enum": []string{"overwrite", "append"}, "description": "Write mode (default overwrite)"},
-			"start_cell": map[string]any{"type": "string", "description": "Top-left cell for the write (default A1)"},
-		},
-		"required": []string{"path", "data"},
-	},
-	run: runWriteSheet,
+func init() {
+	tool.RegisterBuiltin(writeSheet{})
 }
 
-func runWriteSheet(args map[string]any) (any, error) {
-	path, err := argString(args, "path")
-	if err != nil {
-		return nil, err
-	}
-	sheet := argStringDefault(args, "sheet", "Sheet1")
-	mode := argStringDefault(args, "mode", "overwrite")
-	startCell := argStringDefault(args, "start_cell", "A1")
+// writeSheet writes rows to an xlsx/csv file. roots, when non-empty, confines
+// the target to the workspace (see confine); the zero value registered at init
+// is unconfined and is overridden per run by ConfineWriters. workDir, when
+// non-empty, is the directory a relative path resolves against (see resolveIn).
+type writeSheet struct {
+	roots   []string
+	workDir string
+}
 
-	rows, err := extractRows(args["data"])
+func (writeSheet) Name() string { return "write_sheet" }
+
+func (writeSheet) Description() string {
+	return "Write rows to an xlsx/csv file. 'data' may be a 2D array or a Markdown table. mode=overwrite (default) replaces the sheet; mode=append adds after the last used row."
+}
+
+func (writeSheet) Schema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"path": {
+				"type": "string",
+				"description": "Path to the xlsx or csv file"
+			},
+			"data": {
+				"oneOf": [
+					{"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+					{"type": "string"}
+				],
+				"description": "2D array of rows or a Markdown table string"
+			},
+			"sheet": {
+				"type": "string",
+				"description": "Sheet name for xlsx files (default: Sheet1)"
+			},
+			"mode": {
+				"type": "string",
+				"enum": ["overwrite", "append"],
+				"description": "Write mode: overwrite (default) or append"
+			},
+			"start_cell": {
+				"type": "string",
+				"description": "Starting cell for writing (default: A1)"
+			}
+		},
+		"required": ["path", "data"]
+	}`)
+}
+
+func (writeSheet) ReadOnly() bool { return false }
+
+func (w writeSheet) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+	var p struct {
+		Path      string          `json:"path"`
+		Data      json.RawMessage `json:"data"`
+		Sheet     string          `json:"sheet"`
+		Mode      string          `json:"mode"`
+		StartCell string          `json:"start_cell"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil {
+		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	if p.Path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	p.Path = resolveIn(w.workDir, p.Path)
+	if err := confine(w.roots, p.Path); err != nil {
+		return "", err
+	}
+
+	if p.Sheet == "" {
+		p.Sheet = "Sheet1"
+	}
+	if p.Mode == "" {
+		p.Mode = "overwrite"
+	}
+	if p.StartCell == "" {
+		p.StartCell = "A1"
+	}
+
+	rows, err := extractRows(p.Data)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("data is empty")
+		return "", fmt.Errorf("data is empty")
 	}
 
-	ext := strings.ToLower(filepath.Ext(path))
+	if dir := filepath.Dir(p.Path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+	}
+
+	ext := strings.ToLower(filepath.Ext(p.Path))
 	var written int
 	switch ext {
 	case ".csv":
-		written, err = writeCSV(path, rows, mode)
+		written, err = writeCSV(p.Path, rows, p.Mode)
 	case ".xlsx", ".xlsm":
-		written, err = writeXLSX(path, sheet, rows, mode, startCell)
+		written, err = writeXLSX(p.Path, p.Sheet, rows, p.Mode, p.StartCell)
 	default:
-		return nil, fmt.Errorf("unsupported file extension %q (want .xlsx/.xlsm/.csv)", ext)
+		return "", fmt.Errorf("unsupported file extension %q (want .xlsx/.xlsm/.csv)", ext)
 	}
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return fmt.Sprintf("wrote %d rows to %s (mode=%s)", written, path, mode), nil
+	return fmt.Sprintf("wrote %d rows to %s (mode=%s)", written, p.Path, p.Mode), nil
 }
 
 // extractRows accepts either a 2D array (from JSON) or a Markdown table string.
-func extractRows(v any) ([][]string, error) {
-	switch d := v.(type) {
-	case string:
-		return parseMarkdownTable(d)
-	case []any:
-		rows := make([][]string, 0, len(d))
-		for _, row := range d {
-			r, ok := row.([]any)
-			if !ok {
-				return nil, fmt.Errorf("data rows must be arrays, got %T", row)
-			}
-			cells := make([]string, 0, len(r))
-			for _, c := range r {
-				cells = append(cells, toCellString(c))
-			}
-			rows = append(rows, cells)
-		}
-		return rows, nil
-	default:
-		return nil, fmt.Errorf("data must be a 2D array or Markdown table string, got %T", v)
+func extractRows(v json.RawMessage) ([][]string, error) {
+	// Try as string first (Markdown table)
+	var s string
+	if err := json.Unmarshal(v, &s); err == nil {
+		return parseMarkdownTable(s)
 	}
-}
 
-func toCellString(v any) string {
-	switch x := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return x
-	case float64:
-		// JSON numbers: render ints without trailing .0
-		if x == float64(int64(x)) {
-			return fmt.Sprintf("%d", int64(x))
-		}
-		return fmt.Sprintf("%g", x)
-	case bool:
-		if x {
-			return "true"
-		}
-		return "false"
-	default:
-		return fmt.Sprintf("%v", x)
+	// Try as 2D array
+	var arr [][]any
+	if err := json.Unmarshal(v, &arr); err != nil {
+		return nil, fmt.Errorf("data must be a 2D array or Markdown table string")
 	}
+
+	rows := make([][]string, 0, len(arr))
+	for _, row := range arr {
+		cells := make([]string, 0, len(row))
+		for _, c := range row {
+			cells = append(cells, toCellString(c))
+		}
+		rows = append(rows, cells)
+	}
+	return rows, nil
 }
 
 // parseMarkdownTable turns a Markdown pipe-table into rows. Tolerant: skips the
@@ -231,7 +272,7 @@ func writeXLSX(path, sheet string, rows [][]string, mode, startCell string) (int
 }
 
 // applySheetStyles adds professional styling to the written sheet:
-//   - Header row: bold font, light blue background (#D9E1F2), thin border
+//   - Header row: bold font, light blue background (#D9E1F2), bottom border
 //   - All cells: thin border on all four sides
 //   - Column widths: auto-fit based on max content length
 func applySheetStyles(f *excelize.File, sheet string, rows [][]string, startCol, startRow int) {
@@ -329,5 +370,55 @@ func applySheetStyles(f *excelize.File, sheet string, rows [][]string, startCol,
 		}
 		colName, _ := excelize.ColumnNumberToName(startCol + c)
 		_ = f.SetColWidth(sheet, colName, colName, width)
+	}
+}
+
+// parseCell turns "B3" into (col=2, row=3).
+func parseCell(cell string) (col, row int, ok bool) {
+	cell = strings.TrimSpace(cell)
+	if cell == "" {
+		return 0, 0, false
+	}
+	i := 0
+	for i < len(cell) && ((cell[i] >= 'A' && cell[i] <= 'Z') || (cell[i] >= 'a' && cell[i] <= 'z')) {
+		col = col*26 + int(toUpperByte(cell[i])-'A'+1)
+		i++
+	}
+	for i < len(cell) && cell[i] >= '0' && cell[i] <= '9' {
+		row = row*10 + int(cell[i]-'0')
+		i++
+	}
+	if col == 0 || row == 0 || i != len(cell) {
+		return 0, 0, false
+	}
+	return col, row, true
+}
+
+func toUpperByte(b byte) byte {
+	if b >= 'a' && b <= 'z' {
+		return b - 32
+	}
+	return b
+}
+
+func toCellString(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case float64:
+		// JSON numbers: render ints without trailing .0
+		if x == float64(int64(x)) {
+			return fmt.Sprintf("%d", int64(x))
+		}
+		return fmt.Sprintf("%g", x)
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	default:
+		return fmt.Sprintf("%v", x)
 	}
 }

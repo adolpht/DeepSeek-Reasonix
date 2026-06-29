@@ -1,61 +1,74 @@
-package main
+package builtin
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/nineya/wordZero/pkg/document"
 	"github.com/nineya/wordZero/pkg/markdown"
+
+	"reasonix/internal/tool"
 )
 
-// writeDocxTool writes Markdown content as a .docx file using the wordZero library.
+func init() { tool.RegisterBuiltin(writeDocx{}) }
+
+// writeDocx writes Markdown content as a .docx file using the wordZero library.
 // NOT read-only.
-var writeDocxTool = toolDef{
-	name: "write_docx",
-	description: "Write Markdown content to a .docx file. Headings (#/##/###) and tables (| a | b |) " +
-		"are converted to native Word styles; other text becomes plain paragraphs. " +
-		"Overwrites any existing file.",
-	readOnly: false,
-	schema: map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"path":    map[string]any{"type": "string", "description": "Absolute output path (.docx)"},
-			"content": map[string]any{"type": "string", "description": "Markdown content"},
-			"title":   map[string]any{"type": "string", "description": "Document title metadata (optional)"},
-		},
-		"required": []string{"path", "content"},
-	},
-	run: runWriteDocx,
+type writeDocx struct {
+	roots   []string
+	workDir string
 }
 
-func runWriteDocx(args map[string]any) (any, error) {
-	path, err := argString(args, "path")
-	if err != nil {
-		return nil, err
-	}
-	content, err := argString(args, "content")
-	if err != nil {
-		return nil, err
-	}
-	title := argStringDefault(args, "title", "")
+func (writeDocx) Name() string { return "write_docx" }
 
-	// Reject .docx-incompatible extensions early.
-	if !strings.HasSuffix(strings.ToLower(path), ".docx") {
-		return nil, fmt.Errorf("output path must end with .docx, got %q", path)
+func (writeDocx) Description() string {
+	return "Write Markdown content to a .docx file. Headings (#/##/###) and tables (| a | b |) " +
+		"are converted to native Word styles; other text becomes plain paragraphs. " +
+		"Overwrites any existing file."
+}
+
+func (writeDocx) Schema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Absolute output path (.docx)"},"content":{"type":"string","description":"Markdown content"},"title":{"type":"string","description":"Document title metadata (optional)"}},"required":["path","content"]}`)
+}
+
+func (writeDocx) ReadOnly() bool { return false }
+
+func (w writeDocx) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+	var p struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+		Title   string `json:"title"`
+	}
+	if err := json.Unmarshal(args, &p); err != nil {
+		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	if p.Path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if !strings.HasSuffix(strings.ToLower(p.Path), ".docx") {
+		return "", fmt.Errorf("output path must end with .docx, got %q", p.Path)
 	}
 
-	if dir := strings.TrimSpace(path[:strings.LastIndex(path, "/")]); dir != "" {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			_ = os.MkdirAll(dir, 0o755)
+	p.Path = resolveIn(w.workDir, p.Path)
+	if err := confine(w.roots, p.Path); err != nil {
+		return "", err
+	}
+
+	if dir := filepath.Dir(p.Path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 	}
 
-	blocks := parseMarkdownBlocks(content)
-	if err := writeDocxWordZero(path, blocks, title); err != nil {
-		return nil, err
+	blocks := parseMarkdownBlocks(p.Content)
+	if err := writeDocxWordZero(p.Path, blocks, p.Title); err != nil {
+		return "", fmt.Errorf("write %s: %w", p.Path, err)
 	}
-	return fmt.Sprintf("wrote %d blocks to %s", len(blocks), path), nil
+	return fmt.Sprintf("wrote %d blocks to %s", len(blocks), p.Path), nil
 }
 
 // mdBlock is one rendered paragraph/heading/table in the document body.
@@ -66,6 +79,7 @@ type mdBlock struct {
 }
 
 // parseMarkdownBlocks converts Markdown text into structured blocks.
+// Intentionally simple: headings, pipe tables, blank lines, and paragraphs.
 func parseMarkdownBlocks(md string) []mdBlock {
 	lines := strings.Split(md, "\n")
 	var blocks []mdBlock
@@ -74,27 +88,31 @@ func parseMarkdownBlocks(md string) []mdBlock {
 		ln := strings.TrimRight(lines[i], "\r")
 		trimmed := strings.TrimSpace(ln)
 
+		// Blank line.
 		if trimmed == "" {
 			blocks = append(blocks, mdBlock{kind: "empty"})
 			i++
 			continue
 		}
 
+		// Heading.
 		if h, level := parseHeading(trimmed); level > 0 {
 			blocks = append(blocks, mdBlock{kind: fmt.Sprintf("h%d", level), text: h})
 			i++
 			continue
 		}
 
+		// Table: a line starting with | followed by a separator line.
 		if strings.HasPrefix(trimmed, "|") && i+1 < len(lines) && isTableSeparator(strings.TrimSpace(lines[i+1])) {
 			rows := parseTableLines(lines[i:])
-			i += len(rows) + 1
+			i += len(rows) + 1 // rows + separator
 			if len(rows) > 0 {
 				blocks = append(blocks, mdBlock{kind: "table", rows: rows})
 			}
 			continue
 		}
 
+		// Plain paragraph.
 		blocks = append(blocks, mdBlock{kind: "p", text: trimmed})
 		i++
 	}
@@ -152,12 +170,16 @@ func parseTableLines(lines []string) [][]string {
 	return rows
 }
 
-// writeDocxWordZero creates a .docx file using the wordZero library.
+// writeDocxWordZero creates a .docx file from blocks using the wordZero library.
 func writeDocxWordZero(path string, blocks []mdBlock, title string) error {
+	// Try the wordZero built-in Markdown converter first.
+	// It produces richer output (bold, italic, lists, code, etc.) than our
+	// simple block renderer, so we prefer it when the content is well-formed.
 	mdText := rebuildMarkdown(blocks)
 	converter := markdown.NewConverter(markdown.DefaultOptions())
 	doc, err := converter.ConvertString(mdText, nil)
 	if err == nil {
+		// Set document title metadata if provided.
 		if title != "" {
 			hasTitleHeading := false
 			for _, blk := range blocks {
@@ -192,14 +214,16 @@ func writeDocxWordZero(path string, blocks []mdBlock, title string) error {
 		case "h6":
 			doc.AddHeadingParagraph(blk.text, 6)
 		case "table":
-			addTablePlugin(doc, blk.rows)
-		default:
+			addTable(doc, blk.rows)
+		default: // "p"
 			doc.AddParagraph(blk.text)
 		}
 	}
 	return doc.Save(path)
 }
 
+// rebuildMarkdown reconstructs a Markdown string from parsed blocks so the
+// wordZero markdown converter can produce a richer .docx output.
 func rebuildMarkdown(blocks []mdBlock) string {
 	var b strings.Builder
 	for _, blk := range blocks {
@@ -222,6 +246,7 @@ func rebuildMarkdown(blocks []mdBlock) string {
 					cols = len(r)
 				}
 			}
+			// Header row
 			b.WriteString("|")
 			for c := 0; c < cols; c++ {
 				cell := ""
@@ -236,6 +261,7 @@ func rebuildMarkdown(blocks []mdBlock) string {
 				b.WriteString("---|")
 			}
 			b.WriteString("\n")
+			// Data rows
 			for r := 1; r < len(blk.rows); r++ {
 				b.WriteString("|")
 				for c := 0; c < cols; c++ {
@@ -248,7 +274,7 @@ func rebuildMarkdown(blocks []mdBlock) string {
 				}
 				b.WriteString("\n")
 			}
-		default:
+		default: // "p"
 			b.WriteString(blk.text)
 			b.WriteString("\n")
 		}
@@ -256,7 +282,8 @@ func rebuildMarkdown(blocks []mdBlock) string {
 	return b.String()
 }
 
-func addTablePlugin(doc *document.Document, rows [][]string) {
+// addTable creates a styled table in the document.
+func addTable(doc *document.Document, rows [][]string) {
 	if len(rows) == 0 {
 		return
 	}
@@ -273,6 +300,7 @@ func addTablePlugin(doc *document.Document, rows [][]string) {
 	}
 	tbl, _ := doc.AddTable(cfg)
 
+	// Fill cell text.
 	for r, row := range rows {
 		for c := 0; c < cols; c++ {
 			cell := ""

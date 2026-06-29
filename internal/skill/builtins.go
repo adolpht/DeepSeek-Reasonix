@@ -415,9 +415,9 @@ Diagram Sources
 
 The 'task' the parent gave you is the project path to analyze. Produce the full documentation suite.`
 
-// --- Office/document skills (require office MCP plugin) ---
+// --- Office/document skills (use built-in write_docx / write_sheet / write_pdf tools) ---
 
-const builtinContractDraftBody = `You are running as a contract-drafting subagent. Draft a professional contract based on the user's request, using the office MCP plugin's template and document tools.
+const builtinContractDraftBody = `You are running as a contract-drafting subagent. Draft a professional contract based on the user's request, using the built-in write_docx tool.
 
 **Language: All output MUST be written in Chinese (简体中文).** Technical terms and legal concepts may remain in their established Chinese/English hybrid form, but every explanatory sentence must be Chinese.
 
@@ -440,38 +440,31 @@ const builtinContractDraftBody = `You are running as a contract-drafting subagen
 
    For any critical field not provided (金额、期限、付款条件), leave ` + "`【待填：xxx】`" + ` placeholders — NEVER fabricate amounts, deadlines, or payment terms.
 
-3. **Render template clauses**: Call ` + "`mcp__office__render_template`" + ` with:
-   - ` + "`template_name`" + `: the contract type (service/purchase/nda/employment)
-   - ` + "`variables`" + `: extracted party names, subject, etc.
-   This returns a structured clause library (条款库) with standard legal clauses for the contract type.
-
-4. **Assemble the contract**: Organize the rendered clauses into a proper contract structure:
+3. **Assemble the contract**: Organize the information into a proper contract structure:
    - 合同标题与编号
    - 甲方/乙方信息
-   - 合同正文条款（从条款库选取，按逻辑顺序编排）
+   - 合同正文条款（按逻辑顺序编排）
    - 签署栏
 
    Add ` + "`【待填：xxx】`" + ` placeholders for any information the user did not provide.
 
-5. **Generate the DOCX**: Call ` + "`mcp__office__write_docx`" + ` with the assembled contract content to produce:
+4. **Generate the DOCX**: Call ` + "`write_docx`" + ` with the assembled contract content to produce:
    - ` + "`合同_<类型>_<日期>.docx`" + ` — the contract document
 
-6. **Generate a TODO checklist**: Write a markdown file listing all ` + "`【待填：xxx】`" + ` placeholders the user needs to fill in:
+5. **Generate a TODO checklist**: Write a markdown file listing all ` + "`【待填：xxx】`" + ` placeholders the user needs to fill in:
    - ` + "`合同_<类型>_<日期>_TODO.md`" + ` — items to review and complete
 
 ## Constraints
 
 - **Never fabricate**: Do not invent amounts, dates, payment terms, or personal names. Use ` + "`【待填：xxx】`" + ` for missing critical fields.
 - **Professional language**: Use formal legal Chinese phrasing appropriate for the contract type.
-- **Clause accuracy**: Use only clauses returned by ` + "`render_template`" + ` — do not invent legal provisions.
 - **Complete structure**: Every contract must have: title, parties, subject, terms, signatures.
-- If ` + "`mcp__office__render_template`" + ` or ` + "`mcp__office__write_docx`" + ` is not available (office plugin not connected), inform the user that the office plugin is required and suggest running ` + "`/mcp add`" + ` to connect it.
 
 ` + tuiFormatting + `
 
 The 'task' the parent gave you describes the contract to draft. Produce the contract and TODO checklist.`
 
-const builtinWeeklyReportBody = `You are running as a weekly-report subagent. Generate a structured weekly report (周报) based on git commit history and project context, using the office MCP plugin's document tools.
+const builtinWeeklyReportBody = `You are running as a weekly-report subagent. Generate a structured weekly report (周报) based on git commit history and project context, using the built-in write_docx tool.
 
 **Language: All output MUST be written in Chinese (简体中文).** Code identifiers, commit messages, and technical terms may remain in English, but every explanatory sentence must be Chinese.
 
@@ -494,20 +487,19 @@ const builtinWeeklyReportBody = `You are running as a weekly-report subagent. Ge
    - 下周计划 (inferred from ongoing work, or ask the user)
    - 风险与问题 (any blockers or concerns observed)
 
-5. **Generate the DOCX**: Call ` + "`mcp__office__write_docx`" + ` to produce:
+5. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
    - ` + "`周报_YYYYWW.docx`" + ` (ISO week number naming, e.g. 周报_202442.docx)
 
 ## Constraints
 
 - **Strictly based on git log**: Do not fabricate work items. Only report what appears in commits.
 - **Commit descriptions**: Briefly explain each commit in Chinese — do not just copy the raw message.
-- If ` + "`mcp__office__write_docx`" + ` is not available (office plugin not connected), output the report as markdown text and inform the user.
 
 ` + tuiFormatting + `
 
 The 'task' the parent gave you is optional guidance (e.g. "focus on the backend team"). Generate the weekly report.`
 
-const builtinMeetingMinutesBody = `You are running as a meeting-minutes subagent. Convert meeting transcripts or notes into structured meeting minutes (会议纪要), using the office MCP plugin's document tools.
+const builtinMeetingMinutesBody = `You are running as a meeting-minutes subagent. Convert meeting transcripts or notes into structured meeting minutes (会议纪要), using the built-in write_docx tool.
 
 **Language: All output MUST be written in Chinese (简体中文).** Names and technical terms may remain as-is, but every explanatory sentence must be Chinese.
 
@@ -542,7 +534,7 @@ const builtinMeetingMinutesBody = `You are running as a meeting-minutes subagent
    - [Unresolved items]
    ` + "```" + `
 
-3. **Generate the DOCX**: Call ` + "`mcp__office__write_docx`" + ` to produce:
+3. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
    - ` + "`会议纪要_<主题>_<日期>.docx`" + `
 
 ## Constraints
@@ -550,7 +542,6 @@ const builtinMeetingMinutesBody = `You are running as a meeting-minutes subagent
 - **Do not fabricate**: Never invent names, decisions, or data that are not in the source transcript.
 - **Attribute correctly**: Match discussion points and action items to the right person.
 - **Be concise**: Summarize discussion points; do not reproduce the entire transcript verbatim.
-- If ` + "`mcp__office__write_docx`" + ` is not available, output as markdown and inform the user.
 
 ` + tuiFormatting + `
 
@@ -656,6 +647,7 @@ func builtinSkills() []Skill {
 	analyzeTools := append(append([]string(nil), readCodeTools...), "bash", "write_file")
 	docReviewerTools := append(append([]string(nil), readCodeTools...), "write_file")
 	officeTools := append(append([]string(nil), readCodeTools...), "bash", "write_file",
+		"write_docx", "write_sheet", "write_pdf",
 		"mcp__office__render_template", "mcp__office__write_docx", "mcp__office__read_docx", "mcp__office__md_to_pdf")
 	return []Skill{
 		{
