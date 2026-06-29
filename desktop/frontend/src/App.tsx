@@ -1059,7 +1059,25 @@ export default function App() {
       return next;
     });
     setTabMetas((current) => {
-      if (current.length <= 1) return current;
+      // When closing the last tab, we need to create a new one first so that
+      // the backend CloseTab does not reject ("cannot close the last tab").
+      // The new tab is created *after* this optimistic update, but the key
+      // insight is: we still remove the closed tab from the local array and
+      // temporarily show an empty state; the new tab will be added by
+      // refreshTabMetas once it is created below.
+      if (current.length <= 1) {
+        // Create a new tab first, then close the old one.
+        // We return the current array unchanged for now; the new tab will
+        // appear after handleNewTab + closeTab + refreshTabMetas completes.
+        // Kick off the async sequence outside the setter.
+        (async () => {
+          await handleNewTab();
+          await closeTab(id);
+          await refreshTabMetas();
+          setTabRevealSignal((signal) => signal + 1);
+        })();
+        return current;
+      }
       const closingIndex = current.findIndex((tab) => tab.id === id);
       if (closingIndex < 0) return current;
       const closingTab = current[closingIndex];
@@ -1069,10 +1087,14 @@ export default function App() {
       const nextActiveId = remaining[nextIndex]?.id;
       return remaining.map((tab) => ({ ...tab, active: tab.id === nextActiveId }));
     });
-    await closeTab(id);
-    await refreshTabMetas();
-    setTabRevealSignal((signal) => signal + 1);
-  }, [activeTabId, closeTab, refreshTabMetas]);
+    // Only call closeTab directly if there was more than one tab;
+    // the single-tab case is handled inside the setter above.
+    if (tabMetas.length > 1) {
+      await closeTab(id);
+      await refreshTabMetas();
+      setTabRevealSignal((signal) => signal + 1);
+    }
+  }, [activeTabId, closeTab, handleNewTab, refreshTabMetas, tabMetas.length]);
 
   const handleTabsClose = useCallback(async (ids: string[], nextActiveTabId?: string) => {
     const currentIds = tabMetas.map((tab) => tab.id);
@@ -1790,11 +1812,23 @@ export default function App() {
         <TemplateLibrary
           onClose={() => setTemplatesOpen(false)}
           onApply={(tmpl) => {
-            // Apply inserts the template path into the composer so the user
-            // can ask the agent to render it via mcp__office__render_template.
-            // (The desktop surface never grows its own template engine —
-            // rendering stays in the office plugin per the architecture.)
-            addWorkspaceTextToComposer(`/skill ${tmpl.name} ${tmpl.relPath}`);
+            // Apply inserts the template path and a clear instruction into the
+            // composer so the agent knows to render it via
+            // mcp__office__render_template. We deliberately do NOT route through
+            // /skill because user-uploaded templates are not skills — RunSkill
+            // would fail to match the name and silently drop the command.
+            let prompt: string;
+            if (tmpl.kind === "tmpl") {
+              // Go text/template — must use render_template to substitute {{.key}} vars.
+              prompt = `请使用 render_template 工具渲染模板 ${tmpl.relPath}，向我收集需要的变量值后渲染，再将结果输出为最终文档格式`;
+            } else if (tmpl.kind === "md") {
+              // Markdown template — may contain {{.key}} vars, try render_template first.
+              prompt = `请基于模板 ${tmpl.relPath} 生成文档：先用 render_template 读取并渲染该模板（如有 {{.变量}} 占位符请向我收集值），再输出为最终格式`;
+            } else {
+              // txt/csv — read as reference content.
+              prompt = `请基于模板 ${tmpl.relPath} 生成文档：先读取该模板内容作为参考结构，再据此生成最终文档`;
+            }
+            addWorkspaceTextToComposer(prompt);
             setTemplatesOpen(false);
           }}
         />

@@ -245,6 +245,8 @@ export const zh: Record<DictKey, string> = {
   "templates.open": "打开",
   "templates.reveal": "在文件夹中显示",
   "templates.refresh": "刷新",
+  "templates.upload": "上传模板",
+  "templates.emptyUploadHint": "点击上方上传按钮，或将文件拖放到此区域即可添加模板。",
   "templates.previewFailed": "无法预览 —— 请尝试打开。",
   "templates.sizeBytes": "{n} B",
   "templates.sizeKB": "{n} KB",

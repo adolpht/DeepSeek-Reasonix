@@ -448,10 +448,12 @@ const builtinContractDraftBody = `You are running as a contract-drafting subagen
 
    Add ` + "`【待填：xxx】`" + ` placeholders for any information the user did not provide.
 
-4. **Generate the DOCX**: Call ` + "`write_docx`" + ` with the assembled contract content to produce:
+4. **Check user templates**: Before generating, check if ` + "`.reasonix/templates/`" + ` contains any contract-related template file (e.g. ` + "`合同*.tmpl`" + `, ` + "`合同*.md`" + `, ` + "`contract*.tmpl`" + `). If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, filling in the gathered variables. If the rendered template covers the contract structure, use it as the document body; otherwise use it as a reference to improve the generated contract.
+
+5. **Generate the DOCX**: Call ` + "`write_docx`" + ` with the assembled contract content to produce:
    - ` + "`合同_<类型>_<日期>.docx`" + ` — the contract document
 
-5. **Generate a TODO checklist**: Write a markdown file listing all ` + "`【待填：xxx】`" + ` placeholders the user needs to fill in:
+6. **Generate a TODO checklist**: Write a markdown file listing all ` + "`【待填：xxx】`" + ` placeholders the user needs to fill in:
    - ` + "`合同_<类型>_<日期>_TODO.md`" + ` — items to review and complete
 
 ## Constraints
@@ -487,7 +489,9 @@ const builtinWeeklyReportBody = `You are running as a weekly-report subagent. Ge
    - 下周计划 (inferred from ongoing work, or ask the user)
    - 风险与问题 (any blockers or concerns observed)
 
-5. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
+5. **Check user templates**: Before generating, check if ` + "`.reasonix/templates/`" + ` contains any weekly-report template file (e.g. ` + "`周报*.tmpl`" + `, ` + "`周报*.md`" + `, ` + "`weekly-report*.tmpl`" + `). If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, passing the categorized work data as variables. If the rendered template covers the report structure, use it as the document body; otherwise use it as a reference to improve formatting.
+
+6. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
    - ` + "`周报_YYYYWW.docx`" + ` (ISO week number naming, e.g. 周报_202442.docx)
 
 ## Constraints
@@ -534,7 +538,9 @@ const builtinMeetingMinutesBody = `You are running as a meeting-minutes subagent
    - [Unresolved items]
    ` + "```" + `
 
-3. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
+3. **Check user templates**: Before generating, check if ` + "`.reasonix/templates/`" + ` contains any meeting-minutes template file (e.g. ` + "`会议纪要*.tmpl`" + `, ` + "`会议纪要*.md`" + `, ` + "`meeting*.tmpl`" + `). If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, passing the parsed meeting data as variables. If the rendered template covers the minutes structure, use it as the document body; otherwise use it as a reference to improve formatting.
+
+4. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
    - ` + "`会议纪要_<主题>_<日期>.docx`" + `
 
 ## Constraints

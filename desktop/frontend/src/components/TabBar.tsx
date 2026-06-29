@@ -158,7 +158,6 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose, onTabsClose
         {
           key: "close-current",
           label: t("tabBar.closeTab"),
-          disabled: tabs.length <= 1,
           onSelect: () => closeTabsFromMenu([menuTabId]),
         },
         {

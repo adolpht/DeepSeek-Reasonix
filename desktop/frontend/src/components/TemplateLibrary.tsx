@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, FileType2, RefreshCw, ExternalLink, FolderOpen, Wand2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileText, FileType2, RefreshCw, ExternalLink, FolderOpen, Wand2, Upload } from "lucide-react";
 import { app } from "../lib/bridge";
 import { useT } from "../lib/i18n";
 import type { TemplateMeta } from "../lib/types";
@@ -8,6 +8,17 @@ import { Tooltip } from "./Tooltip";
 import { DocPreviewer } from "./DocPreviewer";
 
 const KINDS: Array<TemplateMeta["kind"]> = ["docx", "xlsx", "md", "tmpl", "txt", "csv"];
+
+// Allowed template extensions for drag-and-drop / paste upload.
+const TEMPLATE_EXTENSIONS = new Set([
+  ".docx", ".xlsx", ".xlsm", ".csv", ".md", ".markdown", ".tmpl", ".tpl", ".gotmpl", ".txt",
+]);
+
+function isTemplateFile(name: string): boolean {
+  const dot = name.lastIndexOf(".");
+  if (dot < 0) return false;
+  return TEMPLATE_EXTENSIONS.has(name.slice(dot).toLowerCase());
+}
 
 function kindLabel(kind: TemplateMeta["kind"], t: ReturnType<typeof useT>): string {
   switch (kind) {
@@ -39,6 +50,16 @@ function formatSize(bytes: number, t: ReturnType<typeof useT>): string {
   return t("templates.sizeMB", { n: (bytes / 1024 / 1024).toFixed(2) });
 }
 
+// readFileAsDataURL reads a File and resolves with its data-URL representation.
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 // TemplateLibrary is the personal-agent template browser drawer (roadmap §5.2).
 // It scans `.reasonix/templates/` via ListTemplates, shows a filterable grid,
 // and lets the user open a template in the OS default app, reveal it in the
@@ -59,6 +80,8 @@ export function TemplateLibrary({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const dropRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -76,6 +99,44 @@ export function TemplateLibrary({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const handleUpload = useCallback(async () => {
+    setUploading(true);
+    try {
+      await app.UploadTemplate();
+      await refresh();
+    } catch (e: unknown) {
+      // User cancelling the dialog returns an empty string / error — ignore.
+      if (String(e) !== "") setErr(String(e));
+    } finally {
+      setUploading(false);
+    }
+  }, [refresh]);
+
+  // Handle files dropped onto the template library area.
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = Array.from(e.dataTransfer.files).filter((f) => isTemplateFile(f.name));
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const dataURL = await readFileAsDataURL(file);
+        await app.UploadTemplateDataURL(file.name, dataURL);
+      }
+      await refresh();
+    } catch (e: unknown) {
+      setErr(String(e));
+    } finally {
+      setUploading(false);
+    }
+  }, [refresh]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
 
   const filtered = useMemo(() => {
     if (!filter) return items;
@@ -96,6 +157,11 @@ export function TemplateLibrary({
           <div className="drawer__summary">{t("templates.summary")}</div>
         </div>
         <div className="drawer__head-actions">
+          <Tooltip label={t("templates.upload")}>
+            <button className="chip chip--icon chip--primary" onClick={() => void handleUpload()} disabled={uploading} aria-label={t("templates.upload")}>
+              <Upload size={14} />
+            </button>
+          </Tooltip>
           <Tooltip label={t("templates.refresh")}>
             <button className="chip chip--icon" onClick={() => void refresh()} disabled={loading} aria-label={t("templates.refresh")}>
               <RefreshCw size={14} className={loading ? "spin" : ""} />
@@ -107,7 +173,7 @@ export function TemplateLibrary({
         </div>
       </header>
 
-      <div className="drawer__body">
+      <div className="drawer__body" ref={dropRef} onDrop={handleDrop} onDragOver={handleDragOver}>
         <div className="tmpl-filter">
           <button
             className={`chip${!filter ? " chip--selected" : ""}`}
@@ -131,7 +197,10 @@ export function TemplateLibrary({
         {err && <div className="tmpl__err">{err}</div>}
 
         {!err && !loading && filtered.length === 0 && (
-          <div className="tmpl__empty">{t("templates.empty")}</div>
+          <div className="tmpl__empty">
+            <p>{t("templates.empty")}</p>
+            <p className="tmpl__empty-hint">{t("templates.emptyUploadHint")}</p>
+          </div>
         )}
 
         <ul className="tmpl-list">

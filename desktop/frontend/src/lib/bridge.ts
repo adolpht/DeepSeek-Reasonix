@@ -286,6 +286,12 @@ export interface AppBindings {
   // returns URLs the frontend can inline-render (image) or surface as a
   // download chip (docx/pdf). `page` is forward-compat for future pagination.
   RenderDocPreview(absPath: string, page: number): Promise<DocPreviewPage[]>;
+  // UploadTemplate opens a native file-picker and copies the selected file into
+  // .reasonix/templates/. Returns the absolute path of the written file.
+  UploadTemplate(): Promise<string>;
+  // UploadTemplateDataURL writes a base64 data-URL into .reasonix/templates/.
+  // Used for drag-and-drop / paste uploads into the template library.
+  UploadTemplateDataURL(name: string, dataURL: string): Promise<string>;
 }
 
 // Bidirectional compile-time drift checks. Exclude<A, B> extracts keys in A that
@@ -2045,6 +2051,14 @@ function makeMockApp(): AppBindings {
         page: 1,
         total: 1,
       }];
+    },
+    async UploadTemplate(): Promise<string> {
+      console.info("mock UploadTemplate");
+      return "";
+    },
+    async UploadTemplateDataURL(_name: string, _dataURL: string): Promise<string> {
+      console.info("mock UploadTemplateDataURL", _name);
+      return "";
     },
   };
 }

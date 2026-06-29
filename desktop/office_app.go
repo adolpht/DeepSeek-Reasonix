@@ -10,7 +10,9 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -325,4 +327,131 @@ func (a *App) WorkspaceType() string {
 		return "coding"
 	}
 	return normalizeWorkspaceType(tab.workspaceType)
+}
+
+// UploadTemplate opens a native file-picker and copies the selected file into
+// <workspace>/.reasonix/templates/. Only files with recognised template
+// extensions (.docx/.xlsx/.xlsm/.csv/.md/.markdown/.tmpl/.tpl/.gotmpl/.txt)
+// are accepted. Returns the absolute path of the written file so the frontend
+// can refresh the list and highlight the new entry.
+func (a *App) UploadTemplate() (string, error) {
+	if a.ctx == nil {
+		return "", os.ErrInvalid
+	}
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Upload Template",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Template files", Pattern: "*.docx;*.xlsx;*.xlsm;*.csv;*.md;*.markdown;*.tmpl;*.tpl;*.gotmpl;*.txt"},
+			{DisplayName: "Word documents", Pattern: "*.docx"},
+			{DisplayName: "Spreadsheets", Pattern: "*.xlsx;*.xlsm;*.csv"},
+			{DisplayName: "Markdown", Pattern: "*.md;*.markdown"},
+			{DisplayName: "Go templates", Pattern: "*.tmpl;*.tpl;*.gotmpl"},
+			{DisplayName: "Text files", Pattern: "*.txt"},
+		},
+	})
+	if err != nil || path == "" {
+		return "", err // user cancelled or OS error
+	}
+
+	ext := filepath.Ext(path)
+	if templateKindForExt(ext) == "" {
+		return "", fmt.Errorf("unsupported template extension: %s", ext)
+	}
+
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return "", err
+	}
+	tmplDir := filepath.Join(base, ".reasonix", "templates")
+	if err := os.MkdirAll(tmplDir, 0o755); err != nil {
+		return "", fmt.Errorf("create templates dir: %w", err)
+	}
+
+	dst := filepath.Join(tmplDir, filepath.Base(path))
+	// If a file with the same name already exists, append a numeric suffix.
+	if _, err := os.Stat(dst); err == nil {
+		stem := strings.TrimSuffix(filepath.Base(path), ext)
+		for i := 1; ; i++ {
+			candidate := filepath.Join(tmplDir, fmt.Sprintf("%s-%d%s", stem, i, ext))
+			if _, err := os.Stat(candidate); err != nil {
+				dst = candidate
+				break
+			}
+		}
+	}
+
+	if err := copyFile(dst, path); err != nil {
+		return "", fmt.Errorf("copy template: %w", err)
+	}
+	return dst, nil
+}
+
+// UploadTemplateDataURL receives a file name and a data-URL (base64-encoded)
+// and writes it into <workspace>/.reasonix/templates/. This is the
+// drag-and-drop / paste counterpart to UploadTemplate (which uses the native
+// file picker). Returns the absolute path of the written file.
+func (a *App) UploadTemplateDataURL(name, dataURL string) (string, error) {
+	ext := filepath.Ext(name)
+	if templateKindForExt(ext) == "" {
+		return "", fmt.Errorf("unsupported template extension: %s", ext)
+	}
+	const marker = ";base64,"
+	i := strings.Index(dataURL, marker)
+	if !strings.HasPrefix(dataURL, "data:") || i < 0 {
+		return "", fmt.Errorf("invalid data URL")
+	}
+	raw, err := base64.StdEncoding.DecodeString(dataURL[i+len(marker):])
+	if err != nil {
+		return "", fmt.Errorf("decode data URL: %w", err)
+	}
+	if len(raw) == 0 || len(raw) > 25*1024*1024 {
+		return "", fmt.Errorf("file must be between 1 byte and 25 MB")
+	}
+
+	base, err := a.activeWorkspaceBase()
+	if err != nil {
+		return "", err
+	}
+	tmplDir := filepath.Join(base, ".reasonix", "templates")
+	if err := os.MkdirAll(tmplDir, 0o755); err != nil {
+		return "", fmt.Errorf("create templates dir: %w", err)
+	}
+
+	dst := filepath.Join(tmplDir, filepath.Base(name))
+	if _, err := os.Stat(dst); err == nil {
+		stem := strings.TrimSuffix(filepath.Base(name), ext)
+		for i := 1; ; i++ {
+			candidate := filepath.Join(tmplDir, fmt.Sprintf("%s-%d%s", stem, i, ext))
+			if _, err := os.Stat(candidate); err != nil {
+				dst = candidate
+				break
+			}
+		}
+	}
+
+	if err := os.WriteFile(dst, raw, 0o644); err != nil {
+		return "", fmt.Errorf("write template: %w", err)
+	}
+	return dst, nil
+}
+
+// copyFile copies src to dst, creating any missing parent directories.
+func copyFile(dst, src string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
 }

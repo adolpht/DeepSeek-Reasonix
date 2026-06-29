@@ -244,6 +244,8 @@ export const en = {
   "templates.open": "Open",
   "templates.reveal": "Reveal",
   "templates.refresh": "Refresh",
+  "templates.upload": "Upload template",
+  "templates.emptyUploadHint": "Click the upload button above, or drag and drop files here to add templates.",
   "templates.previewFailed": "Preview unavailable — try Open instead.",
   "templates.sizeBytes": "{n} B",
   "templates.sizeKB": "{n} KB",
