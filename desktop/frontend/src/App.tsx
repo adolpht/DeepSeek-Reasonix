@@ -1051,6 +1051,21 @@ export default function App() {
     setTabRevealSignal((signal) => signal + 1);
   }, [refreshTabMetas, switchTab]);
 
+  const handleNewTab = useCallback(async () => {
+    const activeWorkspaceRoot = activeTab?.workspaceRoot || state.meta?.cwd || "";
+    const targetScope = activeTab?.scope === "global" || !activeWorkspaceRoot ? "global" : "project";
+    const workspaceRoot = targetScope === "project" ? activeWorkspaceRoot : "";
+    const topic = await app.CreateTopic(targetScope, workspaceRoot, "");
+    if (targetScope === "global" || !workspaceRoot) {
+      await openGlobalTab(topic.id);
+    } else {
+      await openProjectTab(workspaceRoot, topic.id);
+    }
+    setProjectRevision((value) => value + 1);
+    await refreshTabMetas();
+    setTabRevealSignal((signal) => signal + 1);
+  }, [activeTab?.scope, activeTab?.workspaceRoot, openGlobalTab, openProjectTab, refreshTabMetas, state.meta?.cwd]);
+
   const handleTabClose = useCallback(async (id: string) => {
     setModesByTab((current) => {
       if (!(id in current)) return current;
@@ -1121,21 +1136,6 @@ export default function App() {
     await refreshTabMetas();
     setTabRevealSignal((signal) => signal + 1);
   }, [refreshTabMetas, reorderTabs]);
-
-  const handleNewTab = useCallback(async () => {
-    const activeWorkspaceRoot = activeTab?.workspaceRoot || state.meta?.cwd || "";
-    const targetScope = activeTab?.scope === "global" || !activeWorkspaceRoot ? "global" : "project";
-    const workspaceRoot = targetScope === "project" ? activeWorkspaceRoot : "";
-    const topic = await app.CreateTopic(targetScope, workspaceRoot, "");
-    if (targetScope === "global" || !workspaceRoot) {
-      await openGlobalTab(topic.id);
-    } else {
-      await openProjectTab(workspaceRoot, topic.id);
-    }
-    setProjectRevision((value) => value + 1);
-    await refreshTabMetas();
-    setTabRevealSignal((signal) => signal + 1);
-  }, [activeTab?.scope, activeTab?.workspaceRoot, openGlobalTab, openProjectTab, refreshTabMetas, state.meta?.cwd]);
 
   const handleMessageAction = useCallback(async (turn: number, scope: string) => {
     await rewind(turn, scope);

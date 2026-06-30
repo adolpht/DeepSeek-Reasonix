@@ -107,6 +107,10 @@ export const zh: Record<DictKey, string> = {
   "workspace.sourceSession": "会话",
   "workspace.sourceGit": "Git",
   "workspace.deleted": "已删除",
+  "workspace.revealInFinder": "在 Finder 中显示",
+  "workspace.revealInExplorer": "在文件资源管理器中显示",
+  "workspace.revealInFileManager": "在文件管理器中显示",
+  "workspace.copyPath": "复制路径",
 
   // MCP 与技能抽屉
   "caps.title": "MCP 与技能",

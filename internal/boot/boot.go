@@ -76,6 +76,9 @@ type Options struct {
 	// (for example ACP session/new). They are connected eagerly for this
 	// controller but are not persisted to reasonix.toml.
 	ExtraPlugins []plugin.Spec
+	// SandboxMode overrides the config-based sandbox mode when set. Empty means
+	// use the value derived from config.
+	SandboxMode sandbox.SandboxMode
 }
 
 // Build loads config, resolves the model(s), and returns a Controller wrapping a
@@ -194,7 +197,19 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	sysPrompt = skill.ApplyIndex(sysPrompt, skills)
 
 	reg := tool.NewRegistry()
-	bashSpec := sandbox.Spec{Mode: cfg.BashMode(), WriteRoots: cfg.WriteRootsForRoot(root), Network: cfg.Sandbox.Network}
+	// Resolve the sandbox mode: CLI flag overrides config.
+	sbMode := opts.SandboxMode
+	if sbMode == "" {
+		sbMode = sandbox.NormalizeSandboxMode(cfg.SandboxModeStr())
+	}
+	bashSpec := sandbox.Spec{Mode: cfg.BashMode(), SandboxMode: sbMode, WriteRoots: cfg.WriteRootsForRoot(root), Network: cfg.Sandbox.Network, BwrapPath: cfg.Sandbox.BwrapPath, Seccomp: cfg.Sandbox.Seccomp}
+	// Enforce mode-specific network policy
+	if bashSpec.SandboxMode == sandbox.SandboxReadOnly {
+		bashSpec.Network = false
+	}
+	if bashSpec.SandboxMode == sandbox.SandboxFullAccess {
+		bashSpec.Network = true
+	}
 	if bashSpec.Mode == "enforce" && !sandbox.Available() {
 		fmt.Fprintln(stderr, "warning: bash sandbox requested but unavailable on this platform; running bash unconfined")
 	}
@@ -203,7 +218,11 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	}
 	searchSpec := builtin.ResolveSearch(cfg.Tools.Search.Engine, cfg.Tools.Search.RgPath, stderr)
 	bashTimeout := time.Duration(cfg.BashTimeoutSeconds()) * time.Second
-	addBuiltins(reg, cfg.Tools.Enabled, cfg.WriteRootsForRoot(root), bashSpec, bashTimeout, searchSpec, stderr, root)
+	var replMgr *builtin.REPLManager
+	if cfg.REPLEnabled() {
+		replMgr = builtin.NewREPLManager(cfg.REPLJSPath(), cfg.REPLPythonPath(), cfg.REPLEvalTimeout())
+	}
+	addBuiltins(reg, cfg.Tools.Enabled, cfg.WriteRootsForRoot(root), bashSpec, bashTimeout, searchSpec, stderr, root, replMgr)
 	// Always construct a host, even with no plugins configured, so the controller's
 	// host pointer is stable for the session and `/mcp add` can hot-add into it.
 	pluginHost := plugin.NewHost()
@@ -394,6 +413,14 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		cleanup = func() { prev(); lspMgr.Close() }
 	}
 
+	// The REPL manager owns persistent interpreter processes that must be
+	// cleaned up when the agent session ends. Chain its shutdown into the
+	// controller's cleanup.
+	if replMgr != nil {
+		prev := cleanup
+		cleanup = func() { prev(); replMgr.Close() }
+	}
+
 	maxSteps := cfg.Agent.MaxSteps
 	if opts.MaxSteps > 0 {
 		maxSteps = opts.MaxSteps
@@ -578,7 +605,44 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		CompactRatio:      cfg.Agent.CompactRatio,
 		CompactForceRatio: cfg.Agent.CompactForceRatio,
 		ArchiveDir:        config.ArchiveDir(),
+		SandboxMode:       sbMode,
 	}, sink)
+
+	// Multi-agent parallel orchestration: create a Pool that manages concurrent
+	// child agents and register spawn_agent / wait_agent / send_input / close_agent tools.
+	// Sub-agents run full agent loops (reasoning + tool use) in parallel, each with
+	// its own session. The Pool is always depth 1: child agents cannot spawn further
+	// agents (the meta-tools are excluded from their registries).
+	agentPool := agent.NewPool(executor, agent.PoolOpts{
+		MaxDepth:          cfg.AgentPoolMaxDepth(),
+		MaxConc:           cfg.AgentPoolMaxThreads(),
+		CustomRoles:       configCustomRoles(cfg),
+		Prov:              execProv,
+		Pricing:           entry.Price,
+		ParentReg:         reg,
+		ContextWindow:     entry.ContextWindow,
+		SoftCompactRatio:  cfg.Agent.SoftCompactRatio,
+		CompactRatio:      cfg.Agent.CompactRatio,
+		CompactForceRatio: cfg.Agent.CompactForceRatio,
+		Temperature:       cfg.Agent.Temperature,
+		ArchiveDir:        config.ArchiveDir(),
+		Gate:              headlessGate,
+		ResolveProvider:   resolveSubagentProvider,
+		SysPrompt:         sysPrompt,
+		MaxSteps:          maxSteps,
+		ParentSink:        sink,
+	})
+	reg.Add(agent.NewSpawnAgentTool(agentPool))
+	reg.Add(agent.NewWaitAgentTool(agentPool))
+	reg.Add(agent.NewSendInputTool(agentPool))
+	reg.Add(agent.NewCloseAgentTool(agentPool))
+
+	// Chain pool cleanup into the session shutdown path so all child agents are
+	// terminated when the controller closes.
+	{
+	prev := cleanup
+	cleanup = func() { agentPool.CloseAll(); prev() }
+	}
 
 	// Custom slash commands (.reasonix/commands + user dir). Best-effort: a malformed
 	// file is skipped, and a load error never blocks the session.
@@ -607,6 +671,12 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		})
 	}
 	reg.Add(command.NewSlashCommandTool(slashEntries))
+
+	// The `tool_search` tool lets the model discover relevant tools by keyword
+	// when many MCP servers are connected. It uses BM25 ranking over tool names,
+	// descriptions, and parameter names; the index is built lazily on first use
+	// and auto-rebuilt when the registry changes.
+	reg.Add(tool.NewToolSearchTool(reg))
 
 	var runner agent.Runner = executor
 	label := entry.Model
@@ -857,12 +927,12 @@ func NewProviderWithProxy(e *config.ProviderEntry, proxy netclient.ProxySpec) (p
 // instance bound to writeRoots (preserving registry order).
 // When workDir is non-empty, tools resolve relative paths against it instead of
 // the process cwd, enabling concurrent multi-project sessions.
-func addBuiltins(reg *tool.Registry, enabled, writeRoots []string, bashSpec sandbox.Spec, bashTimeout time.Duration, searchSpec builtin.SearchSpec, stderr io.Writer, workDir string) {
+func addBuiltins(reg *tool.Registry, enabled, writeRoots []string, bashSpec sandbox.Spec, bashTimeout time.Duration, searchSpec builtin.SearchSpec, stderr io.Writer, workDir string, replMgr *builtin.REPLManager) {
 	// If a workspace directory is set, use workspace-bound tools that resolve
 	// paths relative to that directory. Otherwise fall back to the process-cwd
 	// compile-time builtins.
 	if workDir != "" {
-		ws := builtin.Workspace{Dir: workDir, WriteRoots: writeRoots, Bash: bashSpec, BashTimeout: bashTimeout, Search: searchSpec}
+		ws := builtin.Workspace{Dir: workDir, WriteRoots: writeRoots, Bash: bashSpec, BashTimeout: bashTimeout, Search: searchSpec, REPL: replMgr}
 		for _, t := range ws.Tools(enabled...) {
 			reg.Add(t)
 		}
@@ -889,6 +959,14 @@ func addBuiltins(reg *tool.Registry, enabled, writeRoots []string, bashSpec sand
 	for _, t := range confined {
 		if _, ok := reg.Get(t.Name()); ok {
 			reg.Add(t)
+		}
+	}
+	// Wire the REPL manager into the js_eval / python_eval tools.
+	if replMgr != nil {
+		for _, t := range builtin.ConfineREPL(replMgr) {
+			if _, ok := reg.Get(t.Name()); ok {
+				reg.Add(t)
+			}
 		}
 	}
 }
@@ -992,4 +1070,21 @@ func providerNames(cfg *config.Config) string {
 		names[i] = p.Name
 	}
 	return strings.Join(names, "/")
+}
+// configCustomRoles converts config custom role definitions to agent.Role.
+func configCustomRoles(cfg *config.Config) []agent.Role {
+	roles := make([]agent.Role, len(cfg.Agents.CustomRoles))
+	for i, r := range cfg.Agents.CustomRoles {
+		roles[i] = agent.Role{
+			Name:        r.Name,
+			Description: r.Description,
+			Model:       r.Model,
+			SystemAddon: r.SystemAddon,
+			Tools:       r.Tools,
+			ReadOnly:    r.ReadOnly,
+			MaxSteps:    r.MaxSteps,
+			SandboxMode: r.SandboxMode,
+		}
+	}
+	return roles
 }

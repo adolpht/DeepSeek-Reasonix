@@ -18,7 +18,9 @@ import (
 	"reasonix/internal/jobs"
 	"reasonix/internal/memory"
 	"reasonix/internal/nilutil"
+	"reasonix/internal/permission"
 	"reasonix/internal/provider"
+	"reasonix/internal/sandbox"
 	"reasonix/internal/tool"
 )
 
@@ -228,6 +230,11 @@ type Agent struct {
 	// stormSig: a model keeps doing the same successful write, so there is no
 	// error for the failure-only storm breaker to see.
 	repeatSuccessCounts map[string]int
+
+	// sandboxMode is the active sandbox confinement level. When set, it is
+	// enforced in executeOne before the plan-mode check: read-only blocks writer
+	// tools; workspace-write blocks network-requiring bash commands.
+	sandboxMode sandbox.SandboxMode
 }
 
 // SetPlanMode flips the read-only gate. While true, executeOne refuses any
@@ -257,6 +264,10 @@ func (a *Agent) SetMemoryQueue(q memory.Queue) { a.memQueue = q }
 // SetPreEditHook installs the pre-edit snapshot hook (see onPreEdit). The
 // controller wires it to its per-session checkpoint store; nil disables capture.
 func (a *Agent) SetPreEditHook(fn func(diff.Change)) { a.onPreEdit = fn }
+
+// SetSandboxMode updates the active sandbox confinement level. Used by the
+// controller to propagate CLI flag or config overrides.
+func (a *Agent) SetSandboxMode(m sandbox.SandboxMode) { a.sandboxMode = m }
 
 // Session returns the agent's current conversation, useful for persistence
 // hooks that need to read the message log between turns. sessMu serialises this
@@ -334,6 +345,9 @@ type Options struct {
 
 	// ProjectChecks are host-observable structured checks extracted during boot.
 	ProjectChecks []instruction.VerifyCheck
+
+	// SandboxMode is the confinement level for tool execution.
+	SandboxMode sandbox.SandboxMode
 }
 
 // New constructs an Agent. MaxSteps <= 0 means no cap — the run loop continues
@@ -383,6 +397,7 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 		compactForceRatio: opts.CompactForceRatio,
 		recentKeep:        opts.RecentKeep,
 		archiveDir:        opts.ArchiveDir,
+		sandboxMode:       opts.SandboxMode,
 	}
 }
 
@@ -967,6 +982,29 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 		return toolOutcome{
 			output: fmt.Sprintf("error: unknown tool %q", call.Name),
 			errMsg: fmt.Sprintf("unknown tool %q", call.Name),
+		}
+	}
+	// Sandbox mode enforcement: block tools based on the active sandbox mode.
+	if a.sandboxMode != "" && a.sandboxMode != sandbox.SandboxFullAccess {
+		if a.sandboxMode == sandbox.SandboxReadOnly && !t.ReadOnly() {
+			return toolOutcome{
+				output:  fmt.Sprintf("blocked: %q is a writer tool and the sandbox is in read-only mode. Only read-only tools are allowed in this mode.", call.Name),
+				blocked: true,
+				errMsg:  "blocked: sandbox read-only mode",
+			}
+		}
+		// For workspace-write mode, block network-requiring bash commands
+		if a.sandboxMode == sandbox.SandboxWorkspaceWrite && call.Name == "bash" {
+			var p struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal([]byte(call.Arguments), &p) == nil && permission.BashRequiresNetwork(p.Command) {
+				return toolOutcome{
+					output:  fmt.Sprintf("blocked: bash command %q requires network access, which is blocked in workspace-write sandbox mode. Use full-access mode if network access is needed.", firstLine(p.Command)),
+					blocked: true,
+					errMsg:  "blocked: sandbox blocks network in workspace-write mode",
+				}
+			}
 		}
 	}
 	if out, blocked := a.repeatedSuccessBlock(call, t); blocked {

@@ -25,6 +25,7 @@ type Workspace struct {
 	Bash        sandbox.Spec
 	BashTimeout time.Duration
 	Search      SearchSpec
+	REPL        *REPLManager
 }
 
 // Tools returns the built-in tools bound to the workspace, ready to Add to a
@@ -47,11 +48,16 @@ func (w Workspace) Tools(enabled ...string) []tool.Tool {
 		"notebook_edit": notebookEdit{workDir: w.Dir, roots: roots},
 		"delete_range":  deleteRange{workDir: w.Dir, roots: roots},
 		"delete_symbol": deleteSymbol{workDir: w.Dir, roots: roots},
+		"apply_patch":   applyPatch{workDir: w.Dir, roots: roots},
 		"bash":          bash{workDir: w.Dir, sb: w.Bash, timeout: w.BashTimeout},
 		"ls":            listDir{workDir: w.Dir},
 		"glob":          globTool{workDir: w.Dir},
 		"grep":          grepTool{workDir: w.Dir, rg: w.Search.RgPath},
 		"web_fetch":     webFetch{},
+	}
+	if w.REPL != nil {
+		overrides["js_eval"] = &JSEvalTool{manager: w.REPL}
+		overrides["python_eval"] = &PythonEvalTool{manager: w.REPL}
 	}
 	all := tool.Builtins()
 	if len(enabled) == 0 {

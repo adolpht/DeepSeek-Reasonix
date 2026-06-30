@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"reasonix/internal/sandbox"
@@ -98,6 +99,9 @@ func TestWriteFileConfinement(t *testing.T) {
 }
 
 func TestBashSandboxConfinement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows Job Object sandbox does not provide filesystem isolation; use application-layer checks instead")
+	}
 	if !sandbox.Available() {
 		t.Skip("OS sandbox not available")
 	}

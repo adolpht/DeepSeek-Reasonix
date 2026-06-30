@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -56,6 +57,15 @@ type Config struct {
 	Codegraph     CodegraphConfig     `toml:"codegraph"`
 	Statusline    StatuslineConfig    `toml:"statusline"`
 	LSP           LSPConfig           `toml:"lsp"`
+	Store         StoreConfig         `toml:"store"`
+	Agents        AgentPoolConfig     `toml:"agents"`
+}
+
+// StoreConfig configures the session persistence backend.
+type StoreConfig struct {
+	Backend     string `toml:"backend"`      // "sqlite" | "jsonl"; empty = auto-detect
+	Path        string `toml:"path"`         // SQLite database path; empty = default under session dir
+	AutoMigrate bool   `toml:"auto_migrate"` // Auto-migrate from JSONL to SQLite
 }
 
 // UIConfig controls CLI presentation-only settings. Desktop appearance is kept in
@@ -402,9 +412,20 @@ type SandboxConfig struct {
 	// each command, "off" runs it unconfined. Phase 1; macOS only for now, with
 	// a graceful fallback elsewhere (see internal/sandbox).
 	Bash string `toml:"bash"`
+	// Mode is the sandbox confinement level: "read-only", "workspace-write", or "full-access".
+	// Empty defaults to "workspace-write" when Bash is "enforce".
+	Mode string `toml:"mode"`
 	// Network allows network egress from inside the bash sandbox. Defaults true
 	// so module/package downloads keep working; the boundary is then writes.
 	Network bool `toml:"network"`
+	// BwrapPath overrides the bubblewrap (bwrap) binary path on Linux.
+	// Empty resolves bwrap from PATH. Ignored on non-Linux platforms.
+	BwrapPath string `toml:"bwrap_path"`
+	// Seccomp enables the seccomp BPF filter inside the bubblewrap sandbox
+	// on Linux, blocking dangerous system calls (mount, ptrace, bpf, etc.).
+	// Read-only mode additionally blocks filesystem-modifying calls.
+	// Defaults true. Ignored on non-Linux platforms.
+	Seccomp bool `toml:"seccomp"`
 }
 
 // WriteRoots returns the directories file-writer tools may modify: the
@@ -442,12 +463,45 @@ func (c *Config) WriteRootsForRoot(fallbackRoot string) []string {
 
 // BashMode normalises the bash-sandbox mode: only an explicit "off" disables
 // it; empty or any other value resolves to "enforce", so the sandbox is on by
-// default and fails safe.
+// default and fails safe. When the new Mode field is set, it takes precedence.
 func (c *Config) BashMode() string {
+	// If the new Mode field is set, derive bash mode from it
+	if c.Sandbox.Mode != "" {
+		switch c.Sandbox.Mode {
+		case "full-access":
+			return "off"
+		case "read-only", "workspace-write":
+			return "enforce"
+		default:
+			// Unrecognized mode: treat as enforce (safe default)
+			return "enforce"
+		}
+	}
+	// Legacy: only "off" disables it
 	if c.Sandbox.Bash == "off" {
 		return "off"
 	}
 	return "enforce"
+}
+
+// SandboxModeStr returns the normalized sandbox mode as a string.
+// Returns "read-only", "workspace-write", or "full-access".
+// The conversion to sandbox.SandboxMode happens in boot.go to avoid
+// a circular dependency.
+func (c *Config) SandboxModeStr() string {
+	if c.Sandbox.Mode != "" {
+		switch c.Sandbox.Mode {
+		case "read-only", "workspace-write", "full-access":
+			return c.Sandbox.Mode
+		default:
+			return "workspace-write" // safe default for unrecognized values
+		}
+	}
+	// Backward compatibility: if Mode is empty, derive from Bash
+	if c.Sandbox.Bash == "off" {
+		return "full-access"
+	}
+	return "workspace-write"
 }
 
 // AgentConfig configures the harness loop. PlannerModel is optional: when set
@@ -480,6 +534,43 @@ type AgentConfig struct {
 	SoftCompactRatio  float64 `toml:"soft_compact_ratio"`
 	CompactRatio      float64 `toml:"compact_ratio"`
 	CompactForceRatio float64 `toml:"compact_force_ratio"`
+}
+
+// AgentPoolConfig for multi-agent parallel orchestration
+type AgentPoolConfig struct {
+	MaxThreads   int                `toml:"max_threads"`    // Max concurrent sub-agents (default 6)
+	MaxDepth     int                `toml:"max_depth"`      // Max nesting depth (default 1)
+	JobTimeout   string             `toml:"job_timeout"`    // Single agent timeout (default "5m")
+	DefaultModel string             `toml:"default_model"`  // Sub-agent default model
+	CustomRoles  []CustomRoleConfig `toml:"roles"`
+}
+
+// CustomRoleConfig defines a custom role for child agents.
+type CustomRoleConfig struct {
+	Name        string   `toml:"name"`
+	Description string   `toml:"description"`
+	Model       string   `toml:"model"`
+	ReadOnly    bool     `toml:"read_only"`
+	MaxSteps    int      `toml:"max_steps"`
+	SandboxMode string   `toml:"sandbox_mode"`
+	SystemAddon string   `toml:"system_addon"`
+	Tools       []string `toml:"tools"`
+}
+
+// AgentPoolMaxThreads returns the max concurrent sub-agents, defaulting to 6.
+func (c *Config) AgentPoolMaxThreads() int {
+	if c.Agents.MaxThreads <= 0 {
+		return 6
+	}
+	return c.Agents.MaxThreads
+}
+
+// AgentPoolMaxDepth returns the max nesting depth, defaulting to 1.
+func (c *Config) AgentPoolMaxDepth() int {
+	if c.Agents.MaxDepth <= 0 {
+		return 1
+	}
+	return c.Agents.MaxDepth
 }
 
 // ProviderEntry declares a model provider instance. ContextWindow is the model's
@@ -562,6 +653,16 @@ type ToolsConfig struct {
 	Enabled            []string     `toml:"enabled"`
 	BashTimeoutSeconds *int         `toml:"bash_timeout_seconds"`
 	Search             SearchConfig `toml:"search"`
+	REPL               REPLConfig   `toml:"repl"`
+}
+
+// REPLConfig governs the js_eval and python_eval REPL tools. Enabled defaults
+// to true; the tools degrade gracefully when the interpreter is not found.
+type REPLConfig struct {
+	Enabled     bool   `toml:"enabled"`
+	JSPath      string `toml:"js_path"`       // path to node binary; default: "node"
+	PythonPath  string `toml:"python_path"`   // path to python3 binary; default: "python3"
+	EvalTimeout string `toml:"eval_timeout"`  // per-eval timeout; default: "30s"
 }
 
 const defaultBashTimeoutSeconds = 120
@@ -575,6 +676,45 @@ func (c *Config) BashTimeoutSeconds() int {
 		return defaultBashTimeoutSeconds
 	}
 	return *c.Tools.BashTimeoutSeconds
+}
+
+// REPLEnabled reports whether the REPL tools (js_eval, python_eval) are enabled.
+// Defaults to true when the config section is absent (zero value).
+func (c *Config) REPLEnabled() bool {
+	// When the [tools.repl] section is entirely absent, Enabled is false
+	// (the zero value) but we want the default to be true — matching the
+	// pattern where an absent section means "use defaults". An explicit
+	// enabled = false opts out.
+	if c.Tools.REPL.Enabled || c.Tools.REPL == (REPLConfig{}) {
+		return true
+	}
+	return false
+}
+
+// REPLJSPath returns the configured node binary path, defaulting to "node".
+func (c *Config) REPLJSPath() string {
+	if p := strings.TrimSpace(c.Tools.REPL.JSPath); p != "" {
+		return p
+	}
+	return "node"
+}
+
+// REPLPythonPath returns the configured python3 binary path, defaulting to "python3".
+func (c *Config) REPLPythonPath() string {
+	if p := strings.TrimSpace(c.Tools.REPL.PythonPath); p != "" {
+		return p
+	}
+	return "python3"
+}
+
+// REPLEvalTimeout returns the per-eval timeout for REPL tools, defaulting to 30s.
+func (c *Config) REPLEvalTimeout() time.Duration {
+	if s := strings.TrimSpace(c.Tools.REPL.EvalTimeout); s != "" {
+		if d, err := time.ParseDuration(s); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 30 * time.Second
 }
 
 // SearchConfig tunes the grep tool's engine. Engine is "auto" (default — use
@@ -719,7 +859,7 @@ func Default() *Config {
 		// builds/downloads work. Set bash = "off" to disable. Network=true here
 		// so an absent [sandbox] in a user's file keeps egress (zero value would
 		// wrongly deny it).
-		Sandbox: SandboxConfig{Bash: "enforce", Network: true},
+		Sandbox: SandboxConfig{Bash: "enforce", Network: true, Seccomp: true},
 		// CodeGraph code-intelligence defaults on so existing configs (which never
 		// wrote a [codegraph] section) keep it after an upgrade. First-run scaffolds
 		// write enabled = false instead, so only brand-new users start without it.

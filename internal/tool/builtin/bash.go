@@ -149,7 +149,14 @@ func (b bash) Execute(ctx context.Context, args json.RawMessage) (string, error)
 			cmd.WaitDelay = bashWaitDelay
 			cmd.Stdout = out
 			cmd.Stderr = out
-			return "", cmd.Run()
+			sbx, err := startWithSandbox(b.sb, cmd)
+			if err != nil {
+				return "", err
+			}
+			if sbx != nil {
+				defer sbx.Close()
+			}
+			return "", cmd.Wait()
 		})
 		return fmt.Sprintf("Started background job %q. It keeps running across turns; read new output with bash_output(job_id=%q), wait for it with wait, or stop it with kill_shell(job_id=%q).", job.ID, job.ID, job.ID), nil
 	}
@@ -174,7 +181,18 @@ func (b bash) Execute(ctx context.Context, args json.RawMessage) (string, error)
 	}
 	cmd.Stdout = w
 	cmd.Stderr = w
-	err := cmd.Run()
+	sbx, err := startWithSandbox(b.sb, cmd)
+	if err != nil {
+		out := buf.String()
+		if errors.Is(context.Cause(runCtx), errBashTimeout) {
+			return out, fmt.Errorf("command timed out (> %s)", timeout)
+		}
+		return out, fmt.Errorf("command exited: %w", err)
+	}
+	if sbx != nil {
+		defer sbx.Close()
+	}
+	err = cmd.Wait()
 	out := buf.String()
 
 	if errors.Is(context.Cause(runCtx), errBashTimeout) {

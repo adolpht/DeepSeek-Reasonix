@@ -186,13 +186,43 @@ func TestCommandNonDarwin(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		t.Skip("testing non-darwin path")
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("testing non-windows path")
+	}
 	spec := Spec{Mode: "enforce", WriteRoots: []string{"/tmp"}}
 	cmd, wrapped := Command(spec, Shell{Kind: ShellBash, Path: "sh"}, "echo hi")
 	if wrapped {
-		t.Error("non-darwin should never wrap")
+		t.Error("non-darwin non-windows should never wrap")
 	}
 	if len(cmd) != 3 || cmd[0] != "sh" || cmd[1] != "-c" || cmd[2] != "echo hi" {
 		t.Errorf("unexpected cmd: %v", cmd)
+	}
+}
+
+func TestCommandWindowsEnforce(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only test")
+	}
+	spec := Spec{Mode: "enforce", WriteRoots: []string{`C:\workspace`}}
+	cmd, wrapped := Command(spec, Shell{Kind: ShellBash, Path: "bash"}, "echo hi")
+	if !wrapped {
+		t.Error("Windows enforce should report sandboxed=true")
+	}
+	// On Windows, Command returns argv as-is (no bwrap/sandbox-exec wrapping);
+	// the actual sandbox is applied via ConfigureCmd/Job Object.
+	if cmd[0] != "bash" {
+		t.Errorf("cmd[0] = %q, want bash", cmd[0])
+	}
+}
+
+func TestCommandWindowsFullAccess(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only test")
+	}
+	spec := Spec{SandboxMode: SandboxFullAccess}
+	_, wrapped := Command(spec, Shell{Kind: ShellBash, Path: "bash"}, "echo hi")
+	if wrapped {
+		t.Error("full-access should not be sandboxed")
 	}
 }
 
@@ -233,7 +263,19 @@ func TestAvailableNonDarwin(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		t.Skip("testing non-darwin path")
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("testing non-windows path")
+	}
 	if Available() {
-		t.Error("non-darwin should report unavailable")
+		t.Error("non-darwin non-windows should report unavailable")
+	}
+}
+
+func TestAvailableWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only test")
+	}
+	if !Available() {
+		t.Error("Windows should report sandbox available (Job Object)")
 	}
 }

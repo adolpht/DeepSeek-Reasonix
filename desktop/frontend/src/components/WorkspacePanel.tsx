@@ -9,8 +9,10 @@ import type {
 import {
   ChevronDown,
   ChevronRight,
+  Copy,
   FileText,
   Folder,
+  FolderOpen,
   FolderTree,
   FolderX,
   GitBranch,
@@ -41,9 +43,16 @@ const WORKSPACE_PREVIEW_MIN_WIDTH = 360;
 const WORKSPACE_PREVIEW_TARGET_WIDTH = 480;
 const WORKSPACE_DUAL_PANEL_MIN_WIDTH = WORKSPACE_TREE_MIN_WIDTH + WORKSPACE_PREVIEW_MIN_WIDTH;
 const WORKSPACE_DUAL_PANEL_TARGET_WIDTH = WORKSPACE_TREE_DEFAULT_WIDTH + WORKSPACE_PREVIEW_TARGET_WIDTH;
-const WORKSPACE_CONTEXT_MENU_FILE_HEIGHT = 92;
-const WORKSPACE_CONTEXT_MENU_REF_HEIGHT = 48;
+const WORKSPACE_CONTEXT_MENU_FILE_HEIGHT = 136;
+const WORKSPACE_CONTEXT_MENU_DIR_HEIGHT = 92;
+const WORKSPACE_SELECTION_MENU_HEIGHT = 48;
 const WORKSPACE_MAX_PREVIEW_TABS = 5;
+
+function revealLabelKey(platform: string): "workspace.revealInFinder" | "workspace.revealInExplorer" | "workspace.revealInFileManager" {
+  if (platform === "darwin") return "workspace.revealInFinder";
+  if (platform === "windows") return "workspace.revealInExplorer";
+  return "workspace.revealInFileManager";
+}
 
 function clampWorkspaceTreeWidth(width: number, panelWidth?: number): number {
   const maxForPanel =
@@ -205,6 +214,7 @@ export function WorkspacePanel({
   const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number; text: string; path: string } | null>(null);
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
   const [treeBlankMenuPoint, setTreeBlankMenuPoint] = useState<ContextMenuPoint | null>(null);
+  const [platform, setPlatform] = useState("");
   const changesRequestRef = useRef(0);
   const [filter, setFilter] = useState("");
   const [treeVisible, setTreeVisible] = useState(true);
@@ -217,6 +227,14 @@ export function WorkspacePanel({
   useEffect(() => {
     openDirsRef.current = openDirs;
   }, [openDirs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void app.Platform().then((value) => {
+      if (!cancelled) setPlatform(value);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const loadDir = useCallback(async (dir: string) => {
     const entries = await app.ListDir(dir).catch(() => []);
@@ -763,7 +781,7 @@ export function WorkspacePanel({
             </>
           ) : null}
           {selectionMenu && (
-            <FloatingMenu x={selectionMenu.x} y={selectionMenu.y} estimatedHeight={WORKSPACE_CONTEXT_MENU_REF_HEIGHT}>
+            <FloatingMenu x={selectionMenu.x} y={selectionMenu.y} estimatedHeight={WORKSPACE_SELECTION_MENU_HEIGHT}>
               <FloatingMenuItems
                 items={[
                   {
@@ -897,7 +915,7 @@ export function WorkspacePanel({
         <FloatingMenu
           x={treeMenu.x}
           y={treeMenu.y}
-          estimatedHeight={treeMenu.isDir ? WORKSPACE_CONTEXT_MENU_REF_HEIGHT : WORKSPACE_CONTEXT_MENU_FILE_HEIGHT}
+          estimatedHeight={treeMenu.isDir ? WORKSPACE_CONTEXT_MENU_DIR_HEIGHT : WORKSPACE_CONTEXT_MENU_FILE_HEIGHT}
           className="workspace-tree-menu"
         >
           <FloatingMenuItems
@@ -916,6 +934,23 @@ export function WorkspacePanel({
                       onSelect: () => void addTreeFileToChat(),
                     },
                   ]),
+              {
+                icon: <FolderOpen size={14} />,
+                label: t(revealLabelKey(platform)),
+                onSelect: () => {
+                  const p = treeMenu!.path;
+                  setTreeMenu(null);
+                  void app.RevealWorkspacePath(p);
+                },
+              },
+              {
+                icon: <Copy size={14} />,
+                label: t("workspace.copyPath"),
+                onSelect: () => {
+                  void navigator.clipboard.writeText(treeMenu!.path);
+                  setTreeMenu(null);
+                },
+              },
             ]}
           />
         </FloatingMenu>

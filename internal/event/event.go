@@ -1,4 +1,4 @@
-// Package event defines the typed event stream the agent emits as it runs a
+﻿// Package event defines the typed event stream the agent emits as it runs a
 // turn, and the Sink it emits to. It decouples "what happened" (the model
 // produced reasoning, a tool was dispatched, a turn used N tokens) from "how to
 // show it" (ANSI scrollback in a terminal, a card in a webview).
@@ -83,6 +83,21 @@ const (
 	// event — or TurnDone — clears. Appended last to keep the Kind values before
 	// it wire-stable.
 	Retrying
+	// AgentSpawned fires when a child agent is spawned: Tool.ID = agent_id,
+	// Tool.Name = role. Appended last to keep the Kind values before it
+	// wire-stable.
+	AgentSpawned
+	// AgentProgress carries a child agent's progress update: Tool.ID = agent_id,
+	// Tool.Output = status text. Appended last to keep the Kind values before it
+	// wire-stable.
+	AgentProgress
+	// AgentCompleted fires when a child agent finishes: Tool.ID = agent_id,
+	// Tool.Output = result summary. Appended last to keep the Kind values before
+	// it wire-stable.
+	AgentCompleted
+	// AgentClosed fires when a child agent is terminated: Tool.ID = agent_id.
+	// Appended last to keep the Kind values before it wire-stable.
+	AgentClosed
 )
 
 // Level classifies a Notice so sinks can style or filter it.
@@ -260,3 +275,4 @@ func (f FuncSink) Emit(e Event) {
 // Discard is a Sink that drops every event. Useful in tests and for runs that
 // only care about the final session state.
 var Discard Sink = FuncSink(func(Event) {})
+

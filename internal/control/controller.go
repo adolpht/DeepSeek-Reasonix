@@ -763,6 +763,8 @@ func (c *Controller) notice(text string) {
 // Run executes a turn synchronously, returning the agent's error. Used by the
 // headless `reasonix run` path, where the Sink renders to stdout and the caller
 // just needs the exit status — no TurnDone event, no cancel bookkeeping.
+// Errors are wrapped with semantic exit codes when applicable (timeout, API
+// error, permission denied, context overflow).
 func (c *Controller) Run(ctx context.Context, input string) error {
 	c.maybeSessionStart(ctx)
 	startMessages := c.messageCount()
@@ -774,7 +776,8 @@ func (c *Controller) Run(ctx context.Context, input string) error {
 		}
 		defer func() { c.hooks.Stop(ctx, lastAssistantText(c.History()), c.turn) }()
 	}
-	return c.runner.Run(ctx, input)
+	err := c.runner.Run(ctx, input)
+	return wrapSemanticError(ctx, err)
 }
 
 // Cancel aborts the in-flight turn. A goroutine blocked awaiting approval
@@ -1814,6 +1817,14 @@ func (c *Controller) SetBypass(on bool) {
 
 	for _, reply := range pending {
 		reply <- approvalReply{allow: true}
+	}
+}
+
+// SetSandboxMode updates the executor's sandbox confinement level at runtime.
+// The new mode takes effect on the next tool call within the current turn.
+func (c *Controller) SetSandboxMode(m sandbox.SandboxMode) {
+	if c.executor != nil {
+		c.executor.SetSandboxMode(m)
 	}
 }
 

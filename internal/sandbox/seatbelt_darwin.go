@@ -26,22 +26,35 @@ func Available() bool {
 	return err == nil
 }
 
-// seatbeltProfile builds an SBPL profile that allows everything, then denies
-// all file writes and re-allows them only under the write-roots (workspace +
-// temp + caches). Network is denied unless allowed. Reads are left open so the
-// toolchain (compilers reading GOROOT, git reading ~/.gitconfig, …) keeps
-// working — the boundary this draws is "can't write outside the workspace, and
-// optionally can't talk to the network", which is the Phase 0 blast-radius made
-// to also cover arbitrary shell commands.
+// seatbeltProfile builds an SBPL profile based on the effective sandbox mode.
+// Reads are left open so the toolchain keeps working. The boundary this draws
+// varies by mode: read-only denies all writes and network; workspace-write
+// denies writes outside the roots and optionally network; full-access is not
+// enforced (handled by enforce() returning false).
 func seatbeltProfile(spec Spec) string {
+	mode := spec.EffectiveMode()
 	var b strings.Builder
-	b.WriteString("(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write*\n")
-	for _, p := range writeAllowDirs(spec.WriteRoots) {
-		fmt.Fprintf(&b, "    (subpath %s)\n", sbplString(p))
-	}
-	b.WriteString(")\n")
-	if !spec.Network {
+	b.WriteString("(version 1)\n(allow default)\n")
+
+	switch mode {
+	case SandboxReadOnly:
+		// Deny ALL file writes, no re-allow
+		b.WriteString("(deny file-write*)\n")
+		// Deny network
 		b.WriteString("(deny network*)\n")
+	case SandboxWorkspaceWrite:
+		// Current behavior: deny file-write*, re-allow WriteRoots
+		b.WriteString("(deny file-write*)\n(allow file-write*\n")
+		for _, p := range writeAllowDirs(spec.WriteRoots) {
+			fmt.Fprintf(&b, "    (subpath %s)\n", sbplString(p))
+		}
+		b.WriteString(")\n")
+		// Deny network (unless overridden)
+		if !spec.Network {
+			b.WriteString("(deny network*)\n")
+		}
+	default:
+		// full-access shouldn't reach here, but if it does, allow everything
 	}
 	return b.String()
 }

@@ -24,9 +24,11 @@ import (
 	"reasonix/internal/control"
 	"reasonix/internal/event"
 	"reasonix/internal/i18n"
+	"reasonix/internal/mcpserver"
 	"reasonix/internal/notify"
 	"reasonix/internal/provider"
 	"reasonix/internal/provider/openai"
+	"reasonix/internal/sandbox"
 	"reasonix/internal/serve"
 	"time"
 
@@ -87,6 +89,9 @@ func Run(args []string, version string) int {
 	case "mcp":
 		configureCLIThemeFromConfigNoProbe()
 		return mcpCommand(rest)
+	case "mcp-server":
+		configureCLIThemeFromConfigNoProbe()
+		return runMCPServer(rest)
 	case "codegraph":
 		configureCLIThemeFromConfigNoProbe()
 		return codegraphCommand(rest)
@@ -108,7 +113,7 @@ func Run(args []string, version string) int {
 
 func shouldMigrateLegacyConfigForCLI(cmd string) bool {
 	switch cmd {
-	case "", "run", "chat", "code", "serve", "setup", "config", "init", "acp", "mcp", "codegraph", "doctor":
+	case "", "run", "chat", "code", "serve", "setup", "config", "init", "acp", "mcp", "mcp-server", "codegraph", "doctor":
 		return true
 	default:
 		return false
@@ -149,25 +154,27 @@ func configureCLIThemeFromConfigNoProbe() {
 // passes false so the session UI is reachable before a key is set. sink receives
 // the agent's typed event stream — runAgent passes a TextSink that renders to
 // stdout, the TUI passes an event-channel sink so events become tea.Msgs.
-func setup(ctx context.Context, modelName string, maxStepsOverride int, requireKey bool, sink event.Sink) (*control.Controller, error) {
+func setup(ctx context.Context, modelName string, maxStepsOverride int, requireKey bool, sink event.Sink, sandboxMode sandbox.SandboxMode) (*control.Controller, error) {
 	return boot.Build(ctx, boot.Options{
-		Model:      modelName,
-		MaxSteps:   maxStepsOverride,
-		RequireKey: requireKey,
-		Sink:       sink,
+		Model:       modelName,
+		MaxSteps:    maxStepsOverride,
+		RequireKey:  requireKey,
+		Sink:        sink,
+		SandboxMode: sandboxMode,
 	})
 }
 
 // setupQuiet is like setup but suppresses plugin subprocess stderr output.
 // Used during model switch inside a bubbletea session to prevent plugin logs
 // from corrupting the TUI's terminal raw mode.
-func setupQuiet(ctx context.Context, modelName string, maxStepsOverride int, requireKey bool, sink event.Sink) (*control.Controller, error) {
+func setupQuiet(ctx context.Context, modelName string, maxStepsOverride int, requireKey bool, sink event.Sink, sandboxMode sandbox.SandboxMode) (*control.Controller, error) {
 	return boot.Build(ctx, boot.Options{
-		Model:      modelName,
-		MaxSteps:   maxStepsOverride,
-		RequireKey: requireKey,
-		Sink:       sink,
-		Stderr:     io.Discard,
+		Model:       modelName,
+		MaxSteps:    maxStepsOverride,
+		RequireKey:  requireKey,
+		Sink:        sink,
+		Stderr:      io.Discard,
+		SandboxMode: sandboxMode,
 	})
 }
 
@@ -202,12 +209,20 @@ func runAgent(args []string) int {
 	showThinking := fs.Bool("show-thinking", false, "show thinking text instead of the collapsed thinking marker")
 	metricsPath := fs.String("metrics", "", "write a JSON token/cache/cost summary of the run to this path")
 	dir := fs.String("dir", "", "change to this directory first (project root); config, sandbox and file tools resolve from here")
+	sandboxMode := fs.String("sandbox", "", "sandbox mode: read-only, workspace-write (default), full-access")
+	// P0-3: headless execution mode flags
+	format := fs.String("format", "text", "output format: text or json")
+	timeout := fs.Duration("timeout", 0, "total execution timeout (0 = no timeout)")
+	approvalMode := fs.String("approval-mode", "auto", "approval mode: auto (resolve to allow) or ask (exit 2 on approval needed)")
+	showDiff := fs.Bool("diff", false, "show git diff after execution")
+	quiet := fs.Bool("quiet", false, "only output final result, suppress intermediate output")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if rc := chdirTo(*dir); rc != 0 {
 		return rc
 	}
+	sbMode := sandbox.NormalizeSandboxMode(*sandboxMode)
 	cfg, _ := config.Load()
 	configureCLIThemeFromConfigForTTYOutput()
 
@@ -222,6 +237,24 @@ func runAgent(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	if *timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *timeout)
+		defer cancel()
+	}
+
+	// Resolve pricing for the result collector.
+	var pricing *provider.Pricing
+	if cfg != nil {
+		name := *model
+		if name == "" {
+			name = cfg.DefaultModel
+		}
+		if entry, ok := cfg.ResolveModel(name); ok && entry.Price != nil {
+			pricing = entry.Price
+		}
+	}
+	collector := NewResultCollector(pricing)
 
 	// Live run: render the agent's event stream to stdout. Markdown post-stream
 	// redraw (cursor moves) is enabled only on a TTY; piped / captured output
@@ -235,6 +268,9 @@ func runAgent(args []string) int {
 		renderer = newMarkdownRenderer(termW)
 	}
 	textSink := agent.NewTextSink(os.Stdout, renderer, termW)
+	if *quiet {
+		textSink = agent.NewTextSink(io.Discard, nil, 0)
+	}
 	textSink.SetShowReasoning(*showThinking)
 	var sink event.Sink = textSink
 	var metrics *metricsSink
@@ -242,13 +278,21 @@ func runAgent(args []string) int {
 		metrics = &metricsSink{inner: textSink}
 		sink = metrics
 	}
+	// Tee events into the result collector for structured output.
+	sink = eventTee(sink, collector)
 	sink = withNotifications(sink, cfg)
-	ctrl, err := setup(ctx, *model, *maxSteps, true, sink)
+	ctrl, err := setup(ctx, *model, *maxSteps, true, sink, sbMode)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
 		return 1
 	}
 	defer ctrl.Close()
+
+	// approval-mode=ask: in non-interactive headless runs, any approval request
+	// should cause exit code 2 (permission denied) instead of blocking forever.
+	if *approvalMode == "ask" {
+		ctrl.EnableInteractiveApproval()
+	}
 
 	runErr := ctrl.Run(ctx, prompt)
 	if cfg != nil {
@@ -259,11 +303,37 @@ func runAgent(args []string) int {
 			fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
 		}
 	}
+
+	// Determine semantic exit code from error type.
+	exitCode := 0
+	if runErr != nil {
+		exitCode = int(agent.ExitCodeFromError(runErr))
+		if exitCode == 0 {
+			exitCode = 1 // fallback for untyped errors
+		}
+	}
+
+	// If --format json, output structured result and return.
+	if *format == "json" {
+		result := collector.Build(exitCode, runErr)
+		if *showDiff {
+			result.Diff = collectGitDiff(*dir)
+		}
+		fmt.Println(result.JSON())
+		return exitCode
+	}
+
+	// Collect git diff if requested.
+	if *showDiff {
+		if d := collectGitDiff(*dir); d != "" {
+			fmt.Println(d)
+		}
+	}
+
 	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "\n"+i18n.M.ErrorPrefix, runErr)
-		return 1
 	}
-	return 0
+	return exitCode
 }
 
 // runServe exposes the controller over HTTP+SSE: events stream to the browser,
@@ -282,7 +352,7 @@ func runServe(args []string) int {
 
 	ctx := context.Background()
 	bc := serve.NewBroadcaster()
-	ctrl, err := setup(ctx, *model, *maxSteps, true, bc)
+	ctrl, err := setup(ctx, *model, *maxSteps, true, bc, sandbox.SandboxWorkspaceWrite)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
 		return 1
@@ -325,12 +395,14 @@ func chatREPL(args []string) int {
 	yolo := fs.Bool("dangerously-skip-permissions", false, "YOLO: auto-approve every tool call this session (deny rules still apply)")
 	fs.BoolVar(yolo, "yolo", false, "alias for --dangerously-skip-permissions")
 	dir := fs.String("dir", "", "change to this directory first (project root); config, sandbox and file tools resolve from here")
+	sandboxModeFlag := fs.String("sandbox", "", "sandbox mode: read-only, workspace-write (default), full-access")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if rc := chdirTo(*dir); rc != 0 {
 		return rc
 	}
+	sbMode := sandbox.NormalizeSandboxMode(*sandboxModeFlag)
 	cfg, err := config.Load()
 	if err == nil {
 		configureCLIThemeWithStyle(cfg.UITheme(), cfg.UIThemeStyle())
@@ -369,7 +441,7 @@ func chatREPL(args []string) int {
 
 	var sink event.Sink = &eventSink{ch: eventCh}
 	sink = withNotifications(sink, cfg)
-	ctrl, err := setup(ctx, *model, *maxSteps, false, sink)
+	ctrl, err := setup(ctx, *model, *maxSteps, false, sink, sbMode)
 	if err != nil && errors.Is(err, boot.ErrUnknownModel) && isInteractive() && config.SourcePath() == "" {
 		// True first run whose default model can't resolve: guide setup, then retry.
 		// With a config present, fall through to the descriptive error — re-running
@@ -378,7 +450,7 @@ func chatREPL(args []string) int {
 		if rc := interactiveSetup(defaultConfigTarget(), defaultEnvTarget()); rc != 0 {
 			return rc
 		}
-		ctrl, err = setup(ctx, *model, *maxSteps, false, sink)
+		ctrl, err = setup(ctx, *model, *maxSteps, false, sink, sbMode)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
@@ -439,7 +511,7 @@ func chatREPL(args []string) int {
 	// runModelSubcommand performs the swap on the live copy. The same stable sink
 	// feeds the new controller, so events keep flowing to this TUI.
 	m.buildController = func(ref string, carry []provider.Message, resumePath string) (*control.Controller, error) {
-		c, err := setupQuiet(ctx, ref, *maxSteps, false, sink)
+		c, err := setupQuiet(ctx, ref, *maxSteps, false, sink, sbMode)
 		if err != nil {
 			return nil, err
 		}
@@ -1641,4 +1713,60 @@ func configAutoPlanUsage() {
 	fmt.Print(`Usage:
   reasonix config auto-plan [--local] [off|on]
 `)
+}
+
+// runMCPServer runs the MCP server subcommand. It exposes Reasonix as an MCP
+// tool server for other agents (Claude Code, Cursor, Copilot, etc.) via stdio
+// or HTTP transports.
+func runMCPServer(args []string) int {
+	fs := flag.NewFlagSet("mcp-server", flag.ContinueOnError)
+	transport := fs.String("transport", "stdio", "transport mode: stdio or http")
+	addr := fs.String("addr", "0.0.0.0:9090", "HTTP listen address (only used with --transport http)")
+	model := fs.String("model", "", "provider name (default: config default_model)")
+	maxSteps := fs.Int("max-steps", 0, "max tool-call rounds (0 = use config/default)")
+	dir := fs.String("dir", "", "change to this directory first (project root)")
+	sandboxMode := fs.String("sandbox", "", "default sandbox mode: read-only, workspace-write (default), full-access")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if rc := chdirTo(*dir); rc != 0 {
+		return rc
+	}
+
+	// Validate transport.
+	if *transport != "stdio" && *transport != "http" {
+		fmt.Fprintln(os.Stderr, "error: --transport must be stdio or http")
+		return 2
+	}
+
+	sbMode := sandbox.NormalizeSandboxMode(*sandboxMode)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	// Create a sinkRouter so the MCP server can dynamically route events
+	// to per-request collectors while still forwarding to a base sink.
+	router := mcpserver.NewSinkRouter(event.Discard)
+
+	ctrl, err := setup(ctx, *model, *maxSteps, true, router, sbMode)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
+		return 1
+	}
+	defer ctrl.Close()
+
+	srv := mcpserver.NewServer(ctrl, *transport, *addr, router)
+
+	if *transport == "stdio" {
+		// For stdio transport, suppress any non-JSON-RPC output on stdout/stderr.
+		// Logs would corrupt the JSON-RPC stream that IDE clients parse.
+	} else {
+		fmt.Fprintf(os.Stderr, "reasonix MCP server — %s on http://%s\n", *transport, *addr)
+	}
+
+	if err := srv.Run(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
+		return 1
+	}
+	return 0
 }
