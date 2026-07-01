@@ -12,8 +12,11 @@ require (
 	github.com/alecthomas/chroma/v2 v2.26.1
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/emersion/go-imap v1.2.1
+	github.com/emersion/go-message v0.18.2
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/nineya/wordZero v1.1.1
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
 	github.com/signintech/gopdf v0.36.1
 	github.com/wcharczuk/go-chart/v2 v2.1.2
@@ -21,6 +24,7 @@ require (
 	github.com/yuin/goldmark v1.8.2
 	go.uber.org/goleak v1.3.0
 	golang.org/x/net v0.55.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.45.0
 	golang.org/x/term v0.43.0
 	golang.org/x/text v0.37.0
@@ -28,6 +32,7 @@ require (
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260601155805-6cf7526a1b3f // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
@@ -37,6 +42,7 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/emersion/go-sasl v0.0.0-20200509203442-7bfe0ed36a21 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/litao91/goldmark-mathjax v0.0.0-20210217064022-a43cf739a50f // indirect

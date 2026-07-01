@@ -167,8 +167,8 @@ func TestGateInteractive(t *testing.T) {
 	if ap.calls != 1 {
 		t.Errorf("approver calls = %d, want 1", ap.calls)
 	}
-	if remembered != "bash=go build" {
-		t.Errorf("remembered rule = %q, want %q", remembered, "bash=go build")
+	if remembered != "bash" {
+		t.Errorf("remembered rule = %q, want %q", remembered, "bash")
 	}
 
 	// Decline path.

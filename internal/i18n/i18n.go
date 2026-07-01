@@ -346,6 +346,9 @@ type Messages struct {
 
 	// usage / help
 	UsageBody string // full multi-line help text
+
+	// data model (Tasks 21-22)
+	DailyTip string // home screen daily tip
 }
 
 // ProviderStatusMessage returns an actionable explanation for a known provider

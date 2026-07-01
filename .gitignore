@@ -18,15 +18,18 @@
 coverage.out
 cpu.prof
 mem.prof
+*.exe
 
 # Wails desktop artifacts
 /desktop/build/*
 !/desktop/build/appicon.png
 /desktop/desktop
+/desktop/desktop.exe
 /desktop/frontend/dist/*
 !/desktop/frontend/dist/.gitkeep
 /desktop/frontend/wailsjs/
 /desktop/frontend/package.json.md5
+/desktop/frontend/nul
 
 # Environment / local config (reasonix.example.toml is the shared template)
 .env
@@ -54,6 +57,7 @@ node_modules/
 Thumbs.db
 .idea/
 .vscode/
+.trae/
 
 # Scratch / agent working dirs (never committed)
 /tmp/

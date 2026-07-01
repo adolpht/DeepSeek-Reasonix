@@ -3,9 +3,11 @@ import { CodeViewer } from "./CodeViewer";
 import { DiffView } from "./DiffView";
 import { DocPreviewer } from "./DocPreviewer";
 import { ProcessCard, ProcessStatusIcon, ProcessToolIcon, type ProcessState, type ProcessTone } from "./ProcessCard";
+import { RichToolCard, type RichToolCardKind } from "./RichToolCard";
 import { useT } from "../lib/i18n";
 import { diffsFor, docExportPath, subjectOf, summarize } from "../lib/tools";
 import { useShellExpand } from "../lib/shellExpand";
+import { app } from "../lib/bridge";
 import type { Item } from "../lib/useController";
 
 type ToolItem = Extract<Item, { kind: "tool" }>;
@@ -21,6 +23,64 @@ function pretty(json: string): string {
   } catch {
     return json;
   }
+}
+
+interface RichDetection {
+  kind: RichToolCardKind;
+  filePath?: string;
+  searchResults?: { title: string; snippet: string; url: string }[];
+  tableData?: { headers: string[]; rows: string[][] };
+}
+
+function detectRichOutput(name: string, args: string, output: string): RichDetection | null {
+  // Search results
+  if (name.startsWith("mcp__search__web_search") || name === "web_search") {
+    try {
+      const results = JSON.parse(output);
+      if (Array.isArray(results)) {
+        return { kind: "search_result", searchResults: results };
+      }
+    } catch { /* not JSON */ }
+  }
+  // Spreadsheet output
+  if (name === "write_sheet" || name.startsWith("mcp__search__compare_table")) {
+    try {
+      const data = JSON.parse(output);
+      if (data.headers && data.rows) {
+        return { kind: "spreadsheet", tableData: data };
+      }
+    } catch { /* not JSON */ }
+  }
+  // Document output (PPT, docx, pdf) / spreadsheet / chart — detect by file path in args
+  const docExtensions = [".pptx", ".ppt", ".docx", ".doc", ".pdf"];
+  const sheetExtensions = [".xlsx", ".xls", ".csv"];
+  const chartExtensions = [".png", ".jpg", ".jpeg", ".svg"];
+  try {
+    const parsed = JSON.parse(args);
+    const path = parsed.path || parsed.file_path || parsed.filename || parsed.output_path || "";
+    const lower = path.toLowerCase();
+    if (docExtensions.some(ext => lower.endsWith(ext))) return { kind: "document", filePath: path };
+    if (sheetExtensions.some(ext => lower.endsWith(ext))) return { kind: "spreadsheet", filePath: path };
+    if (chartExtensions.some(ext => lower.endsWith(ext))) return { kind: "chart", filePath: path };
+  } catch { /* not JSON args */ }
+  // MCP slides tools → always document
+  if (name.startsWith("mcp__slides__")) {
+    try {
+      const parsed = JSON.parse(args);
+      const path = parsed.path || parsed.file_path || parsed.filename || parsed.output_path || "";
+      return { kind: "document", filePath: path || undefined };
+    } catch {
+      return { kind: "document" };
+    }
+  }
+  // Check if output contains table data
+  try {
+    const data = JSON.parse(output);
+    if (data.headers && Array.isArray(data.rows)) {
+      return { kind: "spreadsheet", tableData: data };
+    }
+  } catch { /* not JSON */ }
+  return null;
 }
 
 function processState(status: ToolItem["status"]): ProcessState {
@@ -100,6 +160,10 @@ export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolI
   const hasProcessBody = Boolean(summary || diffs.length || hasNested || shellPreview || (!shellPreview && hasArgsOrOutput) || item.error);
   const duration = item.status === "running" ? "" : formatDuration(item.durationMs);
 
+  const richDetection = !quiet && item.status === "done" && item.output
+    ? detectRichOutput(item.name, item.args ?? "", item.output)
+    : null;
+
   return (
     <ProcessCard
       tone={processTone(item.status)}
@@ -132,6 +196,19 @@ export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolI
           <DiffView original={d.original} modified={d.modified} language={d.lang} maxHeight={260} />
         </div>
       ))}
+
+      {richDetection && (
+        <div className="tool__body">
+          <RichToolCard
+            kind={richDetection.kind}
+            filePath={richDetection.filePath}
+            tableData={richDetection.tableData}
+            searchResults={richDetection.searchResults}
+            onOpen={richDetection.filePath ? () => { void app.OpenInOSDefault(richDetection.filePath!); } : undefined}
+            onExport={richDetection.filePath ? () => { void app.ExportToWorkspace("", `exports/${richDetection.filePath!.split(/[/\\]/).pop()}`, ""); } : undefined}
+          />
+        </div>
+      )}
 
       {hasNested && (
         <div className="tool__nested">

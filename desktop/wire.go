@@ -21,6 +21,7 @@ type wireEvent struct {
 	Approval     *wireApproval   `json:"approval,omitempty"`
 	Ask          *wireAsk        `json:"ask,omitempty"`
 	Compaction   *wireCompaction `json:"compaction,omitempty"`
+	Step         *wireStep       `json:"step,omitempty"`
 	Err          string          `json:"err,omitempty"`
 	RetryAttempt int             `json:"retryAttempt,omitempty"`
 	RetryMax     int             `json:"retryMax,omitempty"`
@@ -110,6 +111,13 @@ type wireApproval struct {
 	Subject string `json:"subject"`
 }
 
+type wireStep struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Status    string `json:"status"`
+	TurnIndex int    `json:"turnIndex"`
+}
+
 // kindNames maps the event.Kind enum to stable wire strings.
 var kindNames = map[event.Kind]string{
 	event.TurnStarted:       "turn_started",
@@ -128,6 +136,7 @@ var kindNames = map[event.Kind]string{
 	event.CompactionDone:    "compaction_done",
 	event.ToolProgress:      "tool_progress",
 	event.Retrying:          "retrying",
+	event.StepProgress:      "step_progress",
 }
 
 // toWireAsk converts an event.Ask into its JSON wire form.
@@ -199,6 +208,10 @@ func toWire(e event.Event) wireEvent {
 	case event.Retrying:
 		w.RetryAttempt = e.RetryAttempt
 		w.RetryMax = e.RetryMax
+	case event.StepProgress:
+		if e.Step != nil {
+			w.Step = &wireStep{ID: e.Step.ID, Label: e.Step.Label, Status: e.Step.Status, TurnIndex: e.Step.TurnIndex}
+		}
 	}
 	return w
 }

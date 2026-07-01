@@ -329,4 +329,6 @@ Configuration:
   Secrets come from the environment via api_key_env (e.g. DEEPSEEK_API_KEY).
   Run 'reasonix setup' to scaffold a config; see docs/SPEC.md.
 `,
+
+	DailyTip: "Use /compact to free context when the conversation gets long — it summarizes older history automatically.",
 }

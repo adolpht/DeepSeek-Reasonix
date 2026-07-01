@@ -1,4 +1,4 @@
-﻿// Package event defines the typed event stream the agent emits as it runs a
+// Package event defines the typed event stream the agent emits as it runs a
 // turn, and the Sink it emits to. It decouples "what happened" (the model
 // produced reasoning, a tool was dispatched, a turn used N tokens) from "how to
 // show it" (ANSI scrollback in a terminal, a card in a webview).
@@ -98,6 +98,16 @@ const (
 	// AgentClosed fires when a child agent is terminated: Tool.ID = agent_id.
 	// Appended last to keep the Kind values before it wire-stable.
 	AgentClosed
+	// IntentClassified fires when the intent classifier has classified the user's
+	// input into a workspace type (coding/office/assistant). Text carries the
+	// classified intent string; the full IntentResult is JSON-encoded in
+	// IntentClassified payload. Appended last to keep the Kind values before it
+	// wire-stable.
+	IntentClassified
+	// StepProgress fires when the agent advances to a new step in a multi-step plan.
+	// Text carries the step label; Step carries the structured step data.
+	// Appended last to keep the Kind values before it wire-stable.
+	StepProgress
 )
 
 // Level classifies a Notice so sinks can style or filter it.
@@ -197,6 +207,14 @@ type AskAnswer struct {
 	Selected   []string
 }
 
+// Step carries a step-progress update for the StepProgress event.
+type Step struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Status    string `json:"status"` // "completed" | "in_progress" | "pending"
+	TurnIndex int    `json:"turnIndex"`
+}
+
 // CacheDiagnostics describes whether and why the cacheable prefix changed since
 // the last turn. It rides on the Usage event so every frontend can show
 // cache-churn attribution.
@@ -233,6 +251,7 @@ type Event struct {
 	Ask          Ask        // AskRequest
 	Err          error      // TurnDone: non-nil on failure
 	Compaction   Compaction // Compaction
+	Step         *Step      // StepProgress
 	RetryAttempt int        // Retrying: 1-based attempt about to be made
 	RetryMax     int        // Retrying: total attempts before giving up
 }
@@ -275,4 +294,3 @@ func (f FuncSink) Emit(e Event) {
 // Discard is a Sink that drops every event. Useful in tests and for runs that
 // only care about the final session state.
 var Discard Sink = FuncSink(func(Event) {})
-

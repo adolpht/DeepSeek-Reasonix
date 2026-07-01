@@ -297,9 +297,10 @@ func (a *App) RenderDocPreview(absPath string, page int) ([]DocPreviewPage, erro
 	}}, nil
 }
 
-// SetWorkspaceType switches the active tab between "coding" and "office" mode.
-// In office mode the frontend shows the office-capability panel (skill cards)
-// instead of the default coding workspace chrome.
+// SetWorkspaceType switches the active tab between "coding", "office", and
+// "assistant" mode. In office mode the frontend shows the office-capability
+// panel (skill cards); in assistant mode the frontend shows the AI assistant
+// panel; coding is the default code-centric workspace chrome.
 func (a *App) SetWorkspaceType(wt string) error {
 	wt = normalizeWorkspaceType(wt)
 	tab := a.activeTab()
@@ -320,7 +321,7 @@ func (a *App) SetWorkspaceType(wt string) error {
 	return nil
 }
 
-// WorkspaceType returns the active tab's workspace type ("coding" or "office").
+// WorkspaceType returns the active tab's workspace type ("coding", "office", or "assistant").
 func (a *App) WorkspaceType() string {
 	tab := a.activeTab()
 	if tab == nil {

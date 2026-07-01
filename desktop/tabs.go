@@ -56,7 +56,7 @@ type WorkspaceTab struct {
 	model         string // active model ref (for meta)
 	effort        *string
 	mode          string // "normal" | "plan" | "yolo"; yolo is runtime-only
-	workspaceType string // "coding" | "office"; coding is default
+	workspaceType string // "coding" | "office" | "assistant"; coding is default
 	disabledMCP   map[string]ServerView
 	mcpOrder      []string
 }
@@ -246,7 +246,7 @@ type TabMeta struct {
 	Ready         bool   `json:"ready"`
 	Running       bool   `json:"running"`
 	Mode          string `json:"mode"`
-	WorkspaceType string `json:"workspaceType"` // "coding" | "office"
+	WorkspaceType string `json:"workspaceType"` // "coding" | "office" | "assistant"
 	StartupErr    string `json:"startupErr,omitempty"`
 	Active        bool   `json:"active"`
 	Cwd           string `json:"cwd"`
@@ -880,7 +880,7 @@ type desktopTabEntry struct {
 	Model         string  `json:"model,omitempty"`
 	Effort        *string `json:"effort,omitempty"`
 	Mode          string  `json:"mode,omitempty"`
-	WorkspaceType string  `json:"workspaceType,omitempty"` // "coding" | "office"
+	WorkspaceType string  `json:"workspaceType,omitempty"` // "coding" | "office" | "assistant"
 }
 
 type desktopTabsFile struct {
@@ -2289,10 +2289,14 @@ func normalizeTabMode(mode string) string {
 }
 
 // normalizeWorkspaceType maps a workspace type value to the canonical form.
-// "office" means the office-capability panel is shown; everything else is "coding".
+// "office" means the office-capability panel is shown; "assistant" means AI
+// assistant mode; everything else is "coding".
 func normalizeWorkspaceType(wt string) string {
 	if wt == "office" {
 		return "office"
+	}
+	if wt == "assistant" {
+		return "assistant"
 	}
 	return "coding"
 }

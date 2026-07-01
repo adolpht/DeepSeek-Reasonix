@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ClipboardEvent, DragEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { AlertTriangle, ArrowUp, Check, ChevronDown, Eye, FileText, Folder, FolderGit2, FolderPlus, List, Search, Square, Trash2, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowUp, Check, ChevronDown, Eye, FileText, Folder, FolderGit2, FolderPlus, List, Paperclip, Search, Square, Trash2, X, Zap } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app, onFilesDropped } from "../lib/bridge";
 import { SPINNER_WORDS, useI18n } from "../lib/i18n";
@@ -214,6 +214,7 @@ export function Composer({
   const lastCompositionEndAt = useRef(0);
   const lastSelectionRef = useRef({ start: 0, end: 0 });
   const consumedInsertIdRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (wasRunning.current && !running && text.trim() === "") {
@@ -515,6 +516,35 @@ export function Composer({
       }
     }
   };
+
+  const handleAttachClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const fileArray = Array.from(files);
+    const imageExts = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp"]);
+    const imageFiles: File[] = [];
+    const otherFiles: File[] = [];
+    for (const f of fileArray) {
+      const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+      if (imageExts.has(ext)) {
+        imageFiles.push(f);
+      } else {
+        otherFiles.push(f);
+      }
+    }
+    if (imageFiles.length > 0) {
+      void attachImageFiles(imageFiles);
+    }
+    if (otherFiles.length > 0) {
+      void attachOtherFiles(otherFiles);
+    }
+    // Reset so the same file can be picked again
+    e.target.value = "";
+  }, [attachImageFiles, attachOtherFiles]);
 
   const attachFiles = (files: File[]) => {
     void attachImageFiles(files);
@@ -1142,6 +1172,23 @@ export function Composer({
           onDragLeave={onDragLeave}
         >
           <span className="composer__caret">{text.trimStart().startsWith("!") ? "$" : "›"}</span>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: "none" }}
+            onChange={handleFileInputChange}
+          />
+          <button
+            className="composer__btn composer__btn--attach"
+            type="button"
+            onClick={handleAttachClick}
+            disabled={disabled || running}
+            title={t("composer.attachFile")}
+            aria-label={t("composer.attachFile")}
+          >
+            <Paperclip size={16} />
+          </button>
           <textarea
             ref={taRef}
             className="composer__input"

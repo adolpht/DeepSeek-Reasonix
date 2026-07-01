@@ -161,3 +161,86 @@ func Compose(base string, s *Set) string {
 	}
 	return strings.TrimRight(base, "\n") + "\n\n" + block
 }
+
+// --- Personal knowledge base (Task 31) ---
+
+// MemoryFile describes one default file in the ~/.reasonix/memory/ knowledge base.
+type MemoryFile struct {
+	Name    string // file name (e.g. "people.md")
+	Content string // initial content when the file is created
+}
+
+// DefaultMemoryFiles returns the set of default knowledge-base files to create
+// under ~/.reasonix/memory/ when the directory is first initialised.
+func DefaultMemoryFiles() []MemoryFile {
+	return []MemoryFile{
+		{
+			Name: "people.md",
+			Content: `# 常联系人
+<!-- 记录你经常联系的人，Agent 会根据此信息优化沟通建议 -->
+<!-- 格式：- 姓名 | 角色 | 联系方式 | 备注 -->
+`,
+		},
+		{
+			Name: "projects.md",
+			Content: `# 在跟项目
+<!-- 记录你当前参与的项目，Agent 会据此提供上下文感知 -->
+<!-- 格式：- 项目名 | 状态 | 关键信息 -->
+`,
+		},
+		{
+			Name: "preferences.md",
+			Content: `# 个人偏好
+<!-- 记录你的工作偏好，Agent 会据此调整输出风格 -->
+<!-- 例如：语言偏好、输出格式、沟通风格等 -->
+`,
+		},
+		{
+			Name: "writing_style.md",
+			Content: `# 写作风格
+<!-- 记录你的写作风格偏好，Agent 会据此生成更符合你风格的文本 -->
+<!-- 例如：正式/随意、简洁/详细、技术/通俗 -->
+`,
+		},
+	}
+}
+
+// MemoryDir returns the path to the personal knowledge base directory
+// (~/.reasonix/memory/). It uses the user's home directory as the base.
+func MemoryDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home dir: %w", err)
+	}
+	return filepath.Join(home, ".reasonix", "memory"), nil
+}
+
+// EnsureMemoryDir checks whether the ~/.reasonix/memory/ directory exists and,
+// if not, creates it along with the default knowledge-base files. It returns the
+// directory path and a boolean indicating whether the directory was newly created.
+func EnsureMemoryDir() (string, bool, error) {
+	dir, err := MemoryDir()
+	if err != nil {
+		return "", false, err
+	}
+	info, err := os.Stat(dir)
+	if err == nil && info.IsDir() {
+		return dir, false, nil
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return "", false, fmt.Errorf("stat memory dir: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", false, fmt.Errorf("create memory dir: %w", err)
+	}
+	for _, f := range DefaultMemoryFiles() {
+		path := filepath.Join(dir, f.Name)
+		if _, err := os.Stat(path); err == nil {
+			continue // don't overwrite existing files
+		}
+		if err := os.WriteFile(path, []byte(f.Content), 0o644); err != nil {
+			return dir, true, fmt.Errorf("write %s: %w", f.Name, err)
+		}
+	}
+	return dir, true, nil
+}

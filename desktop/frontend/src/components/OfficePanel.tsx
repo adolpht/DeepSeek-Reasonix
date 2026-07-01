@@ -1,6 +1,5 @@
-import { FileText, ClipboardList, FileSignature, Table, BarChart3, BookOpen, Briefcase, Code2 } from "lucide-react";
+import { FileText, ClipboardList, FileSignature, Table, BarChart3, BookOpen } from "lucide-react";
 import { useT } from "../lib/i18n";
-import type { WorkspaceType } from "../lib/types";
 
 // Office capability card definition — compact sidebar variant.
 interface OfficeCard {
@@ -65,36 +64,5 @@ export function OfficePanel({
         </div>
       </div>
     </section>
-  );
-}
-
-// WorkspaceTypeSwitch is a toggle switch rendered in the sidebar bottom nav
-// area. It shows a compact row: icon + label + toggle pill.
-export function WorkspaceTypeSwitch({
-  value,
-  onChange,
-}: {
-  value: WorkspaceType;
-  onChange: (wt: WorkspaceType) => void;
-}) {
-  const t = useT();
-  const isOffice = value === "office";
-  return (
-    <div className="wst-switch">
-      <button
-        className={`wst-switch__track${isOffice ? " wst-switch__track--on" : ""}`}
-        onClick={() => onChange(isOffice ? "coding" : "office")}
-        role="switch"
-        aria-checked={isOffice}
-        aria-label={t("workspaceType.office")}
-        title={isOffice ? t("workspaceType.codingDesc") : t("workspaceType.officeDesc")}
-      >
-        <span className="wst-switch__thumb" />
-      </button>
-      <span className={`wst-switch__label${isOffice ? " wst-switch__label--on" : ""}`}>
-        {isOffice ? <Briefcase size={13} /> : <Code2 size={13} />}
-        <span>{isOffice ? t("workspaceType.office") : t("workspaceType.coding")}</span>
-      </span>
-    </div>
   );
 }

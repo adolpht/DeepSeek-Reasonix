@@ -24,6 +24,7 @@ export const THEME_STYLES = [
   "porcelain",
   "linen",
   "glacier",
+  "office",
 ] as const;
 
 export type ThemeStyle = (typeof THEME_STYLES)[number];
@@ -37,6 +38,7 @@ export const THEME_STYLE_THEME: Record<ThemeStyle, ResolvedTheme> = {
   porcelain: "light",
   linen: "light",
   glacier: "light",
+  office: "light",
 };
 
 const DEFAULT_THEME_STYLE: Record<ResolvedTheme, ThemeStyle> = {
@@ -180,5 +182,45 @@ export function initTheme(): void {
       // Dark shell: matches :root --bg (#090a0c).
       WindowSetBackgroundColour(9, 10, 12, 255);
     }
+  }
+}
+
+// --- Mode-associated theme auto-switching ---
+
+// WorkspaceType must match the type defined in lib/types.ts.
+type WorkspaceType = "coding" | "office" | "assistant";
+
+const UNIFIED_THEME_KEY = "reasonix-unified-theme";
+
+/** Returns the recommended theme + style for a given workspace type. */
+export function getThemeForWorkspaceType(wsType: WorkspaceType): { theme: ResolvedTheme; style: ThemeStyle } {
+  switch (wsType) {
+    case "office":
+    case "assistant":
+      return { theme: "light", style: "office" };
+    case "coding":
+    default:
+      return { theme: "dark", style: "graphite" };
+  }
+}
+
+/** Read the "unified theme" preference from localStorage. Default: false (auto-switch enabled). */
+export function isUnifiedTheme(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    return localStorage.getItem(UNIFIED_THEME_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Persist the "unified theme" preference to localStorage. */
+export function setUnifiedTheme(unified: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    if (unified) localStorage.setItem(UNIFIED_THEME_KEY, "1");
+    else localStorage.removeItem(UNIFIED_THEME_KEY);
+  } catch {
+    /* ignore storage failures */
   }
 }

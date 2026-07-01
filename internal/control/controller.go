@@ -427,6 +427,7 @@ func (c *Controller) runTurnWithRaw(ctx context.Context, input, raw string) erro
 func (c *Controller) runTurnWithRawDisplay(ctx context.Context, input, raw, display string) error {
 	c.maybeSessionStart(ctx)
 	c.maybeAutoPlan(ctx, raw)
+	c.maybeClassifyIntent(raw)
 	input = c.Compose(input)
 	startMessages := c.messageCount()
 	defer c.snapshotActivityIfChanged(startMessages)
@@ -2183,7 +2184,11 @@ func parseRewind(args string, cps []checkpoint.Meta) (int, RewindScope, error) {
 }
 
 func (c *Controller) requestApproval(ctx context.Context, tool, subject string) (bool, bool, error) {
-	key := tool + "\x00" + subject
+	// Session grants are at the tool level: once the user allows a tool (e.g.
+	// "bash", "read_file"), all calls to that tool skip prompting for the rest
+	// of the session. The subject is surfaced in the dialog so the user sees
+	// what the model wants to do, but a session grant covers the whole tool.
+	key := tool
 
 	c.mu.Lock()
 	// YOLO/bypass and the just-approved-plan window auto-allow every approval
@@ -2239,4 +2244,19 @@ func (c *Controller) requestApproval(ctx context.Context, tool, subject string) 
 		c.mu.Unlock()
 		return false, false, ctx.Err()
 	}
+}
+
+// maybeClassifyIntent runs the rule-based intent classifier on the user's input
+// and emits an IntentClassified event so the frontend can suggest a workspace
+// mode switch. This is a lightweight, non-blocking hint — it never blocks the
+// turn or forces a mode change.
+func (c *Controller) maybeClassifyIntent(raw string) {
+	result := ClassifyIntent(raw, c.allSkills)
+	if result.Intent == IntentUnknown {
+		return
+	}
+	c.sink.Emit(event.Event{
+		Kind: event.IntentClassified,
+		Text: string(result.Intent),
+	})
 }

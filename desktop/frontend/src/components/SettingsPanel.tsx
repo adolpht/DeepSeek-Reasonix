@@ -11,8 +11,10 @@ import {
   getResolvedTheme,
   getTheme,
   getThemeStyle,
+  isUnifiedTheme,
   normalizeThemePreference,
   normalizeThemeStyleForTheme,
+  setUnifiedTheme,
   themeForStyle,
   type Theme,
   type ThemeStyle,
@@ -31,7 +33,7 @@ const SETTINGS_TABS: SettingsTab[] = ["general", "models", "mcp", "skills", "mem
 // SettingsPanel is the desktop settings centre — a centred modal with left
 // navigation and a right content area. It hosts all settings pages plus MCP,
 // Skills, and Memory management, replacing the old per-feature drawers.
-export function SettingsPanel({ onClose, onChanged, initialTab }: { onClose: () => void; onChanged: () => void; initialTab?: SettingsTab }) {
+export function SettingsPanel({ onClose, onChanged, initialTab, autoSwitchMode, onAutoSwitchModeChange }: { onClose: () => void; onChanged: () => void; initialTab?: SettingsTab; autoSwitchMode?: boolean; onAutoSwitchModeChange?: (v: boolean) => void }) {
   const t = useT();
   const [s, setS] = useState<SettingsView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -138,6 +140,8 @@ export function SettingsPanel({ onClose, onChanged, initialTab }: { onClose: () 
                       themeStyle={themeStyle}
                       textSize={textSize}
                       fontFamily={fontFamily}
+                      autoSwitchMode={autoSwitchMode}
+                      onAutoSwitchModeChange={onAutoSwitchModeChange}
                       onTheme={(t) => {
                         const nextStyle = themeForStyle(themeStyle) === getResolvedTheme(t) ? themeStyle : defaultStyleForTheme(t);
                         applyTheme(t, nextStyle, { persist: false });
@@ -2140,6 +2144,8 @@ function AppearanceSection({
   themeStyle,
   textSize,
   fontFamily,
+  autoSwitchMode,
+  onAutoSwitchModeChange,
   onTheme,
   onThemeStyle,
   onTextSize,
@@ -2149,6 +2155,8 @@ function AppearanceSection({
   themeStyle: ThemeStyle;
   textSize: TextSize;
   fontFamily: FontFamily;
+  autoSwitchMode?: boolean;
+  onAutoSwitchModeChange?: (v: boolean) => void;
   onTheme: (t: Theme) => void;
   onThemeStyle: (style: ThemeStyle) => void;
   onTextSize: (size: TextSize) => void;
@@ -2156,6 +2164,7 @@ function AppearanceSection({
 }) {
   const t = useT();
   const themeOptions: Theme[] = ["auto", "light", "dark"];
+  const [unifiedTheme, setUnifiedThemeState] = useState(() => isUnifiedTheme());
   return (
     <SettingsSection title={t("settings.appearance")}>
       <SettingsField label={t("settings.theme")}>
@@ -2180,10 +2189,38 @@ function AppearanceSection({
               onClick={() => onThemeStyle(opt)}
             >
               <span className="theme-style-swatch" data-theme-style-swatch={opt} />
-              <span>{opt}</span>
+              <span>{t(`settings.themeStyle.${opt}` as any) || opt}</span>
             </button>
           ))}
         </div>
+      </SettingsField>
+      <SettingsField
+        label={t("settings.unifiedTheme")}
+        hint={t("settings.unifiedThemeHint")}
+      >
+        <label className="set-check set-check--inline">
+          <input
+            type="checkbox"
+            checked={unifiedTheme}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setUnifiedTheme(next);
+              setUnifiedThemeState(next);
+            }}
+          />
+        </label>
+      </SettingsField>
+      <SettingsField
+        label={t("intent.autoSwitch")}
+        hint={t("intent.autoSwitchDesc")}
+      >
+        <label className="set-check set-check--inline">
+          <input
+            type="checkbox"
+            checked={autoSwitchMode ?? false}
+            onChange={(e) => onAutoSwitchModeChange?.(e.target.checked)}
+          />
+        </label>
       </SettingsField>
       <SettingsField label={t("settings.textSize")}>
         <div className="set-seg">

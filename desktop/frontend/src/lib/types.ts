@@ -17,7 +17,9 @@ export type EventKind =
   | "turn_done"
   | "compaction_started"
   | "compaction_done"
-  | "retrying";
+  | "retrying"
+  | "intent_classified"
+  | "step_progress";
 
 export interface WireCompaction {
   trigger?: string; // "auto" | "manual"
@@ -86,6 +88,13 @@ export interface WireAsk {
   questions: WireAskQuestion[];
 }
 
+export interface WireStep {
+  id: string;
+  label: string;
+  status: "completed" | "in_progress" | "pending";
+  turnIndex: number;
+}
+
 // QuestionAnswer is the reply for one question, sent back via AnswerQuestion.
 export interface QuestionAnswer {
   questionId: string;
@@ -102,6 +111,7 @@ export interface WireEvent {
   approval?: WireApproval;
   ask?: WireAsk;
   compaction?: WireCompaction;
+  step?: WireStep;
   err?: string;
   retryAttempt?: number;
   retryMax?: number;
@@ -289,9 +299,9 @@ export interface Meta {
 export type Mode = "normal" | "plan" | "yolo";
 
 // WorkspaceType is the workspace surface mode: "coding" (default, code-centric
-// layout) or "office" (shows the office-capability panel with skill cards
-// instead of requiring slash commands).
-export type WorkspaceType = "coding" | "office";
+// layout), "office" (shows the office-capability panel with skill cards
+// instead of requiring slash commands), or "assistant" (AI assistant mode).
+export type WorkspaceType = "coding" | "office" | "assistant";
 
 export interface CommandInfo {
   name: string; // without the leading slash
@@ -643,4 +653,50 @@ export interface StashEntryView {
 export interface GitOperationResult {
   success: boolean;
   message?: string;
+}
+
+// Data model types (Tasks 21-22)
+
+export interface ScheduledTaskView {
+  id: string;
+  name: string;
+  cron: string;
+  skill: string;
+  parameters: string; // JSON-encoded
+  enabled: boolean;
+  lastRun: number; // unix ms, 0 = never
+  nextRun: number; // unix ms, 0 = not scheduled
+  createdAt: number; // unix ms
+}
+
+export interface TodoView {
+  id: string;
+  title: string;
+  description: string;
+  dueDate: string; // ISO date (YYYY-MM-DD) or empty
+  priority: "low" | "medium" | "high" | "urgent";
+  status: "pending" | "in_progress" | "completed";
+  source: "user" | "agent" | "scheduled";
+  createdAt: number; // unix ms
+  updatedAt: number; // unix ms
+}
+
+export interface NotificationView {
+  id: string;
+  kind: "task_complete" | "reminder" | "error";
+  title: string;
+  body: string;
+  read: boolean;
+  createdAt: number; // unix ms
+}
+
+export interface SuggestedSkill {
+  name: string;
+  description: string;
+}
+
+export interface HomePageData {
+  recentTasks: SessionMeta[];
+  suggestedSkills: SuggestedSkill[];
+  dailyTip: string;
 }

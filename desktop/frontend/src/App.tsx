@@ -3,24 +3,20 @@ import type { CSSProperties, KeyboardEvent, PointerEvent as ReactPointerEvent } 
 import { ShellExpandProvider, useShellExpand } from "./lib/shellExpand";
 import {
   Download,
-  SquarePen,
   CircleGauge,
+  Eye,
   FileText,
   FileJson,
   GitBranch,
-  History,
-  Settings as SettingsIcon,
   Pencil,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Trash2,
-  BookOpen,
+  X,
 } from "lucide-react";
-import logoWordmark from "./assets/logo-wordmark.svg";
 import { asArray } from "./lib/array";
-import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n, useT } from "./lib/i18n";
+import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n, useT, type DictKey } from "./lib/i18n";
 import { useController, type Item, type LiveStream } from "./lib/useController";
 import { app, onProjectTreeChanged } from "./lib/bridge";
 import { Transcript } from "./components/Transcript";
@@ -33,17 +29,25 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { ContextPanel } from "./components/ContextPanel";
+import { PreviewPanel } from "./components/PreviewPanel";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { Tooltip } from "./components/Tooltip";
 import { StartupSplash, shouldShowStartupSplash } from "./components/StartupSplash";
 import { OnboardingOverlay } from "./components/OnboardingOverlay";
 import { TabBar } from "./components/TabBar";
-import { ProjectTree } from "./components/ProjectTree";
 import { CopyButton } from "./components/CopyButton";
 import { RepoWikiPanel } from "./components/RepoWikiPanel";
 import { TemplateLibrary } from "./components/TemplateLibrary";
-import { OfficePanel, WorkspaceTypeSwitch } from "./components/OfficePanel";
-import { parseTodos } from "./lib/tools";
+import { Sidebar } from "./components/Sidebar";
+import { ModeSwitcher } from "./components/ModeSwitcher";
+import { HomePanel } from "./components/HomePanel";
+import { CalendarPanel } from "./components/CalendarPanel";
+import { SchedulerPanel } from "./components/SchedulerPanel";
+import { MemoryPanel } from "./components/MemoryPanel";
+import { FloatingWindow } from "./components/FloatingWindow";
+import { ProgressStepper } from "./components/ProgressStepper";
+import type { Step as ProgressStep } from "./components/ProgressStepper";
+import { diffsFor, docExportPath, parseTodos } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
 import type { ComposerInsertRequest, Meta, Mode, SessionMeta, SettingsTab, TabMeta, WorkspaceType } from "./lib/types";
 import { loadLayoutSize, saveLayoutSize } from "./lib/layoutPreferences";
@@ -52,6 +56,8 @@ import {
   clearLegacyThemePreference,
   getTheme,
   getThemeStyle,
+  getThemeForWorkspaceType,
+  isUnifiedTheme,
   isThemeStyle,
   normalizeThemePreference,
   normalizeThemeStyleForTheme,
@@ -82,8 +88,8 @@ const RIGHT_DOCK_TREE_MAX_WIDTH = 560;
 const RIGHT_DOCK_PREVIEW_DEFAULT_WIDTH = 640;
 const RIGHT_DOCK_MAX_WIDTH = 860;
 
-type RightDockMode = "context" | "files" | "changed";
-const SHOW_CONTEXT_DOCK = false;
+type RightDockMode = "preview" | "files" | "changed" | "context";
+const SHOW_CONTEXT_DOCK = true;
 type HistoryScopeFilter = { scope: "global" | "project"; workspaceRoot: string };
 type DesktopPlatform = "darwin" | "windows" | "linux";
 type HistoryViewState =
@@ -373,6 +379,8 @@ export default function App() {
     closeTab,
     reorderTabs,
     syncActiveTab,
+    intentClassified,
+    clearIntentClassified,
   } = useController();
   const { locale, setPref: setLocalePref } = useI18n();
   const t = useT();
@@ -398,7 +406,23 @@ export default function App() {
   const [workspacePreviewActive, setWorkspacePreviewActive] = useState(false);
   const [workspacePanelResizing, setWorkspacePanelResizing] = useState(false);
   const [workspacePanelMaximized, setWorkspacePanelMaximized] = useState(false);
-  const [rightDockMode, setRightDockMode] = useState<RightDockMode>("files");
+  const [rightDockMode, setRightDockMode] = useState<RightDockMode>("preview");
+  // Navigation state for sidebar-driven views (home, calendar, todos, etc.)
+  const [navPage, setNavPage] = useState<string | null>(null);
+  // Progress stepper steps are derived from step_progress events in the controller state.
+  const progressSteps: ProgressStep[] = state.steps.map((s) => ({
+    id: s.id,
+    label: s.label,
+    status: s.status,
+    turnIndex: s.turnIndex,
+  }));
+  // Clipboard assistant floating window
+  const [floatingVisible, setFloatingVisible] = useState(false);
+  const [floatingResult, setFloatingResult] = useState<string | null>(null);
+  const [floatingLoading, setFloatingLoading] = useState(false);
+  const [previewFilePath, setPreviewFilePath] = useState<string | undefined>();
+  const [previewDiffOriginal, setPreviewDiffOriginal] = useState<string | undefined>();
+  const [previewDiffModified, setPreviewDiffModified] = useState<string | undefined>();
   const [dockRefreshKey, setDockRefreshKey] = useState(0);
   const [projectRevision, setProjectRevision] = useState(0);
   const [composerInsertRequest, setComposerInsertRequest] = useState<ComposerInsertRequest | null>(null);
@@ -408,6 +432,29 @@ export default function App() {
   const [topicExportOpen, setTopicExportOpen] = useState(false);
   const topicRenameSkipCommitRef = useRef(false);
   const topicRenameCommitHandledRef = useRef(false);
+
+  // Derive preview data from the latest completed tool events.
+  // - Office mode: track the most recent doc-emitting tool's file path.
+  // - Coding mode: track the most recent file-edit tool's diff.
+  useEffect(() => {
+    for (let i = state.items.length - 1; i >= 0; i--) {
+      const it = state.items[i];
+      if (it.kind !== "tool" || it.status !== "done" || it.error) continue;
+      // Office: doc-emitting tools
+      const docPath = docExportPath(it.name, it.args, it.output);
+      if (docPath) {
+        setPreviewFilePath(docPath);
+        return;
+      }
+      // Coding: file-edit tools
+      const diffs = diffsFor(it.name, it.args);
+      if (diffs.length > 0) {
+        setPreviewDiffOriginal(diffs[0].original);
+        setPreviewDiffModified(diffs[0].modified);
+        return;
+      }
+    }
+  }, [state.items]);
 
   // Persist window geometry across launches.
   useWindowStatePersistence();
@@ -463,6 +510,15 @@ export default function App() {
     if (typeof window === "undefined" || !window.runtime) return;
     return window.runtime.EventsOn("app:open-settings", () => {
       setSettingsTarget("general");
+    });
+  }, []);
+
+  // Listen for clipboard hotkey (Ctrl+Shift+R) from the Go backend.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.runtime) return;
+    return window.runtime.EventsOn("clipboard-hotkey", () => {
+      setFloatingVisible(true);
+      setFloatingResult(null);
     });
   }, []);
   const [pendingPlanRevision, setPendingPlanRevision] = useState<string | null>(null);
@@ -558,7 +614,7 @@ export default function App() {
       let changed = false;
       const next: Record<string, WorkspaceType> = {};
       for (const tab of tabMetas) {
-        const wt: WorkspaceType = tab.workspaceType === "office" ? "office" : "coding";
+        const wt: WorkspaceType = tab.workspaceType === "office" ? "office" : tab.workspaceType === "assistant" ? "assistant" : "coding";
         next[tab.id] = wt;
         if (current[tab.id] !== wt) changed = true;
       }
@@ -577,6 +633,40 @@ export default function App() {
     },
     [activeTabId],
   );
+
+  const [intentSuggestion, setIntentSuggestion] = useState<string | null>(null);
+  const [autoSwitchMode, setAutoSwitchMode] = useState(() => {
+    try { return window.localStorage.getItem("reasonix.autoSwitchMode") === "true"; } catch { return false; }
+  });
+
+  // Persist autoSwitchMode changes to localStorage.
+  useEffect(() => {
+    try { window.localStorage.setItem("reasonix.autoSwitchMode", autoSwitchMode ? "true" : "false"); } catch { /* ignore */ }
+  }, [autoSwitchMode]);
+
+  useEffect(() => {
+    if (!intentClassified) return;
+    if (intentClassified === workspaceType) { clearIntentClassified(); return; }
+    if (autoSwitchMode) {
+      applyWorkspaceType(intentClassified as WorkspaceType);
+      clearIntentClassified();
+    } else {
+      setIntentSuggestion(intentClassified);
+      const timer = setTimeout(() => { setIntentSuggestion(null); clearIntentClassified(); }, 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [intentClassified, workspaceType, autoSwitchMode]);
+
+  // Auto-switch theme when workspaceType changes, unless "unified theme" is enabled.
+  useEffect(() => {
+    if (isUnifiedTheme()) return;
+    const { theme: nextTheme, style: nextStyle } = getThemeForWorkspaceType(workspaceType);
+    const currentResolved = getTheme();
+    // Only switch if the resolved theme or style would actually change.
+    if (currentResolved === nextTheme && getThemeStyle(currentResolved) === nextStyle) return;
+    applyTheme(nextTheme, nextStyle);
+    void app.SetDesktopAppearance(nextTheme, nextStyle);
+  }, [workspaceType]);
 
   useEffect(() => {
     if (!renamingTopicId || activeTab?.topicId === renamingTopicId) return;
@@ -1367,102 +1457,37 @@ export default function App() {
             {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
           </button>
           <div className="app-chrome__identity" aria-label="Reasonix">
-            <img src={logoWordmark} alt="" className="app-chrome__logo" />
+            <ModeSwitcher value={workspaceType} onChange={applyWorkspaceType} />
             <span className="app-chrome__separator">/</span>
             <span className="app-chrome__scope">{appChromeScopeLabel(activeTab, state.meta)}</span>
           </div>
           <div className="app-chrome__spacer" />
         </header>
 
-        <aside className={`sidebar${sidebarCollapsed ? " sidebar--collapsed" : ""}`} aria-label={t("sidebar.navigation")}>
-          <Tooltip label={t("topbar.newSession")} fill>
-            <button
-              className="sidebar__new"
-              onClick={() => {
-                if (state.running) cancel();
-                void startNewSession();
-              }}
-            >
-              <SquarePen size={15} />
-              <span>{t("topbar.newSession")}</span>
-            </button>
-          </Tooltip>
-
-          {workspaceType === "office" && (
-            <OfficePanel
-              onActivateSkill={(name) => {
-                addWorkspaceTextToComposer(`/skill ${name}`);
-              }}
-              onOpenTemplates={() => setTemplatesOpen(true)}
-            />
-          )}
-
-          <section className="sidebar__section sidebar__section--projects">
-            <ProjectTree
-              activeScope={activeTab?.scope}
-              activeWorkspaceRoot={activeTab?.workspaceRoot}
-              activeTopicId={activeTab?.topicId}
-              onOpenTopic={handleOpenTopic}
-              onOpenProjectHistory={openProjectHistory}
-              onTopicsChanged={refreshProjectsAndTabs}
-              onRenameTopic={renameTopic}
-              refreshSignal={projectRevision}
-              onAddProject={async () => {
-                await switchFolder();
-              }}
-            />
-          </section>
-
-          <nav className="sidebar__nav">
-            <WorkspaceTypeSwitch value={workspaceType} onChange={applyWorkspaceType} />
-            <Tooltip label={t("sidebar.repoWiki")} fill side="right" disabled={sidebarNavTooltipDisabled}>
-              <button
-                className="sidebar__navitem"
-                onClick={() => setRepoWikiOpen(true)}
-              >
-                <BookOpen size={15} />
-                <span>{t("sidebar.repoWiki")}</span>
-              </button>
-            </Tooltip>
-            <Tooltip label={t("sidebar.templates")} fill side="right" disabled={sidebarNavTooltipDisabled}>
-              <button
-                className="sidebar__navitem"
-                onClick={() => setTemplatesOpen(true)}
-              >
-                <FileText size={15} />
-                <span>{t("sidebar.templates")}</span>
-              </button>
-            </Tooltip>
-            <Tooltip label={t("sidebar.allHistory")} fill side="right" disabled={sidebarNavTooltipDisabled}>
-              <button
-                className="sidebar__navitem"
-                onClick={() => void openAllHistory()}
-              >
-                <History size={15} />
-                <span>{t("sidebar.allHistory")}</span>
-              </button>
-            </Tooltip>
-            <Tooltip label={t("sidebar.trash")} fill side="right" disabled={sidebarNavTooltipDisabled}>
-              <button
-                className="sidebar__navitem"
-                onClick={() => void openTrash()}
-              >
-                <Trash2 size={15} />
-                <span>{t("sidebar.trash")}</span>
-              </button>
-            </Tooltip>
-            <Tooltip label={t("topbar.settings")} fill side="right" disabled={sidebarNavTooltipDisabled}>
-              <button
-                className="sidebar__navitem"
-                onClick={() => setSettingsTarget("general")}
-              >
-                <SettingsIcon size={15} />
-                <span>{t("topbar.settings")}</span>
-              </button>
-            </Tooltip>
-          </nav>
-
-        </aside>
+        <Sidebar
+          workspaceType={workspaceType}
+          collapsed={sidebarCollapsed}
+          navTooltipDisabled={sidebarNavTooltipDisabled}
+          onExpand={sidebarExpandBlocked ? undefined : toggleSidebar}
+          onNewSession={() => { cancel(); void startNewSession(); }}
+          isRunning={state.running}
+          onNavigate={(page: string) => setNavPage(page)}
+          activeScope={activeTab?.scope}
+          activeWorkspaceRoot={activeTab?.workspaceRoot}
+          activeTopicId={activeTab?.topicId}
+          onOpenTopic={handleOpenTopic}
+          onOpenProjectHistory={openProjectHistory}
+          onTopicsChanged={refreshProjectsAndTabs}
+          onRenameTopic={renameTopic}
+          refreshSignal={projectRevision}
+          onAddProject={async () => { await switchFolder(); }}
+          onActivateSkill={(name) => { addWorkspaceTextToComposer(`/skill ${name}`); }}
+          onOpenTemplates={() => setTemplatesOpen(true)}
+          onOpenRepoWiki={() => setRepoWikiOpen(true)}
+          onOpenAllHistory={openAllHistory}
+          onOpenTrash={openTrash}
+          onOpenSettings={() => setSettingsTarget("general")}
+        />
         <button
           className="sidebar-resizer"
           type="button"
@@ -1597,14 +1622,53 @@ export default function App() {
 
           <UpdateBanner />
 
+          {intentSuggestion && (
+            <div className="intent-suggestion">
+              <span className="intent-suggestion__text">
+                {t("intent.suggestSwitch", { mode: t(`workspaceType.${intentSuggestion}` as DictKey) })}
+              </span>
+              <button className="intent-suggestion__action" onClick={() => { applyWorkspaceType(intentSuggestion as WorkspaceType); setIntentSuggestion(null); clearIntentClassified(); }}>
+                {t("intent.switch")}
+              </button>
+              <button className="intent-suggestion__dismiss" onClick={() => { setIntentSuggestion(null); clearIntentClassified(); }}>
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           <main className="main">
             {state.meta?.ready === false && !state.meta?.startupErr ? (
               <div className="loading-screen">
                 <div className="loading-screen__spinner" />
                 <span className="loading-screen__text">{t("common.loading")}</span>
               </div>
+            ) : navPage === "home" ? (
+              <HomePanel
+                workspaceType={workspaceType}
+                onActivateSkill={(name) => { addWorkspaceTextToComposer(`/skill ${name}`); setNavPage(null); }}
+                onNavigateToSession={(_path) => setNavPage(null)}
+                onSwitchMode={(mode) => applyWorkspaceType(mode)}
+              />
+            ) : navPage === "calendar" || navPage === "todos" ? (
+              <CalendarPanel tabId={activeTabId} onNavigate={setNavPage} />
+            ) : navPage === "scheduled" ? (
+              <SchedulerPanel tabId={activeTabId} />
+            ) : navPage === "memory" ? (
+              <MemoryPanel
+                view={null}
+                onClose={() => setNavPage(null)}
+                onRemember={(_scope, _note) => { /* TODO: implement */ }}
+                onForget={(_name) => { /* TODO: implement */ }}
+                onSaveDoc={(_path, _body) => { /* TODO: implement */ }}
+              />
             ) : (
               <>
+                {progressSteps.length > 0 && (
+                  <ProgressStepper
+                    steps={progressSteps}
+                    onStepClick={(_turnIndex) => { /* scroll to message — future enhancement */ }}
+                  />
+                )}
 	              <Transcript
 	                items={deferredItems}
 	                live={state.live}
@@ -1711,6 +1775,16 @@ export default function App() {
           >
             <div className="workbench-dock__tools">
               <div className="workbench-dock__tabs" role="tablist" aria-label={t("rightDock.views")}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightDockMode === "preview"}
+                  className={`workbench-dock__tab${rightDockMode === "preview" ? " workbench-dock__tab--active" : ""}`}
+                  onClick={() => openRightDockMode("preview")}
+                >
+                  <Eye size={13} />
+                  <span className="workbench-dock__tab-label">{t("rightDock.preview")}</span>
+                </button>
                 {SHOW_CONTEXT_DOCK && (
                   <button
                     type="button"
@@ -1746,7 +1820,15 @@ export default function App() {
               </div>
             </div>
             <div className="workbench-dock__body">
-              {rightDockMode === "context" ? (
+              {rightDockMode === "preview" ? (
+                <PreviewPanel
+                  workspaceType={workspaceType}
+                  activeFilePath={previewFilePath}
+                  diffOriginal={previewDiffOriginal}
+                  diffModified={previewDiffModified}
+                  tabId={activeTabId}
+                />
+              ) : rightDockMode === "context" ? (
                 <ContextPanel
                   tabId={activeTabId}
                   context={state.context}
@@ -1798,6 +1880,8 @@ export default function App() {
           initialTab={settingsTarget}
           onClose={() => setSettingsTarget(null)}
           onChanged={() => void refreshMeta()}
+          autoSwitchMode={autoSwitchMode}
+          onAutoSwitchModeChange={setAutoSwitchMode}
         />
       )}
 
@@ -1839,6 +1923,29 @@ export default function App() {
       )}
 
       {needsOnboarding && <OnboardingOverlay onComplete={() => setNeedsOnboarding(false)} />}
+
+      {floatingVisible && (
+        <FloatingWindow
+          visible={floatingVisible}
+          onClose={() => { setFloatingVisible(false); setFloatingResult(null); }}
+          onSubmitAction={async (action, text) => {
+            setFloatingLoading(true);
+            try {
+              const skillText = `/skill clipboard-${action}\n${text}`;
+              await addWorkspaceTextToComposer(skillText);
+              send(skillText);
+              // Brief delay for the agent to start, then show result placeholder
+              setFloatingResult(t("floatingWindow.processing"));
+            } catch {
+              setFloatingResult(t("floatingWindow.error"));
+            } finally {
+              setFloatingLoading(false);
+            }
+          }}
+          result={floatingResult}
+          loading={floatingLoading}
+        />
+      )}
     </div>
     </ShellExpandProvider>
   );

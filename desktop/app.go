@@ -30,6 +30,7 @@ import (
 	"reasonix/internal/boot"
 	"reasonix/internal/config"
 	"reasonix/internal/control"
+	"reasonix/internal/datastore"
 	"reasonix/internal/event"
 	"reasonix/internal/fileref"
 	fileenc "reasonix/internal/fileutil/encoding"
@@ -38,6 +39,7 @@ import (
 	"reasonix/internal/memory"
 	"reasonix/internal/plugin"
 	"reasonix/internal/provider"
+	"reasonix/internal/scheduler"
 	"reasonix/internal/skill"
 )
 
@@ -74,6 +76,8 @@ type App struct {
 	tray      *desktopTray
 
 	mediaTokens *mediaTokenStore
+	dataStore   *datastore.Store
+	sched       *scheduler.Scheduler
 }
 
 // mediaTokenEntry holds metadata for a workspace media file served via temporary URL.
@@ -242,7 +246,18 @@ func (a *App) workspaceMediaMiddleware() func(http.Handler) http.Handler {
 // NewApp constructs the bound object. Tabs are restored in startup from the
 // last session's desktop-tabs.json.
 func NewApp() *App {
-	return &App{tabs: map[string]*WorkspaceTab{}, mediaTokens: newMediaTokenStore()}
+	ds, err := datastore.Open()
+	if err != nil {
+		// Log but don't fail: the app can still run without persistent data.
+		fmt.Fprintf(os.Stderr, "warning: data store init failed: %v\n", err)
+	}
+	app := &App{tabs: map[string]*WorkspaceTab{}, mediaTokens: newMediaTokenStore(), dataStore: ds}
+	if ds != nil {
+		app.sched = scheduler.NewScheduler(ds, func(name, skill, params string) string {
+			return app.executeScheduledTask(name, skill, params)
+		})
+	}
+	return app
 }
 
 func (a *App) bootContext() context.Context {
@@ -267,6 +282,11 @@ func (a *App) startup(ctx context.Context) {
 	a.startTray()
 
 	go a.restoreOrBuildTabs()
+
+	// Start the cron scheduler in the background.
+	if a.sched != nil {
+		go a.sched.Start()
+	}
 }
 
 func (a *App) beforeClose(ctx context.Context) bool {
@@ -426,6 +446,15 @@ func (a *App) shutdown(context.Context) {
 	// frontend's beforeunload promise hasn't resolved yet.
 	a.saveWindowStateSync()
 
+	// Stop the cron scheduler before closing the data store.
+	if a.sched != nil {
+		a.sched.Stop()
+	}
+
+	if a.dataStore != nil {
+		a.dataStore.Close()
+	}
+
 	a.mu.RLock()
 	tabs := make([]*WorkspaceTab, 0, len(a.tabs))
 	for _, t := range a.tabs {
@@ -531,6 +560,36 @@ func (a *App) SubmitDisplayToTab(tabID, display, input string) {
 		return
 	}
 	ctrl.SubmitDisplay(display, input)
+}
+
+// executeScheduledTask is the callback invoked by the scheduler when a scheduled
+// task triggers. It submits the skill as a turn to the active workspace (or the
+// first available workspace if none is active). The return value is a summary
+// string recorded as the execution result.
+func (a *App) executeScheduledTask(name, skill, params string) string {
+	a.mu.RLock()
+	ctrl := a.activeCtrlLocked()
+	if ctrl == nil && len(a.tabs) > 0 {
+		// Pick the first tab if no active one.
+		for _, tab := range a.tabs {
+			ctrl = tab.Ctrl
+			break
+		}
+	}
+	a.mu.RUnlock()
+
+	if ctrl == nil {
+		return "no workspace available"
+	}
+
+	// Build the input: /<skill> <params>
+	input := "/" + skill
+	if params != "" {
+		input = input + " " + params
+	}
+	display := "[Scheduled: " + name + "]"
+	ctrl.SubmitDisplay(display, input)
+	return "submitted to workspace"
 }
 
 // RunAnalyzeProject submits the /analyze-project slash command as a turn. The
@@ -4082,4 +4141,324 @@ func (a *App) GitGenerateCommitMessage() (string, error) {
 	}
 
 	return generateCommitMessage(a.reqCtx(), entry.BaseURL, apiKey, entry.Model, summary)
+}
+
+// --- data model bindings (Tasks 21-22) ---
+
+// ScheduledTaskView is the JSON-serialisable form of a scheduled task for the frontend.
+type ScheduledTaskView struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Cron       string `json:"cron"`
+	Skill      string `json:"skill"`
+	Parameters string `json:"parameters"`
+	Enabled    bool   `json:"enabled"`
+	LastRun    int64  `json:"lastRun"`
+	NextRun    int64  `json:"nextRun"`
+	CreatedAt  int64  `json:"createdAt"`
+}
+
+// TodoView is the JSON-serialisable form of a todo for the frontend.
+type TodoView struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	DueDate     string `json:"dueDate"`
+	Priority    string `json:"priority"`
+	Status      string `json:"status"`
+	Source      string `json:"source"`
+	CreatedAt   int64  `json:"createdAt"`
+	UpdatedAt   int64  `json:"updatedAt"`
+}
+
+// NotificationView is the JSON-serialisable form of a notification for the frontend.
+type NotificationView struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	Read      bool   `json:"read"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
+// HomePageData aggregates the data shown on the home/welcome screen.
+type HomePageData struct {
+	RecentTasks     []SessionMeta    `json:"recentTasks"`
+	SuggestedSkills []SuggestedSkill `json:"suggestedSkills"`
+	DailyTip        string           `json:"dailyTip"`
+}
+
+// SuggestedSkill is one skill recommended for the user's role.
+type SuggestedSkill struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// ds returns the data store, or nil if it failed to initialise.
+func (a *App) ds() *datastore.Store {
+	if a == nil {
+		return nil
+	}
+	return a.dataStore
+}
+
+// GetHomePageData returns recent tasks, suggested skills, and a daily tip for
+// the home screen.
+func (a *App) GetHomePageData() HomePageData {
+	out := HomePageData{
+		RecentTasks:     a.GetRecentTasks(5),
+		SuggestedSkills: a.GetSuggestedSkills(""),
+		DailyTip:        i18n.M.DailyTip,
+	}
+	return out
+}
+
+// GetRecentTasks returns the most recent session history entries up to limit.
+func (a *App) GetRecentTasks(limit int) []SessionMeta {
+	if limit <= 0 {
+		limit = 5
+	}
+	all := a.ListSessions()
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	return all
+}
+
+// GetSuggestedSkills returns skills recommended for the given user role.
+// If userRole is empty, it returns all available skills.
+func (a *App) GetSuggestedSkills(userRole string) []SuggestedSkill {
+	a.mu.RLock()
+	ctrl := a.activeCtrlLocked()
+	a.mu.RUnlock()
+	if ctrl == nil {
+		return []SuggestedSkill{}
+	}
+	var out []SuggestedSkill
+	for _, s := range ctrl.AllSkills() {
+		if !ctrl.SkillEnabled(s.Name) {
+			continue
+		}
+		out = append(out, SuggestedSkill{Name: s.Name, Description: s.Description})
+	}
+	if out == nil {
+		out = []SuggestedSkill{}
+	}
+	return out
+}
+
+// GetNotifications returns unread notifications.
+func (a *App) GetNotifications() []NotificationView {
+	ds := a.ds()
+	if ds == nil {
+		return []NotificationView{}
+	}
+	ns, err := ds.GetUnreadNotifications()
+	if err != nil {
+		return []NotificationView{}
+	}
+	out := make([]NotificationView, len(ns))
+	for i, n := range ns {
+		out[i] = notificationViewFromModel(n)
+	}
+	return out
+}
+
+// MarkNotificationRead marks a notification as read by ID.
+func (a *App) MarkNotificationRead(id string) error {
+	ds := a.ds()
+	if ds == nil {
+		return fmt.Errorf("data store not available")
+	}
+	return ds.MarkNotificationRead(id)
+}
+
+// ListScheduledTasks returns all scheduled tasks.
+func (a *App) ListScheduledTasks() []ScheduledTaskView {
+	ds := a.ds()
+	if ds == nil {
+		return []ScheduledTaskView{}
+	}
+	tasks, err := ds.ListScheduledTasks()
+	if err != nil {
+		return []ScheduledTaskView{}
+	}
+	out := make([]ScheduledTaskView, len(tasks))
+	for i, t := range tasks {
+		out[i] = scheduledTaskViewFromModel(t)
+	}
+	return out
+}
+
+// CreateScheduledTask creates a new scheduled task.
+func (a *App) CreateScheduledTask(name, cron, skill, params string) error {
+	ds := a.ds()
+	if ds == nil {
+		return fmt.Errorf("data store not available")
+	}
+	t := datastore.ScheduledTask{
+		ID:         datastore.NewID(),
+		Name:       strings.TrimSpace(name),
+		Cron:       strings.TrimSpace(cron),
+		Skill:      strings.TrimSpace(skill),
+		Parameters: datastore.ParseJSONObject(params),
+		Enabled:    true,
+		CreatedAt:  time.Now().UnixMilli(),
+	}
+	return ds.CreateScheduledTask(t)
+}
+
+// UpdateScheduledTask updates an existing scheduled task.
+func (a *App) UpdateScheduledTask(id, name, cron, skill, params string, enabled bool) error {
+	ds := a.ds()
+	if ds == nil {
+		return fmt.Errorf("data store not available")
+	}
+	t := datastore.ScheduledTask{
+		ID:         strings.TrimSpace(id),
+		Name:       strings.TrimSpace(name),
+		Cron:       strings.TrimSpace(cron),
+		Skill:      strings.TrimSpace(skill),
+		Parameters: datastore.ParseJSONObject(params),
+		Enabled:    enabled,
+	}
+	// Preserve existing timestamps by loading the current task.
+	existing, err := ds.ListScheduledTasks()
+	if err != nil {
+		return err
+	}
+	for _, e := range existing {
+		if e.ID == t.ID {
+			t.LastRun = e.LastRun
+			t.NextRun = e.NextRun
+			t.CreatedAt = e.CreatedAt
+			break
+		}
+	}
+	return ds.UpdateScheduledTask(t)
+}
+
+// DeleteScheduledTask deletes a scheduled task by ID.
+func (a *App) DeleteScheduledTask(id string) error {
+	ds := a.ds()
+	if ds == nil {
+		return fmt.Errorf("data store not available")
+	}
+	return ds.DeleteScheduledTask(id)
+}
+
+// ListTodos returns all todos.
+func (a *App) ListTodos() []TodoView {
+	ds := a.ds()
+	if ds == nil {
+		return []TodoView{}
+	}
+	todos, err := ds.ListTodos()
+	if err != nil {
+		return []TodoView{}
+	}
+	out := make([]TodoView, len(todos))
+	for i, t := range todos {
+		out[i] = todoViewFromModel(t)
+	}
+	return out
+}
+
+// CreateTodo creates a new todo item.
+func (a *App) CreateTodo(title, description, dueDate, priority string) error {
+	ds := a.ds()
+	if ds == nil {
+		return fmt.Errorf("data store not available")
+	}
+	now := time.Now().UnixMilli()
+	t := datastore.Todo{
+		ID:          datastore.NewID(),
+		Title:       strings.TrimSpace(title),
+		Description: strings.TrimSpace(description),
+		DueDate:     strings.TrimSpace(dueDate),
+		Priority:    datastore.ValidatePriority(priority),
+		Status:      "pending",
+		Source:      "user",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	return ds.CreateTodo(t)
+}
+
+// UpdateTodo updates an existing todo item.
+func (a *App) UpdateTodo(id, title, description, dueDate, priority, status string) error {
+	ds := a.ds()
+	if ds == nil {
+		return fmt.Errorf("data store not available")
+	}
+	t := datastore.Todo{
+		ID:          strings.TrimSpace(id),
+		Title:       strings.TrimSpace(title),
+		Description: strings.TrimSpace(description),
+		DueDate:     strings.TrimSpace(dueDate),
+		Priority:    datastore.ValidatePriority(priority),
+		Status:      datastore.ValidateTodoStatus(status),
+		UpdatedAt:   time.Now().UnixMilli(),
+	}
+	// Preserve CreatedAt and Source by loading the current todo.
+	existing, err := ds.ListTodos()
+	if err != nil {
+		return err
+	}
+	for _, e := range existing {
+		if e.ID == t.ID {
+			t.CreatedAt = e.CreatedAt
+			t.Source = e.Source
+			break
+		}
+	}
+	return ds.UpdateTodo(t)
+}
+
+// DeleteTodo deletes a todo item by ID.
+func (a *App) DeleteTodo(id string) error {
+	ds := a.ds()
+	if ds == nil {
+		return fmt.Errorf("data store not available")
+	}
+	return ds.DeleteTodo(id)
+}
+
+func scheduledTaskViewFromModel(t datastore.ScheduledTask) ScheduledTaskView {
+	return ScheduledTaskView{
+		ID:         t.ID,
+		Name:       t.Name,
+		Cron:       t.Cron,
+		Skill:      t.Skill,
+		Parameters: t.Parameters,
+		Enabled:    t.Enabled,
+		LastRun:    t.LastRun,
+		NextRun:    t.NextRun,
+		CreatedAt:  t.CreatedAt,
+	}
+}
+
+func todoViewFromModel(t datastore.Todo) TodoView {
+	return TodoView{
+		ID:          t.ID,
+		Title:       t.Title,
+		Description: t.Description,
+		DueDate:     t.DueDate,
+		Priority:    t.Priority,
+		Status:      t.Status,
+		Source:      t.Source,
+		CreatedAt:   t.CreatedAt,
+		UpdatedAt:   t.UpdatedAt,
+	}
+}
+
+func notificationViewFromModel(n datastore.Notification) NotificationView {
+	return NotificationView{
+		ID:        n.ID,
+		Kind:      n.Kind,
+		Title:     n.Title,
+		Body:      n.Body,
+		Read:      n.Read,
+		CreatedAt: n.CreatedAt,
+	}
 }

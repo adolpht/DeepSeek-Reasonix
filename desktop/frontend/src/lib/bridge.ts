@@ -27,15 +27,18 @@ import type {
   GitOperationResult,
   GitStatusView,
   HistoryMessage,
+  HomePageData,
   JobView,
   MCPServerInput,
   MemoryView,
   Meta,
   ModelInfo,
   NetworkView,
+  NotificationView,
   ProjectNode,
   ProviderView,
   QuestionAnswer,
+  ScheduledTaskView,
   ServerView,
   SessionMeta,
   SettingsView,
@@ -46,6 +49,7 @@ import type {
   TabMeta,
   TagView,
   TemplateMeta,
+  TodoView,
   TopicMeta,
   UpdateInfo,
   UpdateProgress,
@@ -103,7 +107,7 @@ export interface AppBindings {
   SetPlanMode(on: boolean): Promise<void>;
   SetMode(mode: string): Promise<void>;
   SetModeForTab(tabID: string, mode: string): Promise<void>;
-  // SetWorkspaceType switches the active tab between "coding" and "office".
+  // SetWorkspaceType switches the active tab between "coding", "office", and "assistant".
   // In office mode the frontend shows the office-capability panel.
   SetWorkspaceType(wt: WorkspaceType): Promise<void>;
   // WorkspaceType returns the active tab's workspace type.
@@ -292,6 +296,33 @@ export interface AppBindings {
   // UploadTemplateDataURL writes a base64 data-URL into .reasonix/templates/.
   // Used for drag-and-drop / paste uploads into the template library.
   UploadTemplateDataURL(name: string, dataURL: string): Promise<string>;
+
+  // --- Data model bindings (Tasks 21-22) ---
+  // Home page data
+  GetHomePageData(): Promise<HomePageData>;
+  GetRecentTasks(limit: number): Promise<SessionMeta[]>;
+  GetSuggestedSkills(userRole: string): Promise<{ name: string; description: string }[]>;
+  // Notifications
+  GetNotifications(): Promise<NotificationView[]>;
+  MarkNotificationRead(id: string): Promise<void>;
+  // Scheduled tasks
+  ListScheduledTasks(): Promise<ScheduledTaskView[]>;
+  CreateScheduledTask(name: string, cron: string, skill: string, params: string): Promise<void>;
+  UpdateScheduledTask(id: string, name: string, cron: string, skill: string, params: string, enabled: boolean): Promise<void>;
+  DeleteScheduledTask(id: string): Promise<void>;
+  // Todos
+  ListTodos(): Promise<TodoView[]>;
+  CreateTodo(title: string, description: string, dueDate: string, priority: string): Promise<void>;
+  UpdateTodo(id: string, title: string, description: string, dueDate: string, priority: string, status: string): Promise<void>;
+  DeleteTodo(id: string): Promise<void>;
+
+  // --- Clipboard bindings (for FloatingWindow) ---
+  ReadClipboard(): Promise<string>;
+  WriteClipboard(text: string): Promise<void>;
+  ClipboardAssistAction(action: string, text: string): Promise<void>;
+  RegisterClipboardHotkey(): Promise<void>;
+  TriggerClipboardAssist(): Promise<void>;
+  UnregisterClipboardHotkey(): Promise<void>;
 }
 
 // Bidirectional compile-time drift checks. Exclude<A, B> extracts keys in A that
@@ -2059,6 +2090,78 @@ function makeMockApp(): AppBindings {
     async UploadTemplateDataURL(_name: string, _dataURL: string): Promise<string> {
       console.info("mock UploadTemplateDataURL", _name);
       return "";
+    },
+
+    // --- Data model mocks (Tasks 21-22) ---
+    async GetHomePageData(): Promise<HomePageData> {
+      return {
+        recentTasks: sessions.slice(0, 5).map((s) => ({ ...s })),
+        suggestedSkills: capSkills.map((s) => ({ name: s.name, description: s.description })),
+        dailyTip: t("home.dailyTip"),
+      };
+    },
+    async GetRecentTasks(limit: number): Promise<SessionMeta[]> {
+      return sessions.slice(0, limit).map((s) => ({ ...s }));
+    },
+    async GetSuggestedSkills(_userRole: string): Promise<{ name: string; description: string }[]> {
+      return capSkills.map((s) => ({ name: s.name, description: s.description }));
+    },
+    async GetNotifications(): Promise<NotificationView[]> {
+      return [
+        { id: "n1", kind: "reminder", title: t("notifications.reminderTitle"), body: t("notifications.reminderBody"), read: false, createdAt: Date.now() - 3600_000 },
+        { id: "n2", kind: "task_complete", title: t("notifications.taskCompleteTitle"), body: t("notifications.taskCompleteBody"), read: false, createdAt: Date.now() - 7200_000 },
+      ];
+    },
+    async MarkNotificationRead(_id: string): Promise<void> {
+      // no-op in mock
+    },
+    async ListScheduledTasks(): Promise<ScheduledTaskView[]> {
+      return [
+        { id: "st1", name: "Daily code review", cron: "0 9 * * *", skill: "review", parameters: "{}", enabled: true, lastRun: Date.now() - 86400_000, nextRun: Date.now() + 43200_000, createdAt: Date.now() - 604800_000 },
+      ];
+    },
+    async CreateScheduledTask(_name: string, _cron: string, _skill: string, _params: string): Promise<void> {
+      // no-op in mock
+    },
+    async UpdateScheduledTask(_id: string, _name: string, _cron: string, _skill: string, _params: string, _enabled: boolean): Promise<void> {
+      // no-op in mock
+    },
+    async DeleteScheduledTask(_id: string): Promise<void> {
+      // no-op in mock
+    },
+    async ListTodos(): Promise<TodoView[]> {
+      return [
+        { id: "t1", title: t("todos.mockTitle1"), description: "", dueDate: "", priority: "high", status: "in_progress", source: "user", createdAt: Date.now() - 86400_000, updatedAt: Date.now() - 3600_000 },
+        { id: "t2", title: t("todos.mockTitle2"), description: "", dueDate: "", priority: "medium", status: "pending", source: "agent", createdAt: Date.now() - 172800_000, updatedAt: Date.now() - 86400_000 },
+      ];
+    },
+    async CreateTodo(_title: string, _description: string, _dueDate: string, _priority: string): Promise<void> {
+      // no-op in mock
+    },
+    async UpdateTodo(_id: string, _title: string, _description: string, _dueDate: string, _priority: string, _status: string): Promise<void> {
+      // no-op in mock
+    },
+    async DeleteTodo(_id: string): Promise<void> {
+      // no-op in mock
+    },
+    async ReadClipboard(): Promise<string> {
+      // Browser mock: return empty string (clipboard API not available in dev mode)
+      return "";
+    },
+    async WriteClipboard(_text: string): Promise<void> {
+      // Browser mock: no-op
+    },
+    async ClipboardAssistAction(_action: string, _text: string): Promise<void> {
+      // Browser mock: no-op
+    },
+    async RegisterClipboardHotkey(): Promise<void> {
+      // Browser mock: no-op
+    },
+    async TriggerClipboardAssist(): Promise<void> {
+      // Browser mock: no-op
+    },
+    async UnregisterClipboardHotkey(): Promise<void> {
+      // Browser mock: no-op
     },
   };
 }

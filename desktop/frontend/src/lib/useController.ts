@@ -22,6 +22,7 @@ import type {
   WireApproval,
   WireAsk,
   WireEvent,
+  WireStep,
   WireUsage,
 } from "./types";
 
@@ -84,6 +85,7 @@ interface State {
   sessionCost: number;
   sessionCurrency: string;
   retry?: { attempt: number; max: number };
+  steps: WireStep[];
   seq: number;
 }
 
@@ -94,6 +96,7 @@ const initialState: State = {
   context: { used: 0, window: 0 },
   jobs: [],
   checkpoints: [],
+  steps: [],
   turnStartAt: 0,
   turnTokens: 0,
   sessionCost: 0,
@@ -348,6 +351,14 @@ function applyEvent(s: State, e: WireEvent): State {
     }
     case "approval_request": return { ...s, approval: e.approval };
     case "ask_request": return { ...s, ask: e.ask };
+    case "step_progress": {
+      if (!e.step) return s;
+      const idx = s.steps.findIndex((st) => st.id === e.step!.id);
+      const next = idx >= 0
+        ? s.steps.map((st, i) => i === idx ? e.step! : st)
+        : [...s.steps, e.step!];
+      return { ...s, steps: next };
+    }
     case "turn_done": {
       if (s.pendingUser !== undefined) s = flushPendingUser(s);
       const finalized = s.items.map((it) => {
@@ -357,7 +368,7 @@ function applyEvent(s: State, e: WireEvent): State {
         return it;
       });
       const items: Item[] = e.err ? [...finalized, { kind: "notice", id: `e${s.seq}`, level: "warn", text: e.err }] : finalized;
-      return { ...s, items, live: undefined, running: false, turnActive: false, currentAssistant: undefined, approval: undefined, ask: undefined, seq: s.seq + 1 };
+      return { ...s, items, live: undefined, running: false, turnActive: false, currentAssistant: undefined, approval: undefined, ask: undefined, steps: [], seq: s.seq + 1 };
     }
     default: return s;
   }
@@ -405,7 +416,7 @@ function reducer(s: State, a: Action): State {
     case "local_notice": return { ...s, running: false, turnActive: false, seq: s.seq + 1, items: [...s.items, { kind: "notice", id: `n${s.seq}`, level: a.level, text: a.text }] };
     case "clearApproval": return { ...s, approval: undefined };
     case "clearAsk": return { ...s, ask: undefined };
-    case "reset": return { ...initialState, meta: s.meta, context: { ...s.context, used: 0 }, balance: s.balance, effort: s.effort, jobs: s.jobs };
+    case "reset": return { ...initialState, meta: s.meta, context: { ...s.context, used: 0 }, balance: s.balance, effort: s.effort, jobs: s.jobs, steps: s.steps };
     case "event": return applyEvent(s, a.e);
     default: return s;
   }
@@ -560,11 +571,17 @@ export function useController() {
     if (balance) dispatchTo(tabId, { type: "balance", balance });
   }, [dispatchTo, loadSessionDataForTab]);
 
+  const [intentClassified, setIntentClassified] = useState<string | null>(null);
+  const clearIntentClassified = useCallback(() => setIntentClassified(null), []);
+
   useEffect(() => {
     const off = onEvent((e) => {
       const targetTabId = e.tabId || activeTabIdRef.current;
       if (!targetTabId) return;
       dispatchTo(targetTabId, { type: "event", e });
+      if (e.kind === "intent_classified") {
+        setIntentClassified(e.text ?? null);
+      }
       if (e.kind === "turn_done") {
         app
           .ContextUsageForTab(targetTabId)
@@ -815,5 +832,6 @@ export function useController() {
     fetchMemory, remember, forget, saveDoc,
     switchTab, openProjectTab, openGlobalTab, closeTab, reorderTabs,
     syncActiveTab: syncActiveTabFromBackend,
+    intentClassified, clearIntentClassified,
   };
 }

@@ -287,11 +287,9 @@ func (g *Gate) Check(ctx context.Context, toolName string, args json.RawMessage,
 }
 
 // rememberRule builds the rule string persisted when the user picks "always
-// allow". It pins the exact subject (command / path) so the remembered grant is
-// narrow; the user can broaden it by hand later.
-func rememberRule(toolName, subject string) string {
-	if subject == "" {
-		return toolName
-	}
-	return toolName + "=" + subject
+// allow". It saves just the bare tool name so the rule covers every call to
+// that tool. The user can narrow it by hand in reasonix.toml later if they
+// want subject-specific granularity.
+func rememberRule(toolName, _ string) string {
+	return toolName
 }

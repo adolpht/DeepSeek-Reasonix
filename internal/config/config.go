@@ -115,7 +115,7 @@ func (c *Config) UIThemeStyle() string {
 
 func normalizeThemeStyle(style string) string {
 	switch strings.ToLower(strings.TrimSpace(style)) {
-	case "graphite", "ember", "aurora", "midnight", "sandstone", "porcelain", "linen", "glacier":
+	case "graphite", "ember", "aurora", "midnight", "sandstone", "porcelain", "linen", "glacier", "office":
 		return strings.ToLower(strings.TrimSpace(style))
 	default:
 		return ""
