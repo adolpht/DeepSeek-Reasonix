@@ -11,6 +11,13 @@ CODEGRAPH_VERSION := v0.9.7
 build:
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix$(GOEXE) ./cmd/reasonix
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-example$(GOEXE) ./cmd/reasonix-plugin-example
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-office$(GOEXE) ./cmd/reasonix-plugin-office
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-sheet$(GOEXE) ./cmd/reasonix-plugin-sheet
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-slides$(GOEXE) ./cmd/reasonix-plugin-slides
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-search$(GOEXE) ./cmd/reasonix-plugin-search
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-calendar$(GOEXE) ./cmd/reasonix-plugin-calendar
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-mail$(GOEXE) ./cmd/reasonix-plugin-mail
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/reasonix-plugin-im$(GOEXE) ./cmd/reasonix-plugin-im
 
 vet:
 	go vet ./...

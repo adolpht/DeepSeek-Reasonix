@@ -103,6 +103,9 @@ export interface SidebarProps {
   onActivateSkill: (name: string) => void;
   onOpenTemplates: () => void;
 
+  // Settings tab navigation (for plugin management)
+  onOpenSettingsTab: (tab: "mcp" | "skills") => void;
+
   // Bottom nav
   onOpenRepoWiki: () => void;
   onOpenAllHistory: () => void;
@@ -130,6 +133,7 @@ export function Sidebar({
   onAddProject,
   onActivateSkill,
   onOpenTemplates,
+  onOpenSettingsTab,
   onOpenRepoWiki,
   onOpenAllHistory,
   onOpenTrash,
@@ -277,7 +281,7 @@ export function Sidebar({
               icon={<Puzzle size={15} />}
               label={t("sidebar.devPlugins")}
               tooltipDisabled={navTooltipDisabled}
-              onClick={() => onNavigate("plugins")}
+              onClick={() => onOpenSettingsTab("mcp")}
             />
           </>
         )}
@@ -293,7 +297,7 @@ export function Sidebar({
               icon={<Puzzle size={15} />}
               label={t("sidebar.officePlugins")}
               tooltipDisabled={navTooltipDisabled}
-              onClick={() => onNavigate("plugins")}
+              onClick={() => onOpenSettingsTab("mcp")}
             />
           </>
         )}
@@ -309,7 +313,7 @@ export function Sidebar({
               icon={<Puzzle size={15} />}
               label={t("sidebar.lifePlugins")}
               tooltipDisabled={navTooltipDisabled}
-              onClick={() => onNavigate("plugins")}
+              onClick={() => onOpenSettingsTab("mcp")}
             />
           </>
         )}

@@ -1483,6 +1483,7 @@ export default function App() {
           onAddProject={async () => { await switchFolder(); }}
           onActivateSkill={(name) => { addWorkspaceTextToComposer(`/skill ${name}`); }}
           onOpenTemplates={() => setTemplatesOpen(true)}
+          onOpenSettingsTab={(tab) => setSettingsTarget(tab)}
           onOpenRepoWiki={() => setRepoWikiOpen(true)}
           onOpenAllHistory={openAllHistory}
           onOpenTrash={openTrash}
