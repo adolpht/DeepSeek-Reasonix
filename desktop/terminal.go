@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/creack/pty"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -37,14 +36,30 @@ type TerminalOutput struct {
 	Err  string `json:"err,omitempty"`
 }
 
+// ptyProcess is the platform-agnostic interface for a running PTY session.
+// Implementations live in terminal_pty_windows.go and terminal_pty_other.go.
+type ptyProcess interface {
+	// Read reads output from the PTY. Returns io.EOF when the session ends.
+	Read(p []byte) (int, error)
+	// Write sends input to the PTY.
+	Write(p []byte) (int, error)
+	// Resize changes the terminal dimensions.
+	Resize(cols, rows uint16) error
+	// Wait blocks until the child process exits and returns its exit code.
+	Wait() (int, error)
+	// Close releases all resources associated with the PTY.
+	Close()
+	// Pid returns the child process ID, or 0 if not yet started.
+	Pid() int
+}
+
 // terminalSession owns one live PTY child process.
 type terminalSession struct {
-	id      string
-	cmd     *exec.Cmd
-	ptmx    *os.File
-	shell   string
-	cwd     string
-	done    chan struct{}
+	id   string
+	pty  ptyProcess
+	shell string
+	cwd  string
+	done chan struct{}
 }
 
 // terminalManager owns all live terminal sessions: a mutex-guarded map keyed by
@@ -128,23 +143,14 @@ func (m *terminalManager) start(em emitter, id, cwd, shell string, cols, rows in
 		cwd, _ = os.Getwd()
 	}
 
-	cmd := exec.Command(exe, args...)
-	cmd.Dir = cwd
-	cmd.Env = os.Environ()
-
-	ptmx, err := pty.Start(cmd)
+	pty, err := startPty(exe, args, cwd, cols, rows)
 	if err != nil {
 		return fmt.Errorf("start pty: %w", err)
 	}
 
-	if cols > 0 && rows > 0 {
-		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
-	}
-
 	sess := &terminalSession{
 		id:    id,
-		cmd:   cmd,
-		ptmx:  ptmx,
+		pty:   pty,
 		shell: exe,
 		cwd:   cwd,
 		done:  make(chan struct{}),
@@ -157,7 +163,7 @@ func (m *terminalManager) start(em emitter, id, cwd, shell string, cols, rows in
 	go func() {
 		buf := make([]byte, 8192)
 		for {
-			n, readErr := ptmx.Read(buf)
+			n, readErr := pty.Read(buf)
 			if n > 0 {
 				em.emit(terminalOutputChannel, TerminalOutput{ID: id, Data: string(buf[:n])})
 			}
@@ -166,14 +172,12 @@ func (m *terminalManager) start(em emitter, id, cwd, shell string, cols, rows in
 			}
 		}
 		code := 0
-		waitErr := cmd.Wait()
-		_ = ptmx.Close()
+		exitCode, waitErr := pty.Wait()
+		pty.Close()
 		if waitErr != nil {
-			if ee, ok := waitErr.(*exec.ExitError); ok {
-				code = ee.ExitCode()
-			} else {
-				code = -1
-			}
+			code = -1
+		} else {
+			code = exitCode
 		}
 		em.emit(terminalOutputChannel, TerminalOutput{ID: id, Exit: true, Code: code, Err: waitErrString(waitErr)})
 		m.mu.Lock()
@@ -203,7 +207,7 @@ func (m *terminalManager) write(id string, data string) error {
 	if sess == nil {
 		return fmt.Errorf("terminal session %s not found", id)
 	}
-	_, err := sess.ptmx.WriteString(data)
+	_, err := sess.pty.Write([]byte(data))
 	return err
 }
 
@@ -214,7 +218,7 @@ func (m *terminalManager) resize(id string, cols, rows int) error {
 	if sess == nil {
 		return fmt.Errorf("terminal session %s not found", id)
 	}
-	return pty.Setsize(sess.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	return sess.pty.Resize(uint16(cols), uint16(rows))
 }
 
 func (m *terminalManager) kill(id string) error {
@@ -224,9 +228,7 @@ func (m *terminalManager) kill(id string) error {
 	if sess == nil {
 		return fmt.Errorf("terminal session %s not found", id)
 	}
-	if sess.cmd.Process != nil {
-		_ = sess.cmd.Process.Kill()
-	}
+	sess.pty.Close()
 	return nil
 }
 
@@ -240,10 +242,7 @@ func (m *terminalManager) closeAll() {
 	}
 	m.mu.Unlock()
 	for _, s := range all {
-		if s.cmd.Process != nil {
-			_ = s.cmd.Process.Kill()
-		}
-		_ = s.ptmx.Close()
+		s.pty.Close()
 	}
 }
 
@@ -288,9 +287,7 @@ func (a *App) TerminalStart(cwd string, shell string, cols int, rows int) (Termi
 	pid := 0
 	sh := shell
 	if sess != nil {
-		if sess.cmd.Process != nil {
-			pid = sess.cmd.Process.Pid
-		}
+		pid = sess.pty.Pid()
 		sh = sess.shell
 	}
 	return TerminalView{ID: id, Shell: sh, Cwd: cwd, PID: pid}, nil
