@@ -13,6 +13,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -132,6 +133,10 @@ type Controller struct {
 	// do. Deny rules still bite (those never reach the approver). Reset when the
 	// execution turn returns.
 	autoApprove bool
+	// autoLearner scans user messages for preference declarations.
+	autoLearner        *memory.AutoLearner
+	autoLearnEnabled   bool
+	autoLearnConfirm   bool
 
 	// bypass is "YOLO" mode: while set, every approval prompt is auto-allowed for
 	// the rest of the session (writers and bash run without asking). It is a
@@ -195,6 +200,9 @@ type Options struct {
 	// persist to disk (e.g. "bash(go build*)"). The callback is wired into the
 	// permission Gate on EnableInteractiveApproval.
 	OnRemember func(rule string)
+	// AutoLearn enables the preference scanner; AutoLearnConfirm requires user approval.
+	AutoLearn        bool
+	AutoLearnConfirm bool
 }
 
 // New builds a Controller. A nil Sink is replaced with event.Discard.
@@ -237,9 +245,12 @@ func New(opts Options) *Controller {
 		reg:           opts.Registry,
 		pluginCtx:     pluginCtx,
 		cpRoot:        opts.WorkspaceRoot,
-		approvals:     map[string]chan approvalReply{},
-		asks:          map[string]chan []event.AskAnswer{},
-		granted:       map[string]bool{},
+		approvals:       map[string]chan approvalReply{},
+		asks:            map[string]chan []event.AskAnswer{},
+		granted:         map[string]bool{},
+		autoLearner:     memory.NewAutoLearner(),
+		autoLearnEnabled: opts.AutoLearn,
+		autoLearnConfirm: opts.AutoLearnConfirm,
 	}
 	// Checkpoints: bind a store to the session and route writer pre-edits into it.
 	c.rebindCheckpoints(opts.SessionPath)
@@ -251,6 +262,21 @@ func New(opts Options) *Controller {
 		})
 		c.executor.SetMemoryQueue(c)
 	}
+	// Wrap the sink so every ToolDispatch/ToolResult is stamped with the current
+	// turn index. This lets the frontend link plan-step nodes to the tools that
+	// realised them (P1-7).
+	c.sink = event.FuncSink(func(e event.Event) {
+		if (e.Kind == event.ToolDispatch || e.Kind == event.ToolResult) && e.Tool.TurnIndex == 0 {
+			e.Tool.TurnIndex = c.Turn()
+		}
+		sink.Emit(e)
+		// P1-5: when todo_write completes, re-emit StepProgress for each todo so
+		// the trace canvas reflects the model's live progress (not just the
+		// seed/complete bookends).
+		if e.Kind == event.ToolResult && e.Tool.Name == "todo_write" && e.Tool.Err == "" && e.Tool.Args != "" {
+			c.emitStepProgressFromArgs(e.Tool.Args)
+		}
+	})
 	return c
 }
 
@@ -455,6 +481,7 @@ func (c *Controller) runTurnWithRawDisplay(ctx context.Context, input, raw, disp
 	plan := c.planMode
 	c.mu.Unlock()
 	if !plan {
+		c.maybeAutoLearn(raw)
 		return nil
 	}
 	proposal := lastAssistantText(c.History())
@@ -486,6 +513,8 @@ func (c *Controller) runTurnWithRawDisplay(ctx context.Context, input, raw, disp
 		return err
 	}
 	c.completePlanTodos(seededTodos)
+	// AutoLearn: scan the user's last message for preference declarations.
+	c.maybeAutoLearn(raw)
 	return nil
 }
 
@@ -498,6 +527,81 @@ func lastAssistantText(msgs []provider.Message) string {
 		}
 	}
 	return ""
+}
+
+// maybeAutoLearn scans the user message for preference declarations if enabled.
+// When AutoLearnConfirm is true, it emits an AutoLearn event for user approval.
+func (c *Controller) maybeAutoLearn(userMessage string) {
+	c.mu.Lock()
+	enabled := c.autoLearnEnabled
+	confirm := c.autoLearnConfirm
+	learner := c.autoLearner
+	c.mu.Unlock()
+
+	if !enabled || learner == nil {
+		return
+	}
+
+	proposal := learner.Scan(userMessage)
+	if proposal == nil {
+		return
+	}
+
+	if !confirm {
+		// Auto-append without confirmation: write directly to the PKM file.
+		if err := memory.AppendPKMFile(proposal.TargetFile, proposal.Content); err != nil {
+			// Best-effort: log via sink as a notice rather than blocking the turn.
+			c.sink.Emit(event.Event{
+				Kind:  event.Notice,
+				Level: event.LevelWarn,
+				Text:  "auto-learn write failed: " + err.Error(),
+			})
+		}
+		return
+	}
+
+	// Emit AutoLearn event for frontend approval.
+	c.mu.Lock()
+	c.nextID++
+	id := strconv.Itoa(c.nextID)
+	c.mu.Unlock()
+	c.sink.Emit(event.Event{
+		Kind: event.AutoLearn,
+		AutoLearn: &event.AutoLearnProposal{
+			ID:         id,
+			Type:       proposal.Type,
+			TargetFile: proposal.TargetFile,
+			Content:    proposal.Content,
+			Category:   proposal.Category,
+		},
+	})
+}
+
+// SuppressAutoLearnType marks a preference type as rejected for this session.
+func (c *Controller) SuppressAutoLearnType(typ string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.autoLearner != nil {
+		c.autoLearner.SuppressType(typ)
+	}
+}
+
+// CallTool directly invokes a registered read-only tool by name, bypassing the
+// agent loop. Intended for desktop UI panels (e.g. DailyBriefPanel) that need
+// tool output without a full agent turn. Only read-only tools are allowed to
+// prevent side-effect writes from bypassing the approval gate.
+func (c *Controller) CallTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	if c.reg == nil {
+		return "", fmt.Errorf("tool registry not initialized")
+	}
+	t, ok := c.reg.Get(name)
+	if !ok {
+		return "", fmt.Errorf("tool %q not found", name)
+	}
+	if !t.ReadOnly() {
+		return "", fmt.Errorf("tool %q is not read-only; CallTool only allows read-only tools", name)
+	}
+	return t.Execute(ctx, args)
 }
 
 // Submit is the one-call entry for a simple frontend: it takes raw user input
@@ -1993,6 +2097,55 @@ type seedTodo struct {
 	Level   int    `json:"level,omitempty"`
 }
 
+// stepID derives a stable id for a plan step from its content. The id is a
+// short content hash so that later todo_write status flips (which keep the
+// same content) map onto the same step on the frontend — useController.ts
+// replaces steps by id. It mirrors evidence.matchTodoStep's sameStepText
+// matching, so a step and its complete_step receipt resolve to one node.
+func stepID(content string) string {
+	h := sha256.Sum256([]byte(strings.TrimSpace(content)))
+	return fmt.Sprintf("step-%x", h[:6])
+}
+
+// emitStepProgress fires a StepProgress event per todo item, turning the plan's
+// flat todo list into structured step nodes the trace canvas can render. This
+// activates the event.StepProgress scaffolding (defined + wired but previously
+// never emitted). Status is normalised to the step_progress contract
+// ("completed"|"in_progress"|"pending"); an empty status is treated as pending,
+// matching evidence.todoStatus.
+func (c *Controller) emitStepProgress(items []seedTodo) {
+	turn := c.Turn()
+	for _, it := range items {
+		status := it.Status
+		if status == "" {
+			status = "pending"
+		}
+		c.sink.Emit(event.Event{
+			Kind: event.StepProgress,
+			Text: it.Content,
+			Step: &event.Step{
+				ID:        stepID(it.Content),
+				Label:     it.Content,
+				Status:    status,
+				TurnIndex: turn,
+			},
+		})
+	}
+}
+
+// emitStepProgressFromArgs parses todo_write args ({"todos":[...]}) and emits
+// a StepProgress event per todo, so the trace canvas reflects the model's
+// live todo list updates — not just the seed/complete bookends.
+func (c *Controller) emitStepProgressFromArgs(args string) {
+	var p struct {
+		Todos []seedTodo `json:"todos"`
+	}
+	if err := json.Unmarshal([]byte(args), &p); err != nil || len(p.Todos) == 0 {
+		return
+	}
+	c.emitStepProgress(p.Todos)
+}
+
 // seedPlanTodos turns an approved plan into a starter task list and emits it as a
 // synthetic todo_write event, so the live task panel populates the instant the
 // user approves — a structural guarantee, not a prompt the model might ignore.
@@ -2007,6 +2160,7 @@ func (c *Controller) seedPlanTodos(plan string) string {
 	c.sink.Emit(event.Event{Kind: event.ToolDispatch, Tool: t})
 	t.Output = "task list seeded from the approved plan"
 	c.sink.Emit(event.Event{Kind: event.ToolResult, Tool: t})
+	c.emitStepProgress(parsePlanTodos(plan))
 	return args
 }
 
@@ -2022,6 +2176,13 @@ func (c *Controller) completePlanTodos(args string) {
 	c.sink.Emit(event.Event{Kind: event.ToolDispatch, Tool: t})
 	t.Output = "approved plan finished"
 	c.sink.Emit(event.Event{Kind: event.ToolResult, Tool: t})
+	// Re-mark every step completed so the trace canvas reflects the finished plan.
+	var doneTodos struct {
+		Todos []seedTodo `json:"todos"`
+	}
+	if json.Unmarshal([]byte(done), &doneTodos) == nil {
+		c.emitStepProgress(doneTodos.Todos)
+	}
 }
 
 // PlanTodosJSON parses an approved plan's markdown into todo_write-shaped args

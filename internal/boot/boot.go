@@ -47,6 +47,24 @@ import (
 // removed provider. Callers can detect it (errors.Is) to re-run setup.
 var ErrUnknownModel = errors.New("unknown model")
 
+// opspecBuiltinSkillNames lists the 10 OpenSpec SDD skills shipped under
+// .reasonix/skills/opsx-*.md. They are appended to the skill store's disabled
+// list when [desktop].coding.openspec_enabled is false (the default), so the
+// coding-mode SDD workflow stays opt-in. Keep the names in sync with the
+// filenames in .reasonix/skills/.
+var opspecBuiltinSkillNames = []string{
+	"opsx-propose",
+	"opsx-apply",
+	"opsx-archive",
+	"opsx-explore",
+	"opsx-new",
+	"opsx-continue",
+	"opsx-ff",
+	"opsx-verify",
+	"opsx-bulk-archive",
+	"opsx-onboard",
+}
+
 // Options carries the per-run knobs a frontend chooses; everything else is read
 // from configuration. Model "" falls back to the configured default_model;
 // MaxSteps 0 uses the config/default. RequireKey forces the executor's API key to
@@ -176,7 +194,18 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// durable, cache-stable prefix every turn reuses, so memory costs nothing per
 	// turn. Mid-session changes never touch this prefix — they ride the
 	// controller's transient turn-injection and fold in on the next session.
-	mem := memory.Load(memory.Options{CWD: root, UserDir: config.MemoryUserDir()})
+	//
+	// EnsureMemoryDir scaffolds ~/.reasonix/memory/ (the PKM files) on first
+	// boot so Load can pick them up; it is best-effort — a failure (e.g. a
+	// read-only home) is logged but never blocks boot, since Load silently
+	// skips missing PKM files and the rest of memory still works.
+	pkmEnabled := cfg.PKM.EnabledOrDefault()
+	if pkmEnabled {
+		if _, _, err := memory.EnsureMemoryDir(); err != nil {
+			slog.Warn("pkm: memory dir not scaffolded; PKM injection may be incomplete", "error", err)
+		}
+	}
+	mem := memory.Load(memory.Options{CWD: root, UserDir: config.MemoryUserDir(), PKMEnabled: pkmEnabled})
 	projectChecks := instruction.ExtractHostChecks(mem.Docs)
 	sysPrompt = memory.Compose(sysPrompt, mem)
 
@@ -184,11 +213,20 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// one-liner index into the same cache-stable prefix — names + descriptions
 	// only; bodies load on demand via run_skill or "/<name>". Bodies never enter
 	// the prefix, so the index costs a fixed, small amount per turn.
+	disabledSkills := cfg.DisabledSkillNames()
+	// OpenSpec SDD is opt-in for the coding workspace. When the toggle is off
+	// (the default), the 10 built-in opsx-* skills are appended to the disabled
+	// list so they don't surface in the skill index, slash menu, or run_skill
+	// tool. Toggling the preference rebuilds the controller (see settings_app.go
+	// SetCodingOpenSpec), which re-runs this branch and re-evaluates visibility.
+	if !cfg.DesktopCodingOpenSpec() {
+		disabledSkills = append(disabledSkills, opspecBuiltinSkillNames...)
+	}
 	skillStore := skill.New(skill.Options{
 		ProjectRoot:   root,
 		CustomPaths:   cfg.SkillCustomPaths(),
 		ExcludedPaths: cfg.SkillExcludedPaths(),
-		DisabledNames: cfg.DisabledSkillNames(),
+		DisabledNames: disabledSkills,
 		MaxDepth:      cfg.SkillMaxDepth(),
 		Stderr:        opts.Stderr,
 	})
@@ -640,8 +678,8 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// Chain pool cleanup into the session shutdown path so all child agents are
 	// terminated when the controller closes.
 	{
-	prev := cleanup
-	cleanup = func() { agentPool.CloseAll(); prev() }
+		prev := cleanup
+		cleanup = func() { agentPool.CloseAll(); prev() }
 	}
 
 	// Custom slash commands (.reasonix/commands + user dir). Best-effort: a malformed
@@ -724,28 +762,30 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	}
 
 	ctrlOpts := control.Options{
-		Runner:        runner,
-		Executor:      executor,
-		Sink:          sink,
-		Policy:        policy,
-		Label:         label,
-		SystemPrompt:  sysPrompt,
-		SessionDir:    config.SessionDir(),
-		Host:          pluginHost,
-		Commands:      cmds,
-		Skills:        skills,
-		AllSkills:     allSkills,
-		Hooks:         hookRunner,
-		Memory:        mem,
-		Cleanup:       cleanup,
-		BalanceURL:    entry.BalanceURL,
-		BalanceKey:    entry.APIKey(),
-		BalanceClient: balanceClient,
-		Jobs:          jm,
-		Registry:      reg,
-		PluginCtx:     ctx,
-		WorkspaceRoot: root,
-		AutoPlan:      cfg.Agent.AutoPlan,
+		Runner:           runner,
+		Executor:         executor,
+		Sink:             sink,
+		Policy:           policy,
+		Label:            label,
+		SystemPrompt:     sysPrompt,
+		SessionDir:       config.SessionDir(),
+		Host:             pluginHost,
+		Commands:         cmds,
+		Skills:           skills,
+		AllSkills:        allSkills,
+		Hooks:            hookRunner,
+		Memory:           mem,
+		Cleanup:          cleanup,
+		BalanceURL:       entry.BalanceURL,
+		BalanceKey:       entry.APIKey(),
+		BalanceClient:    balanceClient,
+		Jobs:             jm,
+		Registry:         reg,
+		PluginCtx:        ctx,
+		WorkspaceRoot:    root,
+		AutoPlan:         cfg.Agent.AutoPlan,
+		AutoLearn:        cfg.PKM.AutoLearn && cfg.PKM.EnabledOrDefault(),
+		AutoLearnConfirm: cfg.PKM.AutoLearnConfirm,
 		OnRemember: func(rule string) {
 			rememberPermissionRule(opts.WorkspaceRoot, rule)
 		},
@@ -1071,6 +1111,7 @@ func providerNames(cfg *config.Config) string {
 	}
 	return strings.Join(names, "/")
 }
+
 // configCustomRoles converts config custom role definitions to agent.Role.
 func configCustomRoles(cfg *config.Config) []agent.Role {
 	roles := make([]agent.Role, len(cfg.Agents.CustomRoles))

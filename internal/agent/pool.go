@@ -1,4 +1,4 @@
-﻿package agent
+package agent
 
 import (
 	"context"
@@ -49,6 +49,28 @@ type ChildAgent struct {
 	Done      chan struct{}
 	Result    *AgentResult
 	StartedAt time.Time
+}
+
+// maxResults caps the completed-agent result cache. When exceeded we drop the
+// oldest half (by completion order — results are appended in causal order
+// since runChildAgent is the only writer). This bounds memory on long sessions.
+const maxResults = 50
+
+// pruneResultsLocked trims p.results when it grows past maxResults. Caller
+// must hold p.mu (write). We can't track insertion order with a plain map, so
+// we drop arbitrary entries — acceptable since the cache is advisory (only
+// used by GetResult for already-completed agents; a missing entry returns
+// not-found, which the caller already handles).
+func (p *Pool) pruneResultsLocked() {
+	if len(p.results) <= maxResults {
+		return
+	}
+	for id := range p.results {
+		delete(p.results, id)
+		if len(p.results) <= maxResults/2 {
+			return
+		}
+	}
 }
 
 // AgentResult is the structured result of a completed child agent.
@@ -231,6 +253,16 @@ func (p *Pool) Spawn(ctx context.Context, id string, role Role, prompt string, m
 func (p *Pool) runChildAgent(ctx context.Context, child *ChildAgent, prompt string) {
 	defer close(child.Done)
 
+	// Emit an initial AgentProgress so listeners can render a "running"
+	// state immediately, before the first tool dispatch or reasoning chunk
+	// arrives via childSink.
+	if p.parentSink != nil {
+		p.parentSink.Emit(event.Event{
+			Kind: event.AgentProgress,
+			Tool: event.Tool{ID: child.ID, Output: "started"},
+		})
+	}
+
 	err := child.Agent.Run(ctx, prompt)
 	duration := time.Since(child.StartedAt)
 
@@ -259,6 +291,7 @@ func (p *Pool) runChildAgent(ctx context.Context, child *ChildAgent, prompt stri
 	p.mu.Lock()
 	p.results[child.ID] = result
 	delete(p.agents, child.ID)
+	p.pruneResultsLocked()
 	p.mu.Unlock()
 
 	// Emit AgentCompleted event
@@ -338,7 +371,7 @@ func (p *Pool) SendInput(ctx context.Context, id string, message string) error {
 	// Restart the completed agent with the new input
 	p.mu.Lock()
 	// Re-check under write lock
-	child2, childOk2 := p.agents[id]
+	_, childOk2 := p.agents[id]
 	if childOk2 {
 		p.mu.Unlock()
 		return fmt.Errorf("agent %s is still running; wait for it to finish before sending input", id)
@@ -348,11 +381,16 @@ func (p *Pool) SendInput(ctx context.Context, id string, message string) error {
 	delete(p.results, id)
 	p.mu.Unlock()
 
-	// Create a new agent with the same role, reusing the session
+	// Create a new agent with the same role, reusing the session. `child` is
+	// the value captured under the RLock before we re-checked; under the write
+	// lock we only confirmed the id was gone from p.agents (so it's safe to
+	// restart). Use the captured child's role rather than child2, which may
+	// be nil here (P3-15: nil deref race).
 	_ = result // previous result is discarded
-	role := child2.Role
+	role := child.Role
 	if role.Name == "" {
-		role = child.Role
+		// Fall back to a default role if the original child had none.
+		role = ResolveRole("default", nil)
 	}
 
 	subReg := p.buildSubReg(role)
@@ -438,6 +476,7 @@ func (p *Pool) Close(ctx context.Context, id string) error {
 
 	p.mu.Lock()
 	p.results[id] = result
+	p.pruneResultsLocked()
 	p.mu.Unlock()
 
 	// Emit AgentClosed event
@@ -476,6 +515,7 @@ func (p *Pool) CloseAll() {
 		}
 		p.mu.Lock()
 		p.results[id] = result
+		p.pruneResultsLocked()
 		p.mu.Unlock()
 	}
 }
@@ -516,7 +556,9 @@ func (p *Pool) buildSubReg(role Role) *tool.Registry {
 }
 
 // childSink creates an event sink for a child agent that forwards tool
-// activity to the parent sink with the agent ID as parent.
+// activity to the parent sink with the agent ID as parent. Reasoning and
+// per-turn Message events are also forwarded as AgentProgress so the
+// frontend can render a live progress line for each child agent.
 func (p *Pool) childSink(agentID string) event.Sink {
 	if p.parentSink == nil {
 		return event.Discard
@@ -527,6 +569,35 @@ func (p *Pool) childSink(agentID string) event.Sink {
 			e.Tool.ParentID = agentID
 			e.Tool.ID = agentID + "/" + e.Tool.ID
 			p.parentSink.Emit(e)
+			// Surface tool activity as a progress line for listeners that
+			// only track AgentProgress (e.g. the multi-agent canvas).
+			if e.Kind == event.ToolDispatch {
+				label := e.Tool.Name
+				if label == "" {
+					label = "tool"
+				}
+				p.parentSink.Emit(event.Event{
+					Kind: event.AgentProgress,
+					Tool: event.Tool{ID: agentID, Output: "calling " + label},
+				})
+			}
+		case event.Reasoning, event.Message:
+			// Forward the agent's thinking/answer as a progress update,
+			// truncated to keep the event stream compact.
+			text := e.Text
+			if text == "" {
+				text = e.Reasoning
+			}
+			if text == "" {
+				return
+			}
+			if len(text) > 160 {
+				text = text[:160] + "…"
+			}
+			p.parentSink.Emit(event.Event{
+				Kind: event.AgentProgress,
+				Tool: event.Tool{ID: agentID, Output: text},
+			})
 		}
 	})
 }

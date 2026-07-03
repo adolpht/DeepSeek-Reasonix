@@ -18,7 +18,18 @@ type wireEvent struct {
 	Ask        *wireAsk        `json:"ask,omitempty"`
 	Compaction *wireCompaction `json:"compaction,omitempty"`
 	Step       *wireStep       `json:"step,omitempty"`
+	AutoLearn  *wireAutoLearn  `json:"auto_learn,omitempty"`
+	Agent      *wireAgent      `json:"agent,omitempty"`
 	Err        string          `json:"err,omitempty"`
+}
+
+// wireAutoLearn is the JSON form of an event.AutoLearnProposal.
+type wireAutoLearn struct {
+	ID         string `json:"id"`
+	Type       string `json:"type"`
+	TargetFile string `json:"target_file"`
+	Content    string `json:"content"`
+	Category   string `json:"category"`
 }
 
 // wireCompaction is the JSON form of an event.Compaction. On a compaction_started
@@ -65,6 +76,7 @@ type wireTool struct {
 	DurationMs int64        `json:"durationMs,omitempty"`
 	Partial    bool         `json:"partial,omitempty"`
 	ParentID   string       `json:"parentId,omitempty"`
+	TurnIndex  int          `json:"turnIndex,omitempty"` // the turn this tool ran in
 	Profile    *wireProfile `json:"profile,omitempty"`
 }
 
@@ -112,6 +124,12 @@ type wireStep struct {
 	TurnIndex int    `json:"turnIndex"`
 }
 
+type wireAgent struct {
+	ID     string `json:"id"`
+	Role   string `json:"role,omitempty"`
+	Output string `json:"output,omitempty"`
+}
+
 // kindNames maps the event.Kind enum to stable wire strings.
 var kindNames = map[event.Kind]string{
 	event.TurnStarted:       "turn_started",
@@ -130,6 +148,11 @@ var kindNames = map[event.Kind]string{
 	event.CompactionDone:    "compaction_done",
 	event.ToolProgress:      "tool_progress",
 	event.StepProgress:      "step_progress",
+	event.AutoLearn:         "auto_learn",
+	event.AgentSpawned:      "agent_spawned",
+	event.AgentProgress:     "agent_progress",
+	event.AgentCompleted:    "agent_completed",
+	event.AgentClosed:       "agent_closed",
 }
 
 // toWireAsk converts an event.Ask into its JSON wire form.
@@ -161,7 +184,7 @@ func toWire(e event.Event) wireEvent {
 			Output: e.Tool.Output, Err: e.Tool.Err,
 			ReadOnly: e.Tool.ReadOnly, Truncated: e.Tool.Truncated,
 			DurationMs: e.Tool.DurationMs, Partial: e.Tool.Partial,
-			ParentID: e.Tool.ParentID,
+			ParentID: e.Tool.ParentID, TurnIndex: e.Tool.TurnIndex,
 		}
 		if e.Tool.Profile != nil {
 			wt.Profile = &wireProfile{Model: e.Tool.Profile.Model, Effort: e.Tool.Profile.Effort}
@@ -201,6 +224,19 @@ func toWire(e event.Event) wireEvent {
 	case event.StepProgress:
 		if e.Step != nil {
 			w.Step = &wireStep{ID: e.Step.ID, Label: e.Step.Label, Status: e.Step.Status, TurnIndex: e.Step.TurnIndex}
+		}
+	case event.AutoLearn:
+		if e.AutoLearn != nil {
+			w.AutoLearn = &wireAutoLearn{
+				ID: e.AutoLearn.ID, Type: e.AutoLearn.Type,
+				TargetFile: e.AutoLearn.TargetFile, Content: e.AutoLearn.Content, Category: e.AutoLearn.Category,
+			}
+		}
+	case event.AgentSpawned, event.AgentProgress, event.AgentCompleted, event.AgentClosed:
+		w.Agent = &wireAgent{
+			ID:     e.Tool.ID,
+			Role:   e.Tool.Name,
+			Output: e.Tool.Output,
 		}
 	}
 	return w

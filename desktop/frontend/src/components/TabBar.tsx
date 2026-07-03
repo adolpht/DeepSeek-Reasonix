@@ -2,7 +2,7 @@
 // open project/global topic, so switching tabs switches the active conversation.
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
-import { FileText, Plus, X } from "lucide-react";
+import { FileText, Plus, X, Bookmark } from "lucide-react";
 import type { TabMeta } from "../lib/types";
 import { projectColorValue } from "../lib/projectColors";
 import { useT } from "../lib/i18n";
@@ -17,6 +17,7 @@ interface TabBarProps {
   onTabsClose: (tabIds: string[], nextActiveTabId?: string) => void;
   onTabsReorder: (tabIds: string[]) => void;
   onNewTab: () => void;
+  onSaveRecipe?: (tabId: string) => void;
   revealActiveSignal?: number;
 }
 
@@ -50,7 +51,7 @@ function projectAccentStyle(color?: string): CSSProperties | undefined {
   return { "--project-accent": value } as CSSProperties;
 }
 
-export function TabBar({ tabs, activeTabId, onTabChange, onTabClose, onTabsClose, onTabsReorder, onNewTab, revealActiveSignal = 0 }: TabBarProps) {
+export function TabBar({ tabs, activeTabId, onTabChange, onTabClose, onTabsClose, onTabsReorder, onNewTab, onSaveRecipe, revealActiveSignal = 0 }: TabBarProps) {
   const t = useT();
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; side: DropSide } | null>(null);
@@ -156,6 +157,19 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose, onTabsClose
   const tabMenuItems: ContextMenuItem[] = menuTabId && menuTabIndex >= 0
     ? [
         {
+          key: "save-recipe",
+          label: t("tabBar.saveAsRecipe"),
+          icon: <Bookmark size={14} />,
+          onSelect: () => {
+            closeTabMenu();
+            if (onSaveRecipe) onSaveRecipe(menuTabId);
+          },
+        },
+        {
+          type: "separator" as const,
+          key: "sep-1",
+        },
+        {
           key: "close-current",
           label: t("tabBar.closeTab"),
           onSelect: () => closeTabsFromMenu([menuTabId]),
@@ -243,7 +257,7 @@ export function TabBar({ tabs, activeTabId, onTabChange, onTabClose, onTabsClose
                   handleClose(tab.id);
                 }}
               >
-                <X size={10} />
+                <X size={14} />
               </span>
             </button>
           );

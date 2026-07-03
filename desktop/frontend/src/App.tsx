@@ -13,13 +13,15 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Search,
+  Columns2,
   X,
 } from "lucide-react";
 import { asArray } from "./lib/array";
 import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n, useT, type DictKey } from "./lib/i18n";
 import { useController, type Item, type LiveStream } from "./lib/useController";
 import { app, onProjectTreeChanged } from "./lib/bridge";
-import { Transcript } from "./components/Transcript";
+import { Transcript, type TranscriptHandle } from "./components/Transcript";
 import { Composer } from "./components/Composer";
 import { TodoPanel } from "./components/TodoPanel";
 import { ApprovalModal } from "./components/ApprovalModal";
@@ -33,7 +35,7 @@ import { PreviewPanel } from "./components/PreviewPanel";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { Tooltip } from "./components/Tooltip";
 import { StartupSplash, shouldShowStartupSplash } from "./components/StartupSplash";
-import { OnboardingOverlay } from "./components/OnboardingOverlay";
+import { OnboardingOverlay, isOnboardingTaskPending, clearOnboardingTaskPending } from "./components/OnboardingOverlay";
 import { TabBar } from "./components/TabBar";
 import { CopyButton } from "./components/CopyButton";
 import { RepoWikiPanel } from "./components/RepoWikiPanel";
@@ -43,10 +45,16 @@ import { ModeSwitcher } from "./components/ModeSwitcher";
 import { HomePanel } from "./components/HomePanel";
 import { CalendarPanel } from "./components/CalendarPanel";
 import { SchedulerPanel } from "./components/SchedulerPanel";
-import { MemoryPanel } from "./components/MemoryPanel";
+import { SaveRecipeModal } from "./components/SaveRecipeModal";
+import { DailyBriefPanel } from "./components/DailyBriefPanel";
+import { AgentCanvas } from "./components/AgentCanvas";
+import { WorkflowEditor } from "./components/WorkflowEditor";
+import { TerminalPanel } from "./components/TerminalPanel";
 import { FloatingWindow } from "./components/FloatingWindow";
 import { ProgressStepper } from "./components/ProgressStepper";
 import type { Step as ProgressStep } from "./components/ProgressStepper";
+import { CommandPalette, type PaletteItem } from "./components/CommandPalette";
+import { NotificationCenter, NotificationBell } from "./components/NotificationCenter";
 import { diffsFor, docExportPath, parseTodos } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
 import type { ComposerInsertRequest, Meta, Mode, SessionMeta, SettingsTab, TabMeta, WorkspaceType } from "./lib/types";
@@ -357,6 +365,7 @@ export default function App() {
     cancel,
     approve,
     answerQuestion,
+    answerAutoLearn,
     setControllerMode,
     newSession,
     listSessions,
@@ -393,6 +402,8 @@ export default function App() {
   // null until the mount probe resolves; true shows the overlay. Probed once —
   // clearing the key mid-session is the Settings panel's job, not the gate's.
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
+  const [onboardingTaskPending, setOnboardingTaskPendingState] = useState(() => isOnboardingTaskPending());
+  const [showOnboardingCelebration, setShowOnboardingCelebration] = useState(false);
   const [settingsTarget, setSettingsTarget] = useState<SettingsTab | null>(null);
   const [repoWikiOpen, setRepoWikiOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
@@ -426,10 +437,17 @@ export default function App() {
   const [dockRefreshKey, setDockRefreshKey] = useState(0);
   const [projectRevision, setProjectRevision] = useState(0);
   const [composerInsertRequest, setComposerInsertRequest] = useState<ComposerInsertRequest | null>(null);
+  const [saveRecipeOpen, setSaveRecipeOpen] = useState(false);
+  const [saveRecipeTabId, setSaveRecipeTabId] = useState<string | undefined>();
+  const [saveRecipeSkill, setSaveRecipeSkill] = useState("");
+  const [saveRecipeParams, setSaveRecipeParams] = useState("");
   const [desktopPlatform, setDesktopPlatform] = useState<DesktopPlatform>(detectBrowserPlatform);
   const [renamingTopicId, setRenamingTopicId] = useState<string | null>(null);
   const [topicTitleDraft, setTopicTitleDraft] = useState("");
   const [topicExportOpen, setTopicExportOpen] = useState(false);
+  // CommandPalette (⌘K/Ctrl+K) and NotificationCenter drawer state.
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const topicRenameSkipCommitRef = useRef(false);
   const topicRenameCommitHandledRef = useRef(false);
 
@@ -455,6 +473,19 @@ export default function App() {
       }
     }
   }, [state.items]);
+
+  // Onboarding task completion: show celebration when first task completes.
+  const prevRunningRef = useRef(state.running);
+  useEffect(() => {
+    const wasRunning = prevRunningRef.current;
+    prevRunningRef.current = state.running;
+    // Detect transition from running → not running with pending flag.
+    if (wasRunning && !state.running && onboardingTaskPending && state.items.length > 0) {
+      setShowOnboardingCelebration(true);
+      clearOnboardingTaskPending();
+      setOnboardingTaskPendingState(false);
+    }
+  }, [state.running, onboardingTaskPending, state.items.length]);
 
   // Persist window geometry across launches.
   useWindowStatePersistence();
@@ -519,6 +550,16 @@ export default function App() {
     return window.runtime.EventsOn("clipboard-hotkey", () => {
       setFloatingVisible(true);
       setFloatingResult(null);
+    });
+  }, []);
+  // Listen for scheduled task start event: open a dedicated tab.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.runtime) return;
+    return window.runtime.EventsOn("scheduled_task_started", (payload: unknown) => {
+      const data = payload as { name?: string; skill?: string } | null;
+      if (data?.name) {
+        void app.OpenTabForScheduledTask(data.name);
+      }
     });
   }, []);
   const [pendingPlanRevision, setPendingPlanRevision] = useState<string | null>(null);
@@ -630,6 +671,10 @@ export default function App() {
       if (!activeTabId) return;
       setWsTypeByTab((current) => ({ ...current, [activeTabId]: wt }));
       void app.SetWorkspaceType(wt);
+      // Switch right dock default tab based on mode.
+      if (wt === "coding") setRightDockMode("files");
+      else if (wt === "office") setRightDockMode("preview");
+      else if (wt === "assistant") setNavPage("dailyBrief");
     },
     [activeTabId],
   );
@@ -775,6 +820,56 @@ export default function App() {
   // and a transcript update collide, the keystroke is processed immediately
   // and the transcript re-render is deferred to idle time.
   const deferredItems = useDeferredValue(state.items);
+  // Transcript imperative handle — ProgressStepper uses scrollToTurn to jump
+  // to the user message of a given turn and flash it once for confirmation.
+  const transcriptRef = useRef<TranscriptHandle>(null);
+  const handleStepClick = useCallback((turnIndex: number) => {
+    transcriptRef.current?.scrollToTurn(turnIndex);
+  }, []);
+  const handleToolPreview = useCallback((path: string, _kind: string) => {
+    setPreviewFilePath(path);
+    setPreviewDiffOriginal(undefined);
+    setPreviewDiffModified(undefined);
+  }, []);
+
+  // Trace-side actions — invoked by AgentCanvas via NodeDetail.
+  //   handleRetryTool: re-send the failed tool call as a slash-shaped prompt so
+  //     the agent re-runs it (we can't directly re-invoke a tool from the UI
+  //     without a controller API; instead we ask the agent to retry). This is
+  //     a pragmatic UX affordance until a real ToolRetry bound method lands.
+  //   handleCloseAgent: terminate a spawned child agent via close_agent tool —
+  //     but we have no direct tool-invoke API either, so we send a text
+  //     instruction. The agent will run close_agent with the right id.
+  const handleRetryTool = useCallback((_toolId: string, toolName: string, args: string) => {
+    const argPreview = args.length > 200 ? args.slice(0, 200) + "…" : args;
+    send(`Please retry the failed "${toolName}" tool call. Previous args:\n${argPreview}`);
+  }, [send]);
+  const handleCloseAgent = useCallback((agentId: string) => {
+    send(`Use the close_agent tool to terminate child agent ${agentId}.`);
+  }, [send]);
+
+  // Split view — show transcript + trace side by side. Toggled from the trace
+  // header (or the sidebar). When on, the trace pane replaces the default
+  // single-page routing.
+  const [splitView, setSplitView] = useState(false);
+
+  const handleSaveRecipeFromTab = useCallback((_tabId: string) => {
+    // Extract skill from current tab's state (active tab only for now).
+    let skill = "";
+    let params = "";
+    for (const item of state.items) {
+      if (item.kind === "user" && item.text.startsWith("/")) {
+        const parts = item.text.split(/\s+/);
+        skill = parts[0].slice(1); // strip leading /
+        params = parts.slice(1).join(" ");
+        break;
+      }
+    }
+    setSaveRecipeSkill(skill);
+    setSaveRecipeParams(params);
+    setSaveRecipeTabId(_tabId);
+    setSaveRecipeOpen(true);
+  }, [state.items]);
   const sessionTitle = topicTitle(activeTab);
   const sessionHasContent = state.items.length > 0 || Boolean(state.live?.text || state.live?.reasoning);
   const getSessionMarkdown = useCallback(
@@ -891,6 +986,23 @@ export default function App() {
       void refreshTabMetas();
     });
   }, [refreshTabMetas]);
+
+  // ⌘K (macOS) / Ctrl+K (others) opens the CommandPalette. The listener is
+  // attached at document level so the palette is reachable from any focus
+  // state. We deliberately skip the event when the target is an IME
+  // composition or a modal input to avoid hijacking normal typing.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta || e.key !== "k" || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && target.isContentEditable) return;
+      e.preventDefault();
+      setCommandPaletteOpen((v) => !v);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1112,6 +1224,13 @@ export default function App() {
     [openWorkspacePanel],
   );
 
+  // Auto-open workspace panel when preview file path is set.
+  useEffect(() => {
+    if (previewFilePath) {
+      openWorkspacePanel("preview");
+    }
+  }, [previewFilePath, openWorkspacePanel]);
+
   const layoutStyle = useMemo(
     () =>
       ({
@@ -1263,6 +1382,90 @@ export default function App() {
   const openTrash = useCallback(async () => {
     setHistView({ kind: "trash", sessions: await listTrashedSessions() });
   }, [listTrashedSessions]);
+
+  // Build the CommandPalette items: sessions (tabs) first, then navigation
+  // commands, then quick actions. The list is rebuilt whenever the inputs
+  // change; the palette itself re-runs fuzzy match on every keystroke.
+  const commandPaletteItems = useMemo<PaletteItem[]>(() => {
+    const items: PaletteItem[] = [];
+    // Sessions group — switch to an existing tab.
+    for (const tab of tabMetas) {
+      const id = tab.id;
+      const title = tab.topicTitle || tab.topicId || id;
+      const hint = tab.workspaceRoot || tab.scope;
+      items.push({
+        id: `tab:${id}`,
+        title,
+        hint,
+        group: t("palette.sessions"),
+        keywords: [tab.scope, tab.workspaceType],
+        run: () => void handleTabChange(id),
+      });
+    }
+    // Navigation group — jump to a sidebar-driven view.
+    const nav: Array<[string, string]> = [
+      ["home", t("sidebar.home")],
+      ["calendar", t("sidebar.assistantSchedule")],
+      ["todos", t("sidebar.assistantTodos")],
+      ["dailyBrief", t("sidebar.dailyBrief")],
+      ["scheduled", t("sidebar.scheduledTasks")],
+      ["terminal", t("sidebar.terminal")],
+      ["trace", t("sidebar.trace")],
+      ["workflow", t("sidebar.workflow")],
+    ];
+    for (const [page, label] of nav) {
+      items.push({
+        id: `nav:${page}`,
+        title: label,
+        group: t("palette.navigation"),
+        keywords: [page],
+        run: () => {
+          if (page === "files") openWorkspacePanel("files");
+          else if (page === "memory") setSettingsTarget("memory");
+          else setNavPage(page);
+        },
+      });
+    }
+    // Actions group — common one-shot operations.
+    items.push({
+      id: "act:new",
+      title: t("topbar.newSession"),
+      group: t("palette.actions"),
+      run: () => { cancel(); void startNewSession(); },
+    });
+    items.push({
+      id: "act:settings",
+      title: t("topbar.settings"),
+      group: t("palette.actions"),
+      run: () => setSettingsTarget("general"),
+    });
+    items.push({
+      id: "act:templates",
+      title: t("sidebar.templates"),
+      group: t("palette.actions"),
+      run: () => setTemplatesOpen(true),
+    });
+    items.push({
+      id: "act:history",
+      title: t("sidebar.allHistory"),
+      group: t("palette.actions"),
+      run: () => void openAllHistory(),
+    });
+    items.push({
+      id: "act:repoWiki",
+      title: t("sidebar.repoWiki"),
+      group: t("palette.actions"),
+      run: () => setRepoWikiOpen(true),
+    });
+    items.push({
+      id: "act:trash",
+      title: t("sidebar.trash"),
+      group: t("palette.actions"),
+      run: () => void openTrash(),
+    });
+    return items;
+  }, [tabMetas, t, handleTabChange, openWorkspacePanel, cancel, startNewSession, openAllHistory, openTrash]);
+
   const closeHistory = useCallback(() => setHistView(null), []);
   const onResumeSession = useCallback(
     async (session: SessionMeta) => {
@@ -1462,6 +1665,18 @@ export default function App() {
             <span className="app-chrome__scope">{appChromeScopeLabel(activeTab, state.meta)}</span>
           </div>
           <div className="app-chrome__spacer" />
+          <Tooltip label={t("palette.title")}>
+            <button
+              type="button"
+              className="chip chip--icon app-chrome__palette-btn"
+              onClick={() => setCommandPaletteOpen(true)}
+              aria-label={t("palette.title")}
+            >
+              <Search size={13} />
+              <kbd className="app-chrome__hotkey">{desktopPlatform === "darwin" ? "⌘K" : "Ctrl+K"}</kbd>
+            </button>
+          </Tooltip>
+          <NotificationBell onClick={() => setNotificationCenterOpen(true)} />
         </header>
 
         <Sidebar
@@ -1471,7 +1686,19 @@ export default function App() {
           onExpand={sidebarExpandBlocked ? undefined : toggleSidebar}
           onNewSession={() => { cancel(); void startNewSession(); }}
           isRunning={state.running}
-          onNavigate={(page: string) => setNavPage(page)}
+          onNavigate={(page: string) => {
+            // "files" is rendered in the right workspace dock, not the main pane;
+            // "memory" lives in the settings centre (MemorySettingsPage) — both
+            // reuse existing implementations instead of dead navPage branches.
+            if (page === "files") {
+              openWorkspacePanel("files");
+            } else if (page === "memory") {
+              setSettingsTarget("memory");
+            } else {
+              setNavPage(page);
+            }
+          }}
+          activePage={navPage}
           activeScope={activeTab?.scope}
           activeWorkspaceRoot={activeTab?.workspaceRoot}
           activeTopicId={activeTab?.topicId}
@@ -1514,6 +1741,7 @@ export default function App() {
               onTabsClose={(ids, nextActiveTabId) => void handleTabsClose(ids, nextActiveTabId)}
               onTabsReorder={(ids) => void handleTabsReorder(ids)}
               onNewTab={() => void handleNewTab()}
+              onSaveRecipe={handleSaveRecipeFromTab}
             />
             {!workspacePanelMaximized && (
               <Tooltip
@@ -1581,6 +1809,19 @@ export default function App() {
             </div>
             <div className="topicbar__spacer" />
             <div className="topicbar__actions">
+              {navPage === "trace" && (
+                <Tooltip label={t("trace.splitViewHint")}>
+                  <button
+                    type="button"
+                    className={`trace-split-toggle${splitView ? " trace-split-toggle--on" : ""}`}
+                    onClick={() => setSplitView((v) => !v)}
+                    aria-pressed={splitView}
+                  >
+                    <Columns2 size={12} />
+                    <span>{t("trace.splitView")}</span>
+                  </button>
+                </Tooltip>
+              )}
               <CopyButton
                 getText={getSessionMarkdown}
                 label={t("topicBar.copyAll")}
@@ -1637,7 +1878,7 @@ export default function App() {
             </div>
           )}
 
-          <main className="main">
+          <main className={`main${navPage === "trace" && splitView ? " main--split" : ""}`}>
             {state.meta?.ready === false && !state.meta?.startupErr ? (
               <div className="loading-screen">
                 <div className="loading-screen__spinner" />
@@ -1652,25 +1893,66 @@ export default function App() {
               />
             ) : navPage === "calendar" || navPage === "todos" ? (
               <CalendarPanel tabId={activeTabId} onNavigate={setNavPage} />
+            ) : navPage === "dailyBrief" ? (
+              <DailyBriefPanel />
             ) : navPage === "scheduled" ? (
               <SchedulerPanel tabId={activeTabId} />
-            ) : navPage === "memory" ? (
-              <MemoryPanel
-                view={null}
-                onClose={() => setNavPage(null)}
-                onRemember={(_scope, _note) => { /* TODO: implement */ }}
-                onForget={(_name) => { /* TODO: implement */ }}
-                onSaveDoc={(_path, _body) => { /* TODO: implement */ }}
-              />
+            ) : navPage === "trace" ? (
+              splitView ? (
+                <>
+                  <div className="main--split__pane main--split__pane--transcript">
+                    {progressSteps.length > 0 && (
+                      <ProgressStepper steps={progressSteps} onStepClick={handleStepClick} />
+                    )}
+                    <Transcript
+                      ref={transcriptRef}
+                      items={deferredItems}
+                      live={state.live}
+                      footerHeight={footerHeight}
+                      onPrompt={send}
+                      onRewind={handleMessageAction}
+                      checkpoints={state.checkpoints}
+                      actionPending={state.messageAction != null}
+                      rewindDisabled={state.running || state.messageAction != null || state.approval != null || state.ask != null}
+                      onPreview={handleToolPreview}
+                      workspaceType={workspaceType}
+                    />
+                  </div>
+                  <div className="main--split__pane main--split__pane--trace">
+                    <AgentCanvas
+                      items={deferredItems}
+                      running={state.running}
+                      steps={state.steps}
+                      agents={state.agents}
+                      onRetryTool={handleRetryTool}
+                      onCloseAgent={handleCloseAgent}
+                    />
+                  </div>
+                </>
+              ) : (
+                <AgentCanvas
+                  items={deferredItems}
+                  running={state.running}
+                  steps={state.steps}
+                  agents={state.agents}
+                  onRetryTool={handleRetryTool}
+                  onCloseAgent={handleCloseAgent}
+                />
+              )
+            ) : navPage === "workflow" ? (
+              <WorkflowEditor />
+            ) : navPage === "terminal" ? (
+              <TerminalPanel cwd={state.meta?.cwd} />
             ) : (
               <>
                 {progressSteps.length > 0 && (
                   <ProgressStepper
                     steps={progressSteps}
-                    onStepClick={(_turnIndex) => { /* scroll to message — future enhancement */ }}
+                    onStepClick={handleStepClick}
                   />
                 )}
 	              <Transcript
+	                ref={transcriptRef}
 	                items={deferredItems}
 	                live={state.live}
 	                footerHeight={footerHeight}
@@ -1679,6 +1961,8 @@ export default function App() {
 	                checkpoints={state.checkpoints}
 	                actionPending={state.messageAction != null}
 	                rewindDisabled={state.running || state.messageAction != null || state.approval != null || state.ask != null}
+	                onPreview={handleToolPreview}
+	                workspaceType={workspaceType}
 	              />
               </>
             )}
@@ -1712,6 +1996,44 @@ export default function App() {
                 onDismiss={() => answerQuestion(state.ask!.id, [])}
               />
             )}
+            {state.autoLearn && (
+              <div className="auto-learn-card prompt-shelf" role="dialog" aria-label={t("autoLearn.title")}>
+                <div className="auto-learn-card__head">
+                  <span className="auto-learn-card__badge">
+                    {t(`autoLearn.${state.autoLearn.type}` as any)}
+                  </span>
+                  <span className="auto-learn-card__title">{t("autoLearn.title")}</span>
+                </div>
+                <div className="auto-learn-card__prompt">
+                  {t("autoLearn.prompt").replace("{file}", state.autoLearn.targetFile)}
+                </div>
+                <div className="auto-learn-card__content">
+                  <span className="auto-learn-card__content-label">{t("autoLearn.content")}</span>
+                  <code className="auto-learn-card__content-body">{state.autoLearn.content}</code>
+                </div>
+                <div className="auto-learn-card__actions">
+                  <button
+                    className="chip chip--primary"
+                    onClick={() => answerAutoLearn(state.autoLearn, true)}
+                  >
+                    {t("autoLearn.accept")}
+                  </button>
+                  <button
+                    className="chip"
+                    onClick={() => answerAutoLearn(state.autoLearn, false)}
+                  >
+                    {t("autoLearn.reject")}
+                  </button>
+                </div>
+              </div>
+            )}
+            <SaveRecipeModal
+              isOpen={saveRecipeOpen}
+              onClose={() => setSaveRecipeOpen(false)}
+              initialSkill={saveRecipeSkill}
+              initialParams={saveRecipeParams}
+              tabId={saveRecipeTabId}
+            />
             <Composer
               running={state.running}
               mode={mode}
@@ -1735,6 +2057,7 @@ export default function App() {
               turnTokens={state.turnTokens}
               retry={state.retry}
               workspaceRefreshSignal={projectRevision}
+              workspaceType={workspaceType}
             />
             <StatusBar
               context={state.context}
@@ -1905,13 +2228,13 @@ export default function App() {
             let prompt: string;
             if (tmpl.kind === "tmpl") {
               // Go text/template — must use render_template to substitute {{.key}} vars.
-              prompt = `请使用 render_template 工具渲染模板 ${tmpl.relPath}，向我收集需要的变量值后渲染，再将结果输出为最终文档格式`;
+              prompt = t("templates.applyTmpl", { path: tmpl.relPath });
             } else if (tmpl.kind === "md") {
               // Markdown template — may contain {{.key}} vars, try render_template first.
-              prompt = `请基于模板 ${tmpl.relPath} 生成文档：先用 render_template 读取并渲染该模板（如有 {{.变量}} 占位符请向我收集值），再输出为最终格式`;
+              prompt = t("templates.applyMd", { path: tmpl.relPath });
             } else {
               // txt/csv — read as reference content.
-              prompt = `请基于模板 ${tmpl.relPath} 生成文档：先读取该模板内容作为参考结构，再据此生成最终文档`;
+              prompt = t("templates.applyRef", { path: tmpl.relPath });
             }
             addWorkspaceTextToComposer(prompt);
             setTemplatesOpen(false);
@@ -1947,6 +2270,40 @@ export default function App() {
           loading={floatingLoading}
         />
       )}
+
+      {showOnboardingCelebration && (
+        <div className="onboarding-celebration">
+          <div className="onboarding-celebration__card">
+            <div className="onboarding-celebration__emoji">🎉</div>
+            <div className="onboarding-celebration__title">{t("onboarding.celebrationTitle")}</div>
+            <div className="onboarding-celebration__desc">{t("onboarding.celebrationDesc")}</div>
+            <button
+              className="onboarding-celebration__btn"
+              onClick={() => setShowOnboardingCelebration(false)}
+            >
+              {t("onboarding.celebrationContinue")}
+            </button>
+            <button
+              className="onboarding-celebration__link"
+              onClick={() => { setShowOnboardingCelebration(false); setTemplatesOpen(true); }}
+            >
+              {t("onboarding.celebrationSkills")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        items={commandPaletteItems}
+        placeholder={t("palette.placeholder")}
+        emptyText={t("palette.empty")}
+      />
+      <NotificationCenter
+        open={notificationCenterOpen}
+        onClose={() => setNotificationCenterOpen(false)}
+      />
     </div>
     </ShellExpandProvider>
   );

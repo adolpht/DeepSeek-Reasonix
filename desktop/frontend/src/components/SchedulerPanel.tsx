@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Clock, Pause, Pencil, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useT } from "../lib/i18n";
 import { app } from "../lib/bridge";
-import type { ScheduledTaskView } from "../lib/types";
+import type { RecipeView, ScheduledTaskView } from "../lib/types";
 
 interface SchedulerPanelProps {
   tabId?: string;
@@ -61,6 +61,7 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState<FormData>({ ...EMPTY_FORM });
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [recipes, setRecipes] = useState<RecipeView[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -72,9 +73,19 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
     }
   }, []);
 
+  const refreshRecipes = useCallback(async () => {
+    try {
+      const list = await app.ListRecipes();
+      setRecipes(list);
+    } catch {
+      // Recipes are optional; ignore errors
+    }
+  }, []);
+
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    refreshRecipes();
+  }, [refresh, refreshRecipes]);
 
   // Open the form for a new task.
   const handleAdd = () => {
@@ -245,6 +256,34 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
                 </button>
               ))}
             </div>
+
+            {recipes.length > 0 && (
+              <label className="scheduler-panel__label">
+                {t("scheduler.fromRecipe")}
+                <select
+                  className="scheduler-panel__input"
+                  value=""
+                  onChange={(e) => {
+                    const r = recipes.find((rec) => rec.name === e.target.value);
+                    if (r) {
+                      setForm((f) => ({
+                        ...f,
+                        name: f.name || r.name,
+                        skill: r.skill,
+                        parameters: r.params || "{}",
+                      }));
+                    }
+                  }}
+                >
+                  <option value="">{t("scheduler.selectRecipe")}</option>
+                  {recipes.map((r) => (
+                    <option key={r.name} value={r.name}>
+                      {r.name} — {r.description || r.skill}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <label className="scheduler-panel__label">
               {t("scheduler.skill")}

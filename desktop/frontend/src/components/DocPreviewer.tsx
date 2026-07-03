@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
-import { ExternalLink, FolderOpen, Download, Copy, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ExternalLink, FolderOpen, Download, Copy, Check } from "lucide-react";
 import { app } from "../lib/bridge";
 import { useT } from "../lib/i18n";
 import type { DocPreviewPage } from "../lib/types";
 import { Tooltip } from "./Tooltip";
 
-// DocPreviewer renders one agent-produced file inline. Images are shown in an
-// <img>; PDFs support multi-page navigation; everything else (docx/xlsx) is
-// surfaced as a download chip plus an "Open in default app" affordance.
+// DocPreviewer renders one agent-produced file inline.
+//   - Images (png/jpg/gif/svg/webp): inline <img>
+//   - PDF: inline <iframe> (browser's native PDF viewer handles pagination)
+//   - docx: inline <iframe> (backend parses docx → HTML served via media token)
+//   - everything else: download chip + "Open in default app" affordance
 //
 // `onExported?` is invoked after a successful ExportToWorkspace call so the
 // parent (e.g. ToolCard) can surface the saved path in the transcript.
@@ -30,38 +32,24 @@ export function DocPreviewer({
   const [exporting, setExporting] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // PDF multi-page state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(0);
-  const [pageCache, setPageCache] = useState<Map<number, string>>(new Map());
-
   const name = path.split(/[/\\]/).filter(Boolean).pop() ?? path;
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   const isImage = ["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext);
   const isPDF = ext === "pdf";
+  const isDocx = ext === "docx";
+  const isInlineFrame = isPDF || isDocx; // both render in an <iframe>
 
   useEffect(() => {
     let cancelled = false;
     setPages(null);
     setErr(null);
-    setCurrentPage(1);
-    setTotalPages(0);
-    setPageCache(new Map());
     if (!path.trim()) {
       setErr(t("docPreview.unsupported"));
       return;
     }
     app.RenderDocPreview(path, 1)
       .then((p) => {
-        if (!cancelled) {
-          setPages(p);
-          if (p.length > 0) {
-            setTotalPages(p[0].total);
-            if (isPDF && p[0].url) {
-              setPageCache(new Map([[1, p[0].url]]));
-            }
-          }
-        }
+        if (!cancelled) setPages(p);
       })
       .catch((e: unknown) => {
         if (!cancelled) setErr(String(e ?? t("docPreview.unsupported")));
@@ -69,32 +57,7 @@ export function DocPreviewer({
     return () => {
       cancelled = true;
     };
-  }, [path, t, isPDF]);
-
-  // Fetch a specific PDF page (with caching)
-  const fetchPage = useCallback(async (page: number) => {
-    if (pageCache.has(page)) return;
-    try {
-      const result = await app.RenderDocPreview(path, page);
-      if (result.length > 0 && result[0].url) {
-        setPageCache((prev) => new Map(prev).set(page, result[0].url));
-      }
-    } catch {
-      // ignore — the cached page will remain unavailable
-    }
-  }, [path, pageCache]);
-
-  useEffect(() => {
-    if (isPDF && totalPages > 0) {
-      void fetchPage(currentPage);
-    }
-  }, [currentPage, isPDF, totalPages, fetchPage]);
-
-  const goToPage = (page: number) => {
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    }
-  };
+  }, [path, t]);
 
   const copyPath = async () => {
     try {
@@ -119,7 +82,7 @@ export function DocPreviewer({
     }
   };
 
-  const currentUrl = isPDF ? pageCache.get(currentPage) : pages?.[0]?.url;
+  const previewUrl = pages?.[0]?.url;
 
   return (
     <div className={`docpreview${compact ? " docpreview--compact" : ""}`}>
@@ -192,45 +155,19 @@ export function DocPreviewer({
         {!err && pages && pages.length === 0 && (
           <div className="docpreview__empty">{t("docPreview.unsupported")}</div>
         )}
-        {!err && pages && pages.length > 0 && isImage && (
+        {!err && pages && pages.length > 0 && isImage && previewUrl && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img className="docpreview__img" src={pages[0].url} alt={name} />
+          <img className="docpreview__img" src={previewUrl} alt={name} />
         )}
-        {!err && pages && pages.length > 0 && isPDF && (
-          <div className="docpreview__pdf">
-            {currentUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img className="docpreview__pdf-page" src={currentUrl} alt={`${name} - ${t("docPreview.pageOf", { page: currentPage, total: totalPages })}`} />
-            ) : (
-              <div className="docpreview__loading">{t("common.loading")}</div>
-            )}
-            {totalPages > 1 && (
-              <div className="docpreview__pager">
-                <button
-                  className="docpreview__page-btn"
-                  onClick={() => goToPage(currentPage - 1)}
-                  disabled={currentPage <= 1}
-                  aria-label={t("docPreview.previousPage")}
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <span className="docpreview__page-indicator">
-                  {t("docPreview.pageOf", { page: currentPage, total: totalPages })}
-                </span>
-                <button
-                  className="docpreview__page-btn"
-                  onClick={() => goToPage(currentPage + 1)}
-                  disabled={currentPage >= totalPages}
-                  aria-label={t("docPreview.nextPage")}
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-            )}
-          </div>
+        {!err && pages && pages.length > 0 && isInlineFrame && previewUrl && (
+          <iframe
+            className="docpreview__iframe"
+            src={previewUrl}
+            title={name}
+          />
         )}
-        {!err && pages && pages.length > 0 && !isImage && !isPDF && (
-          <a className="docpreview__download" href={pages[0].url} download={name}>
+        {!err && pages && pages.length > 0 && !isImage && !isInlineFrame && previewUrl && (
+          <a className="docpreview__download" href={previewUrl} download={name}>
             <Download size={16} />
             <span>{name}</span>
           </a>

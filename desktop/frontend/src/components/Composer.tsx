@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ClipboardEvent, DragEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { AlertTriangle, ArrowUp, Check, ChevronDown, Eye, FileText, Folder, FolderGit2, FolderPlus, List, Paperclip, Search, Square, Trash2, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowUp, Check, ChevronDown, Eye, FileText, Folder, FolderGit2, FolderPlus, List, Loader2, Mic, Paperclip, Search, Square, Trash2, X, Zap } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app, onFilesDropped } from "../lib/bridge";
 import { SPINNER_WORDS, useI18n } from "../lib/i18n";
 import { clearLayoutSize, loadOptionalLayoutSize, saveLayoutSize } from "../lib/layoutPreferences";
-import type { CommandInfo, ComposerInsertRequest, DirEntry, EffortInfo, Mode, SlashArgItem, SlashArgsResult, WorkspaceView } from "../lib/types";
+import type { CommandInfo, ComposerInsertRequest, DirEntry, EffortInfo, Mode, SlashArgItem, SlashArgsResult, WorkspaceType, WorkspaceView } from "../lib/types";
 import {
   formatWorkspaceReference,
   parseWorkspaceReference,
@@ -70,6 +70,17 @@ function baseName(path: string): string {
 
 function workspaceReferenceKey(ref: WorkspaceReference): string {
   return `${ref.isDir ? "dir" : "file"}:${ref.path}`;
+}
+
+// A clean "/skill <name>" command (single token, no extra args/newlines) is
+// shown as a chip instead of plain text — improves scannability in office and
+// assistant modes where skill quick actions are the primary entry point.
+// Multi-line skill payloads (e.g. the floating clipboard window) and hand-typed
+// commands are NOT matched: they keep flowing through plain text insertion so
+// their trailing arguments are preserved.
+function parseSkillCommand(text: string): string | null {
+  const match = /^\/skill\s+(\S+)$/.exec(text.trim());
+  return match ? match[1] : null;
 }
 
 function composerMaxHeight(): number {
@@ -150,6 +161,7 @@ export function Composer({
   turnTokens,
   retry,
   workspaceRefreshSignal,
+  workspaceType,
 }: {
   running: boolean;
   mode: Mode;
@@ -178,12 +190,17 @@ export function Composer({
   turnTokens?: number;
   retry?: { attempt: number; max: number };
   workspaceRefreshSignal?: number;
+  workspaceType?: WorkspaceType;
 }) {
   const { t, locale } = useI18n();
   const now = useTick(running);
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [workspaceRefs, setWorkspaceRefs] = useState<WorkspaceReference[]>([]);
+  // Skill activations (from quick actions / suggested skills / sidebar) render
+  // as chips rather than "/skill name" plain text; resolved to a leading
+  // command on submit, mirroring the workspaceRefs chip pattern.
+  const [skillRefs, setSkillRefs] = useState<string[]>([]);
   const [pastedBlocks, setPastedBlocks] = useState<PastedBlock[]>([]);
   const [openPastedLabels, setOpenPastedLabels] = useState<string[]>([]);
   const [pendingPaste, setPendingPaste] = useState(0);
@@ -206,6 +223,13 @@ export function Composer({
   const [composerResizing, setComposerResizing] = useState(false);
   const [textareaAutoHeight, setTextareaAutoHeight] = useState<number | null>(null);
   const [textareaAutoOverflow, setTextareaAutoOverflow] = useState(false);
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const silenceTimerRef = useRef<number | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const composerCardRef = useRef<HTMLDivElement>(null);
   const workspaceAnchorRef = useRef<HTMLDivElement>(null);
@@ -225,6 +249,87 @@ export function Composer({
     wasRunning.current = running;
   }, [running, text]);
 
+  // --- voice input ---
+  useEffect(() => {
+    app.VoiceInputAvailable().then(setVoiceAvailable).catch(() => setVoiceAvailable(false));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.runtime) return;
+    return window.runtime.EventsOn("voice-hotkey", () => {
+      toggleVoiceRecording();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceAvailable, isRecording]);
+
+  const stopRecording = useCallback(async () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      setIsRecording(false);
+      return;
+    }
+    recorder.stop();
+    if (silenceTimerRef.current != null) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        setIsRecording(false);
+        if (blob.size === 0) return;
+        setIsTranscribing(true);
+        try {
+          const buf = await blob.arrayBuffer();
+          const text_result = await app.TranscribeAudio(new Uint8Array(buf));
+          if (text_result) {
+            setText((prev) => (prev ? prev + " " + text_result : text_result));
+            taRef.current?.focus();
+          }
+        } catch {
+          // TranscribeAudio error — best-effort, no blocking toast
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      // Auto-stop after 30s as a safety net
+      silenceTimerRef.current = window.setTimeout(() => {
+        stopRecording();
+      }, 30000);
+    } catch {
+      // getUserMedia denied or unavailable — silently ignore
+      setIsRecording(false);
+    }
+  }, [stopRecording]);
+
+  const toggleVoiceRecording = useCallback(() => {
+    if (!voiceAvailable) {
+      // Fallback: whisper not installed — show an inline notice for 4 seconds.
+      setVoiceNotice(t("composer.voiceNotAvailable"));
+      window.setTimeout(() => setVoiceNotice(null), 4000);
+      return;
+    }
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceAvailable, isRecording, startRecording, stopRecording]);
+
   // --- slash commands (whole-input "/token") ---
   const [commands, setCommands] = useState<CommandInfo[]>([]);
   useEffect(() => {
@@ -235,10 +340,26 @@ export function Composer({
     if (!text.startsWith("/") || /\s/.test(text)) return null;
     return text.slice(1).toLowerCase();
   }, [text]);
-  const slashMatches = useMemo(
-    () => (slashQuery === null ? [] : commands.filter((c) => c.name.toLowerCase().includes(slashQuery)).slice(0, 8)),
-    [slashQuery, commands],
-  );
+  // Mode-priority skill ordering: skills matching the current workspaceType
+  // are sorted to the top so they appear first in the slash menu.
+  const MODE_SKILLS: Record<string, string[]> = {
+    coding: ["explore", "review", "generate-tests", "review-pr"],
+    office: ["weekly-report", "sheet-analysis", "meeting-minutes", "contract-draft"],
+    assistant: ["daily-brief", "research-report", "generate-ppt", "sheet-analysis"],
+  };
+  const slashMatches = useMemo(() => {
+    if (slashQuery === null) return [];
+    const filtered = commands.filter((c) => c.name.toLowerCase().includes(slashQuery));
+    const priority = MODE_SKILLS[workspaceType ?? "coding"] ?? [];
+    filtered.sort((a, b) => {
+      const ai = priority.indexOf(a.name);
+      const bi = priority.indexOf(b.name);
+      const ao = ai === -1 ? 99 : ai;
+      const bo = bi === -1 ? 99 : bi;
+      return ao - bo;
+    });
+    return filtered.slice(0, 8);
+  }, [slashQuery, commands, workspaceType]);
 
   // --- slash argument completion ("/cmd <args>") --- mirrors the CLI: once past
   // the command word, the backend suggests sub-commands (/skill → list/show/…,
@@ -438,6 +559,12 @@ export function Composer({
   useEffect(() => {
     if (!insertRequest || insertRequest.id === consumedInsertIdRef.current) return;
     consumedInsertIdRef.current = insertRequest.id;
+    const skillName = parseSkillCommand(insertRequest.text);
+    if (skillName) {
+      setSkillRefs((prev) => (prev.includes(skillName) ? prev : [...prev, skillName]));
+      requestAnimationFrame(() => taRef.current?.focus());
+      return;
+    }
     const ref = parseWorkspaceReference(insertRequest.text);
     if (ref) {
       addWorkspaceReference(ref);
@@ -459,17 +586,21 @@ export function Composer({
   const submit = () => {
     if (disabled) return;
     const t = text.trim();
-    if ((!t && attachments.length === 0 && workspaceRefs.length === 0) || pendingPaste > 0) return;
+    if ((!t && attachments.length === 0 && workspaceRefs.length === 0 && skillRefs.length === 0) || pendingPaste > 0) return;
+    // Skill commands are leading commands, so they go first; file references
+    // trail the user's text — same ordering as before, just with skills prepended.
+    const skillCmds = skillRefs.map((n) => `/skill ${n}`).join(" ");
     const refs = [
       ...workspaceRefs.map((ref) => formatWorkspaceReference(ref.path, ref.isDir)),
       ...attachments.map((a) => `@${a.path}`),
     ].join(" ");
-    const displayText = [t, refs].filter(Boolean).join(t && refs ? " " : "");
-    const submitText = [expandPastedBlocks(t), refs].filter(Boolean).join(t && refs ? " " : "");
+    const displayText = [skillCmds, t, refs].filter(Boolean).join(" ");
+    const submitText = [skillCmds, expandPastedBlocks(t), refs].filter(Boolean).join(" ");
     onSend(displayText, submitText);
     setText("");
     setAttachments([]);
     setWorkspaceRefs([]);
+    setSkillRefs([]);
   };
 
   const readFileAsDataURL = (file: File) =>
@@ -685,6 +816,11 @@ export function Composer({
   const removeWorkspaceReference = (target: WorkspaceReference) => {
     const key = workspaceReferenceKey(target);
     setWorkspaceRefs((prev) => prev.filter((ref) => workspaceReferenceKey(ref) !== key));
+    requestAnimationFrame(() => taRef.current?.focus());
+  };
+
+  const removeSkillReference = (name: string) => {
+    setSkillRefs((prev) => prev.filter((n) => n !== name));
     requestAnimationFrame(() => taRef.current?.focus());
   };
 
@@ -1072,8 +1208,29 @@ export function Composer({
           </div>
         )}
       </div>
-      {(attachments.length > 0 || workspaceRefs.length > 0) && (
+      {(attachments.length > 0 || workspaceRefs.length > 0 || skillRefs.length > 0) && (
         <div className="composer-context" aria-label={t("composer.contextItems")}>
+          {skillRefs.map((name) => (
+            <div
+              className="composer-context__item composer-context__item--skill"
+              key={`skill:${name}`}
+            >
+              <Tooltip label={`/skill ${name}`}>
+                <span className="composer-context__label">
+                  <Zap size={15} />
+                  <span>{name}</span>
+                </span>
+              </Tooltip>
+              <Tooltip label={t("composer.removeSkill")}>
+                <button
+                  type="button"
+                  onClick={() => removeSkillReference(name)}
+                >
+                  <X size={13} />
+                </button>
+              </Tooltip>
+            </div>
+          ))}
           {attachments.map((a) => (
             <div
               className={`composer-context__item${a.previewUrl ? " composer-context__item--image" : " composer-context__item--attachment"}`}
@@ -1189,6 +1346,27 @@ export function Composer({
           >
             <Paperclip size={16} />
           </button>
+          <button
+            className={`composer__btn composer__btn--voice${isRecording ? " composer__btn--voice-rec" : ""}`}
+            type="button"
+            onClick={toggleVoiceRecording}
+            disabled={disabled || isTranscribing}
+            title={t("composer.voiceInput")}
+            aria-label={t("composer.voiceInput")}
+          >
+            {isTranscribing ? <Loader2 size={16} className="composer__voice-spin" /> : <Mic size={16} />}
+          </button>
+          {isRecording && (
+            <span className="composer__voice-indicator" title={t("composer.voiceRecording")}>
+              <span className="composer__voice-dot" />
+              <span className="composer__voice-wave" />
+              <span className="composer__voice-wave" />
+              <span className="composer__voice-wave" />
+            </span>
+          )}
+          {voiceNotice && (
+            <span className="composer__voice-notice">{voiceNotice}</span>
+          )}
           <textarea
             ref={taRef}
             className="composer__input"
@@ -1208,7 +1386,7 @@ export function Composer({
               lastCompositionEndAt.current = Date.now();
             }}
             style={textareaStyle}
-            placeholder={disabled ? t("common.loading") : t("composer.placeholder")}
+            placeholder={disabled ? t("common.loading") : t((workspaceType ? `composer.placeholder.${workspaceType}` : "composer.placeholder") as any)}
             rows={1}
             disabled={disabled}
           />
@@ -1217,7 +1395,7 @@ export function Composer({
               <button
                 className="composer__btn composer__btn--send"
                 onClick={submit}
-                disabled={pendingPaste > 0 || (!text.trim() && attachments.length === 0 && workspaceRefs.length === 0) || disabled}
+                disabled={pendingPaste > 0 || (!text.trim() && attachments.length === 0 && workspaceRefs.length === 0 && skillRefs.length === 0) || disabled}
               >
                 <ArrowUp size={16} />
               </button>

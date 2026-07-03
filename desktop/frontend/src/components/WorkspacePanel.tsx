@@ -130,7 +130,7 @@ function renderMediaPreview(preview: FilePreview): JSX.Element | null {
       </div>
     );
   }
-  if (preview.kind === "pdf") {
+  if (preview.kind === "pdf" || preview.kind === "docx" || preview.kind === "xlsx" || preview.kind === "csv") {
     return (
       <iframe
         className="workspace-media workspace-media--pdf"

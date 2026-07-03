@@ -1,6 +1,6 @@
-import { createContext, memo, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, forwardRef, memo, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { Item, LiveStream } from "../lib/useController";
-import type { CheckpointMeta } from "../lib/types";
+import type { CheckpointMeta, WorkspaceType } from "../lib/types";
 import { useT } from "../lib/i18n";
 import { AssistantMessage, TurnActions, UserMessage } from "./Message";
 import { ProcessCard, ProcessCompactIcon, ProcessInfoIcon, ProcessPhaseIcon, ProcessStatusIcon } from "./ProcessCard";
@@ -140,17 +140,12 @@ function buildTurnGroups(items: Item[], questions: QuestionAnchor[]): TurnGroup[
 
 // ── Transcript component ──────────────────────────────────────────────────────
 
-export function Transcript({
-  items,
-  live,
-  footerHeight = 0,
-  onPrompt,
-  onRewind,
-  checkpoints = [],
-  actionPending = false,
-  rewindDisabled = false,
-  questionNavigator = true,
-}: {
+export interface TranscriptHandle {
+  /** Scroll to the user message for a 1-based turnIndex (controller counter). */
+  scrollToTurn(turnIndex: number): void;
+}
+
+export interface TranscriptProps {
   items: Item[];
   live?: LiveStream;
   footerHeight?: number;
@@ -160,7 +155,23 @@ export function Transcript({
   actionPending?: boolean;
   rewindDisabled?: boolean;
   questionNavigator?: boolean;
-}) {
+  onPreview?: (path: string, kind: string) => void;
+  workspaceType?: WorkspaceType;
+}
+
+export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript({
+  items,
+  live,
+  footerHeight = 0,
+  onPrompt,
+  onRewind,
+  checkpoints = [],
+  actionPending = false,
+  rewindDisabled = false,
+  questionNavigator = true,
+  onPreview,
+  workspaceType = "coding",
+}, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const resizeFrame = useRef<number | null>(null);
@@ -178,6 +189,41 @@ export function Transcript({
     return anchors;
   }, [items]);
   const showQuestionNav = questionNavigator && questions.length >= QUESTION_NAV_MIN_COUNT;
+
+  // Expose scrollToTurn to the parent so ProgressStepper can jump to the user
+  // message of a given turn. The controller's turn counter is 1-based per
+  // submit; the questions array is 0-based, so turnIndex-1 selects the row.
+  // After scrolling, the target message gets a `--highlight` class that
+  // triggers a one-shot CSS flash animation.
+  useImperativeHandle(ref, () => ({
+    scrollToTurn(turnIndex: number) {
+      const idx = Math.min(Math.max(0, turnIndex - 1), questions.length - 1);
+      const target = questions[idx];
+      if (!target) return;
+      const node = document.getElementById(questionAnchorId(target.id));
+      if (!node) return;
+      stick.current = false;
+      if (resizeFrame.current !== null) {
+        cancelAnimationFrame(resizeFrame.current);
+        resizeFrame.current = null;
+      }
+      const scroller = scrollRef.current;
+      if (scroller) {
+        const scrollerRect = scroller.getBoundingClientRect();
+        const nodeRect = node.getBoundingClientRect();
+        const top = scroller.scrollTop + nodeRect.top - scrollerRect.top - 12;
+        scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      } else {
+        node.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      // Flash the target message once to confirm the jump target.
+      node.classList.remove("msg--user-highlight");
+      // Force reflow so the animation restarts on repeated clicks.
+      void node.offsetWidth;
+      node.classList.add("msg--user-highlight");
+      window.setTimeout(() => node.classList.remove("msg--user-highlight"), 1600);
+    },
+  }), [questions]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -384,9 +430,11 @@ export function Transcript({
           break;
         case "tool":
           if (it.parentId) break;
-          if (it.name === "todo_write") break;
-          if (it.name === "exit_plan_mode") break;
-          out.push(<ToolCard key={it.id} item={it} subcalls={subcallsByParent.get(it.id)} />);
+          if (it.name === "todo_write" || it.name === "exit_plan_mode") {
+            out.push(<ToolCard key={it.id} item={it} subcalls={subcallsByParent.get(it.id)} onPreview={onPreview} className="tool--plan-internal" />);
+          } else {
+            out.push(<ToolCard key={it.id} item={it} subcalls={subcallsByParent.get(it.id)} onPreview={onPreview} />);
+          }
           break;
         case "phase": out.push(<PhaseCard key={it.id} text={it.text} />); break;
         case "notice": out.push(<NoticeCard key={it.id} level={it.level} text={it.text} />); break;
@@ -407,7 +455,7 @@ export function Transcript({
       ref={scrollRef}
       onScroll={onScroll}
     >
-      {empty && <Welcome onPrompt={onPrompt} />}
+      {empty && <Welcome onPrompt={onPrompt} workspaceType={workspaceType} />}
 
       {!empty && showQuestionNav && (
         <QuestionJumpBar questions={questions} onJump={handleJumpToQuestion} />
@@ -438,13 +486,14 @@ export function Transcript({
                 return next;
               });
             }}
+            onPreview={onPreview}
           />
         )}
         {hotZoneNodes}
       </LiveStreamContext.Provider>
     </div>
   );
-}
+});
 
 // ── WarmZone sub-component (React.memo for streaming isolation) ────────────
 // Receives structural props only; reads streaming state (items, live) via refs
@@ -467,6 +516,7 @@ const WarmZone = memo(function WarmZone({
   warmSetOpenAction,
   onToggleColdPage,
   onToggleWarmTurn,
+  onPreview,
 }: {
   turnGroups: TurnGroup[];
   expandedWarmTurns: ReadonlySet<number>;
@@ -484,6 +534,7 @@ const WarmZone = memo(function WarmZone({
   warmSetOpenAction: (action: OpenTurnAction | null) => void;
   onToggleColdPage: () => void;
   onToggleWarmTurn: (g: number, expand: boolean) => void;
+  onPreview?: (path: string, kind: string) => void;
 }) {
   const t = useT();
   const out: React.ReactNode[] = [];
@@ -536,6 +587,7 @@ const WarmZone = memo(function WarmZone({
               rewindDisabled={warmRewindDisabled}
               onRewind={warmOnRewind}
               setOpenAction={warmSetOpenAction}
+              onPreview={onPreview}
             />
           </WarmTurnCard>,
         );
@@ -579,6 +631,7 @@ function WarmTurnItems({
   rewindDisabled,
   onRewind,
   setOpenAction,
+  onPreview,
 }: {
   startIdx: number;
   endIdx: number;
@@ -591,6 +644,7 @@ function WarmTurnItems({
   rewindDisabled: boolean;
   onRewind: ((turn: number, scope: string) => void) | undefined;
   setOpenAction: (action: OpenTurnAction | null) => void;
+  onPreview?: (path: string, kind: string) => void;
 }) {
   const nodes: React.ReactNode[] = [];
   let actionText = "";
@@ -644,7 +698,7 @@ function WarmTurnItems({
         if (it.parentId) break;
         if (it.name === "todo_write") break;
         if (it.name === "exit_plan_mode") break;
-        nodes.push(<ToolCard key={it.id} item={it} subcalls={subcalls.get(it.id)} />);
+        nodes.push(<ToolCard key={it.id} item={it} subcalls={subcalls.get(it.id)} onPreview={onPreview} />);
         break;
       }
       case "phase": nodes.push(<PhaseCard key={it.id} text={it.text} />); break;
@@ -878,7 +932,7 @@ function CompactionCard({ item }: { item: CompactionItem }) {
   }
   return (
     <ProcessCard
-      tone="accent"
+      tone="warning"
       icon={<ProcessCompactIcon size={12} />}
       kind="context"
       name={t("compaction.title")}

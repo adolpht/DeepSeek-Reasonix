@@ -12,13 +12,13 @@ function JobsChip({ jobs }: { jobs: JobView[] }) {
   const [open, setOpen] = useState(false);
   if (jobs.length === 0) {
     return (
-      <span className="statusbar__item">
+      <span className="statusbar__item statusbar__item--p3">
         {t("status.jobsCount", { n: 0 })}
       </span>
     );
   }
   return (
-    <div className="statusbar__jobswrap">
+    <div className="statusbar__jobswrap statusbar__item--p3">
       <Tooltip label={t("status.jobsTitle")}>
         <button className="statusbar__item statusbar__jobs" onClick={() => setOpen((v) => !v)}>
           {t("status.jobsCount", { n: jobs.length })}
@@ -109,30 +109,30 @@ export function StatusBar({
 
   return (
     <div className="statusbar">
-      <span className={`statusbar__dot ${running ? "statusbar__dot--busy" : ""}`} />
-      <span className="statusbar__item statusbar__ctx">{pct !== null ? t("status.ctx", { pct }) : t("status.ctxUnknown")}</span>
-      <span className="statusbar__sep">·</span>
-      <span className="statusbar__item statusbar__compact">{compactPct !== null ? t("status.compact", { pct: compactPct }) : t("status.compactUnknown")}</span>
-      <span className="statusbar__sep">·</span>
-      <span className="statusbar__item statusbar__cache">{t("status.cache", { pct: nowPct ?? "-" })}</span>
-      <span className="statusbar__sep">·</span>
-      <span className="statusbar__item statusbar__avg">{t("status.cacheAvg", { pct: avgPct ?? "-" })}</span>
-      <span className="statusbar__sep">·</span>
-      <Tooltip label={t("status.spendTitle")}>
+      <span className={`statusbar__dot statusbar__item--p1 ${running ? "statusbar__dot--busy" : ""}`} />
+      <span className="statusbar__item statusbar__ctx statusbar__item--p1">{pct !== null ? t("status.ctx", { pct }) : t("status.ctxUnknown")}</span>
+      <span className="statusbar__sep statusbar__item--p5">·</span>
+      <span className="statusbar__item statusbar__compact statusbar__item--p5">{compactPct !== null ? t("status.compact", { pct: compactPct }) : t("status.compactUnknown")}</span>
+      <span className="statusbar__sep statusbar__item--p6">·</span>
+      <span className="statusbar__item statusbar__cache statusbar__item--p6">{t("status.cache", { pct: nowPct ?? "-" })}</span>
+      <span className="statusbar__sep statusbar__item--p7">·</span>
+      <span className="statusbar__item statusbar__avg statusbar__item--p7">{t("status.cacheAvg", { pct: avgPct ?? "-" })}</span>
+      <span className="statusbar__sep statusbar__item--p2">·</span>
+      <Tooltip label={t("status.spendTitle")} className="statusbar__item--p2">
         <span className="statusbar__item statusbar__cost">
           {t("status.cost", { amount: costLabel })}
         </span>
       </Tooltip>
-      <span className="statusbar__sep">·</span>
+      <span className="statusbar__sep statusbar__item--p3">·</span>
       <JobsChip jobs={jobsList} />
-      <span className="statusbar__sep">·</span>
-      <Tooltip label={t("status.balanceTitle")}>
+      <span className="statusbar__sep statusbar__item--p4">·</span>
+      <Tooltip label={t("status.balanceTitle")} className="statusbar__item--p4">
         <span className="statusbar__item statusbar__balance">
           {t("status.balance", { amount: balance?.available && balance.display ? balance.display : "-" })}
         </span>
       </Tooltip>
       <span className="statusbar__spacer" />
-      {mode === "plan" && <span className="statusbar__plan">{t("status.plan")}</span>}
+      {mode === "plan" && <span className="statusbar__plan statusbar__item--p8">{t("status.plan")}</span>}
     </div>
   );
 }

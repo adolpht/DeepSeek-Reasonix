@@ -222,6 +222,83 @@ func (s *SQLiteStore) DeleteThread(ctx context.Context, id string) error {
 	return err
 }
 
+// writeStructuredTurnsItems projects msgs into the turns/items tables for
+// offline execution-flow tracing. A new turn begins at each user message after
+// the first; assistant and tool messages accumulate into the current turn.
+// turn_num starts at startTurn and increments per user turn. The messages blob
+// remains the runtime source of truth — this projection serves offline analysis
+// (replay, per-turn inspection). provider.Message carries no tool_error or
+// duration, so those columns stay empty here.
+func writeStructuredTurnsItems(ctx context.Context, tx *sql.Tx, threadID string, msgs []provider.Message, startTurn int) error {
+	turnNum := startTurn
+	turnID := 0
+	turnInserted := false
+	itemOrder := 0
+	now := time.Now().UTC()
+
+	ensureTurn := func() error {
+		if turnInserted {
+			return nil
+		}
+		res, err := tx.ExecContext(ctx,
+			`INSERT INTO turns (thread_id, turn_num, created_at) VALUES (?, ?, ?)`,
+			threadID, turnNum, now)
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		turnID = int(id)
+		turnInserted = true
+		itemOrder = 0
+		return nil
+	}
+
+	addItem := func(kind, content, toolName, toolArgs, toolOutput, reasoning string) error {
+		if err := ensureTurn(); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO items (turn_id, item_order, kind, content, tool_name, tool_args, tool_output, tool_error, reasoning, duration_ms, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, NULL, ?)`,
+			turnID, itemOrder, kind, content, toolName, toolArgs, toolOutput, reasoning, now)
+		if err != nil {
+			return err
+		}
+		itemOrder++
+		return nil
+	}
+
+	for _, m := range msgs {
+		switch m.Role {
+		case provider.RoleUser:
+			if turnInserted {
+				turnNum++
+				turnInserted = false
+			}
+			if err := addItem("user", m.Content, "", "", "", ""); err != nil {
+				return err
+			}
+		case provider.RoleAssistant:
+			if err := addItem("assistant", m.Content, "", "", "", m.ReasoningContent); err != nil {
+				return err
+			}
+			for _, tc := range m.ToolCalls {
+				if err := addItem("tool_call", "", tc.Name, tc.Arguments, "", ""); err != nil {
+					return err
+				}
+			}
+		case provider.RoleTool:
+			if err := addItem("tool_result", m.Content, m.Name, "", m.Content, ""); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // AppendMessages appends messages to the existing message list for a thread.
 func (s *SQLiteStore) AppendMessages(ctx context.Context, threadID string, msgs []provider.Message) error {
 	if len(msgs) == 0 {
@@ -265,6 +342,16 @@ func (s *SQLiteStore) AppendMessages(ctx context.Context, threadID string, msgs 
 		return err
 	}
 
+	// Project the appended messages into structured turns/items for offline
+	// tracing. turn_num continues from the highest existing turn for this thread.
+	var maxTurn int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(turn_num),0) FROM turns WHERE thread_id=?`, threadID).Scan(&maxTurn); err != nil {
+		return err
+	}
+	if err := writeStructuredTurnsItems(ctx, tx, threadID, msgs, maxTurn+1); err != nil {
+		return err
+	}
+
 	return tx.Commit()
 }
 
@@ -291,17 +378,30 @@ func (s *SQLiteStore) ReplaceMessages(ctx context.Context, threadID string, msgs
 		return fmt.Errorf("marshal messages: %w", err)
 	}
 	now := time.Now().UTC()
-	if _, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO messages (thread_id, data, updated_at) VALUES (?, ?, ?)
 		 ON CONFLICT(thread_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at`,
 		threadID, string(data), now,
 	); err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `UPDATE threads SET updated_at=? WHERE id=?`, now, threadID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE threads SET updated_at=? WHERE id=?`, now, threadID); err != nil {
 		return err
 	}
-	return nil
+	// Rebuild structured turns/items from the new list. Deleting turns cascades
+	// to items (FK ON DELETE CASCADE), so the projection is rebuilt wholesale.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM turns WHERE thread_id=?`, threadID); err != nil {
+		return err
+	}
+	if err := writeStructuredTurnsItems(ctx, tx, threadID, msgs, 1); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SaveArchive stores a compaction archive.

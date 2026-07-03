@@ -128,6 +128,10 @@ func (s *tabEventSink) Emit(e event.Event) {
 	if e.Kind == event.ToolResult && e.Tool.Name == "read_file" && e.Tool.Err == "" {
 		s.recordReadTelemetry(e)
 	}
+	// Trigger event-based recipes when a mail tool returns results.
+	if e.Kind == event.ToolResult && e.Tool.Err == "" && s.app != nil {
+		s.maybeTriggerEventRecipes(e)
+	}
 	// Persist after each turn so a force-kill loses at most the in-flight prompt.
 	if e.Kind == event.TurnDone && s.app != nil {
 		s.app.scheduleTabSnapshot(s.tabID)
@@ -197,6 +201,59 @@ func (s *tabEventSink) recordReadTelemetry(e event.Event) {
 	}
 	if sp := ctrl.SessionPath(); sp != "" {
 		_ = saveTelemetry(sp+".telemetry.json", tab.readTelemetrySnapshot())
+	}
+}
+
+// maybeTriggerEventRecipes inspects tool results from mail plugins and, if any
+// event-triggered recipes match, fires them via App.TriggerEventRecipes.
+func (s *tabEventSink) maybeTriggerEventRecipes(e event.Event) {
+	toolName := e.Tool.Name
+	// Only react to mail-related MCP tools.
+	if !strings.HasPrefix(toolName, "mcp__mail__") {
+		return
+	}
+	// Determine event type from tool name.
+	eventType := "mail_received"
+	if strings.Contains(toolName, "send_mail") {
+		eventType = "mail_sent"
+	} else if strings.Contains(toolName, "search_mail") {
+		eventType = "mail_searched"
+	} else if strings.Contains(toolName, "classify_mail") {
+		eventType = "mail_classified"
+	}
+
+	// Extract context from tool output for rule matching.
+	// Mail output is plain text; extract sender/subject heuristically.
+	context := map[string]string{
+		"tool": toolName,
+	}
+	output := e.Tool.Output
+	// Best-effort extraction of sender and subject from output text.
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, "From:"); ok && context["sender"] == "" {
+			context["sender"] = strings.TrimSpace(after)
+		}
+		if after, ok := strings.CutPrefix(line, "Subject:"); ok && context["subject"] == "" {
+			context["subject"] = strings.TrimSpace(after)
+		}
+	}
+	// Also include the full output as "body" for broader matching.
+	if len(output) > 2000 {
+		context["body"] = output[:2000]
+	} else {
+		context["body"] = output
+	}
+
+	triggered, err := s.app.TriggerEventRecipes(eventType, context)
+	if err != nil || len(triggered) == 0 {
+		return
+	}
+	// Send system notification for each triggered recipe.
+	for _, name := range triggered {
+		if s.app.tray != nil {
+			s.app.tray.Notify("事件触发 Recipe", "Recipe \""+name+"\" 已自动执行")
+		}
 	}
 }
 

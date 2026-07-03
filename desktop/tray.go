@@ -103,6 +103,14 @@ func (a *App) quitFromTray() {
 	a.quitApp()
 }
 
+// Notify sends a desktop notification using platform-specific mechanism.
+// This is a placeholder that can be extended with native notify integrations.
+func (t *desktopTray) Notify(title, body string) {
+	// Platform-specific implementations should be added in tray_notify_*.go files.
+	// For now, rely on frontend EventsEmit for UI notifications.
+	notifyPlatform(title, body)
+}
+
 type trayLabels struct {
 	openTitle   string
 	openTooltip string

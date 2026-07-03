@@ -15,12 +15,15 @@ require (
 	aead.dev/minisign v0.3.0
 	fyne.io/systray v1.12.1
 	github.com/atotto/clipboard v0.1.4
+	github.com/creack/pty v1.1.24
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/minio/selfupdate v0.6.0
 	github.com/wailsapp/wails/v2 v2.12.0
+	github.com/xuri/excelize/v2 v2.10.1
 	golang.org/x/mod v0.36.0
 	golang.org/x/sys v0.45.0
 	golang.org/x/text v0.37.0
+	modernc.org/sqlite v1.53.0
 )
 
 require (
@@ -63,7 +66,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
-	github.com/xuri/excelize/v2 v2.10.1 // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	github.com/yuin/goldmark v1.8.2 // indirect
 	golang.org/x/crypto v0.52.0 // indirect
@@ -71,7 +73,6 @@ require (
 	modernc.org/libc v1.73.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.53.0 // indirect
 )
 
 replace reasonix => ../

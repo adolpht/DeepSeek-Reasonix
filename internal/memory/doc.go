@@ -31,6 +31,7 @@ const (
 	ScopeAncestor Scope = "ancestor" // a REASONIX.md above the project root
 	ScopeProject  Scope = "project"  // ./REASONIX.md (committed, shared)
 	ScopeLocal    Scope = "local"    // ./REASONIX.local.md (personal, git-ignored)
+	ScopePKM      Scope = "pkm"      // ~/.reasonix/memory/*.md (personal knowledge base)
 )
 
 // docNames are the recognized memory filenames at each level, in load order.

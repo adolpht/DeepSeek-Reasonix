@@ -340,6 +340,7 @@ func parseAppleScriptOutput(text string) []calendarEvent {
 // execPowerShell runs a PowerShell script and returns its stdout.
 func execPowerShell(script string) (string, error) {
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	hideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("%w: %s", err, string(out))

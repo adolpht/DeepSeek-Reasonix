@@ -16,11 +16,13 @@ import (
 
 // Scheduler manages periodic task execution using cron expressions.
 type Scheduler struct {
-	cron    *cron.Cron
-	mu      sync.Mutex
-	entries map[string]cron.EntryID // name -> entryID
-	store   TaskStore
-	onExec  func(name string, skill string, params string) string
+	cron       *cron.Cron
+	mu         sync.Mutex
+	entries    map[string]cron.EntryID // name -> entryID
+	store      TaskStore
+	onExec     func(name string, skill string, params string) string
+	onTaskStart func(name string, skill string)
+	onTaskDone  func(name string, skill string, result string)
 }
 
 // TaskStore is the interface for persisting scheduled tasks. It is satisfied by
@@ -37,16 +39,25 @@ type ScheduledTask = datastore.ScheduledTask
 
 // NewScheduler creates a scheduler backed by store. onExec is called for each
 // task tick; its return value is recorded as the execution result. If onExec is
-// nil the scheduler still runs but skips execution.
-func NewScheduler(store TaskStore, onExec func(name, skill, params string) string) *Scheduler {
+// nil the scheduler still runs but skips execution. onTaskStart and onTaskDone
+// are optional lifecycle callbacks called before and after execution.
+func NewScheduler(store TaskStore, onExec func(name, skill, params string) string, onTaskStart func(name, skill string), onTaskDone func(name, skill, result string)) *Scheduler {
 	if onExec == nil {
 		onExec = func(_, _, _ string) string { return "" }
 	}
+	if onTaskStart == nil {
+		onTaskStart = func(_, _ string) {}
+	}
+	if onTaskDone == nil {
+		onTaskDone = func(_, _, _ string) {}
+	}
 	return &Scheduler{
-		cron:    cron.New(cron.WithSeconds(), cron.WithLocation(time.Local)),
-		entries: make(map[string]cron.EntryID),
-		store:   store,
-		onExec:  onExec,
+		cron:        cron.New(cron.WithSeconds(), cron.WithLocation(time.Local)),
+		entries:     make(map[string]cron.EntryID),
+		store:       store,
+		onExec:      onExec,
+		onTaskStart: onTaskStart,
+		onTaskDone:  onTaskDone,
 	}
 }
 
@@ -130,6 +141,7 @@ func (s *Scheduler) Disable(name string) error {
 // executeTask is the per-tick callback. It invokes onExec, records the
 // execution time, and sends a completion notification.
 func (s *Scheduler) executeTask(name, skill, params string) {
+	s.onTaskStart(name, skill)
 	now := time.Now()
 	result := s.onExec(name, skill, params)
 
@@ -179,4 +191,5 @@ func (s *Scheduler) executeTask(name, skill, params string) {
 		log.Printf("scheduler: notify for %q: %v", name, nErr)
 	}
 	s.mu.Unlock()
+	s.onTaskDone(name, skill, result)
 }

@@ -108,6 +108,9 @@ const (
 	// Text carries the step label; Step carries the structured step data.
 	// Appended last to keep the Kind values before it wire-stable.
 	StepProgress
+	// AutoLearn fires when the auto-learner detects a preference statement.
+	// AutoLearn carries the proposal details. Appended last to keep wire-stable.
+	AutoLearn
 )
 
 // Level classifies a Notice so sinks can style or filter it.
@@ -144,6 +147,7 @@ type Tool struct {
 	// sub-agent's calls carry the parent `task` call's ID so a frontend can nest
 	// them under it. Empty for top-level calls.
 	ParentID string
+	TurnIndex int `json:"turnIndex,omitempty"` // the turn this tool ran in (1-based; 0 = unset)
 	FileDiff
 	Profile *Profile // ToolDispatch: subagent model/effort (set for task/skill calls)
 }
@@ -164,6 +168,16 @@ type Approval struct {
 	ID      string
 	Tool    string
 	Subject string
+}
+
+// AutoLearnProposal carries a detected preference statement for user confirmation.
+// The frontend shows a modal asking whether to append the content to the target PKM file.
+type AutoLearnProposal struct {
+	ID         string // unique ID for correlating user response
+	Type       string // "preference" | "contact" | "project" | "identity" | "tool" | "writing"
+	TargetFile string // "preferences.md" | "people.md" | "projects.md" | "writing_style.md"
+	Content    string // The detected statement to append
+	Category   string // Subcategory for organization
 }
 
 // AskOption is one choice the user can pick for an AskQuestion.
@@ -250,10 +264,11 @@ type Event struct {
 	Approval     Approval   // ApprovalRequest
 	Ask          Ask        // AskRequest
 	Err          error      // TurnDone: non-nil on failure
-	Compaction   Compaction // Compaction
-	Step         *Step      // StepProgress
-	RetryAttempt int        // Retrying: 1-based attempt about to be made
-	RetryMax     int        // Retrying: total attempts before giving up
+	Compaction   Compaction       // Compaction
+	Step         *Step            // StepProgress
+	AutoLearn    *AutoLearnProposal // AutoLearn
+	RetryAttempt int              // Retrying: 1-based attempt about to be made
+	RetryMax     int              // Retrying: total attempts before giving up
 }
 
 // ReadinessAuditSink is an optional sink capability. Sinks that do not care

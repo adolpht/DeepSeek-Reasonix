@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "../lib/i18n";
 
 // CommandPalette is a ⌘K / Ctrl+K modal that surfaces the desktop app's
 // long-tail navigation surface. Tabs through sessions, slash-commands, and
@@ -46,6 +47,7 @@ export function CommandPalette({
   placeholder: string;
   emptyText: string;
 }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -214,13 +216,13 @@ export function CommandPalette({
         <div className="palette__foot">
           <span>
             <kbd>↑</kbd>
-            <kbd>↓</kbd> navigate
+            <kbd>↓</kbd> {t("palette.footNavigate")}
           </span>
           <span>
-            <kbd>↵</kbd> run
+            <kbd>↵</kbd> {t("palette.footRun")}
           </span>
           <span>
-            <kbd>esc</kbd> close
+            <kbd>esc</kbd> {t("palette.footClose")}
           </span>
         </div>
       </div>

@@ -12,8 +12,16 @@ import (
 // assembled once at boot and folded into the system prompt by Compose. CWD and
 // UserDir are retained so the controller can resolve quick-add targets without
 // re-deriving discovery context.
+//
+// PKM holds the personal-knowledge-base sources (people.md / projects.md /
+// preferences.md / writing_style.md under ~/.reasonix/memory/). It is populated
+// by Load only when Options.PKMEnabled is true and the files exist; it is
+// rendered as its own <personal-knowledge> section by Block, ahead of Docs, so
+// the cache-stable system prefix stays byte-stable across sessions that don't
+// touch the PKM files.
 type Set struct {
 	Docs    []Source // REASONIX.md / AGENTS.md, ascending precedence
+	PKM     []Source // personal knowledge base (~/.reasonix/memory/*.md)
 	Store   Store    // auto-memory store (may be a zero/disabled Store)
 	Index   string   // MEMORY.md contents at load time
 	CWD     string   // project working dir used for discovery
@@ -22,28 +30,103 @@ type Set struct {
 
 // Options configures discovery. CWD defaults to "." and UserDir is the user
 // config root (config.MemoryUserDir()); a "" UserDir disables user-global docs
-// and the auto-memory store.
+// and the auto-memory store. PKMEnabled gates whether the personal knowledge
+// base under ~/.reasonix/memory/ is loaded — it defaults to false so callers
+// (and existing tests) that don't set it keep the historical Docs-only shape.
 type Options struct {
-	CWD     string
-	UserDir string
+	CWD        string
+	UserDir    string
+	PKMEnabled bool
 }
 
-// Load discovers all memory for a session: the hierarchical docs and the
-// auto-memory index. It is best-effort and never errors — missing files just
-// mean less memory — so boot can call it unconditionally.
+// Load discovers all memory for a session: the hierarchical docs, the optional
+// personal knowledge base, and the auto-memory index. It is best-effort and
+// never errors — missing files just mean less memory — so boot can call it
+// unconditionally.
 func Load(opts Options) *Set {
 	cwd := opts.CWD
 	if cwd == "" {
 		cwd = "."
 	}
 	store := StoreFor(opts.UserDir, cwd)
-	return &Set{
+	set := &Set{
 		Docs:    discoverDocs(cwd, opts.UserDir),
 		Store:   store,
 		Index:   store.Index(),
 		CWD:     cwd,
 		UserDir: opts.UserDir,
 	}
+	if opts.PKMEnabled {
+		set.PKM = loadPKMFiles()
+	}
+	return set
+}
+
+// pkmFileOrder is the fixed load/render order for the four PKM files. It is
+// byte-stable across sessions so DeepSeek's automatic prefix cache stays warm:
+// writing_style first (rarely changed, most reusable), preferences next, then
+// the more volatile people/projects lists. Renaming or reordering here would
+// invalidate every cached prefix — do not change it without a migration.
+var pkmFileOrder = []string{
+	"writing_style.md",
+	"preferences.md",
+	"people.md",
+	"projects.md",
+}
+
+// PKMFileOrder returns the fixed load/render order of the PKM files. It is the
+// exported accessor for pkmFileOrder, used by the desktop panel to render the
+// editor tabs in the same order the model sees them.
+func PKMFileOrder() []string {
+	return pkmFileOrder
+}
+
+// ValidPKMFileName reports whether name is one of the four PKM files. Used by
+// the desktop SavePKMFile path to refuse writes outside the PKM directory.
+func ValidPKMFileName(name string) bool {
+	for _, n := range pkmFileOrder {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
+// loadPKMFiles reads the four PKM files from ~/.reasonix/memory/ in the fixed
+// pkmFileOrder. Missing or unreadable files are skipped silently so a partial
+// PKM (or none at all) never breaks boot. Bodies are trimmed; empty files are
+// dropped to keep the rendered block free of dead sections.
+func loadPKMFiles() []Source {
+	dir, err := MemoryDir()
+	if err != nil {
+		return nil
+	}
+	var out []Source
+	for _, name := range pkmFileOrder {
+		path := filepath.Join(dir, name)
+		body, ok := readPKMFile(path)
+		if !ok {
+			continue
+		}
+		out = append(out, Source{Path: path, Scope: ScopePKM, Body: body})
+	}
+	return out
+}
+
+// readPKMFile reads and trims a PKM file, returning ok=false when it is absent,
+// unreadable, or whitespace-only (so a freshly scaffolded file with only HTML
+// comments still contributes once the user adds real content — the trimmed body
+// carries the comments too, but we drop truly empty files).
+func readPKMFile(path string) (string, bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	body := strings.TrimSpace(string(b))
+	if body == "" {
+		return "", false
+	}
+	return body, true
 }
 
 // DocPath returns the doc-memory file a given scope writes to. To avoid splitting
@@ -75,9 +158,10 @@ func (s *Set) DocPath(scope Scope) string {
 
 // Empty reports whether the set carries nothing to inject, so Compose can leave
 // the base prompt byte-for-byte untouched (and the cache prefix maximal) when
-// there is no memory at all.
+// there is no memory at all. PKM sources count, so a set with only PKM is not
+// empty.
 func (s *Set) Empty() bool {
-	return s == nil || (len(s.Docs) == 0 && strings.TrimSpace(s.Index) == "")
+	return s == nil || (len(s.Docs) == 0 && len(s.PKM) == 0 && strings.TrimSpace(s.Index) == "")
 }
 
 // docScopes are the scopes the panel can target for a quick-add or a new doc.
@@ -124,6 +208,12 @@ func (s *Set) WriteDoc(path, body string) (string, error) {
 // Block renders the memory as a single Markdown section, or "" when empty. It is
 // deterministic given the same files, which is what keeps it a stable cache
 // prefix across sessions that don't change their memory.
+//
+// The PKM (personal knowledge base) renders first, wrapped in a
+// <personal-knowledge> tag so the model can locate it structurally; then come
+// the hierarchical Docs, then the auto-memory index. PKM is the most durable
+// layer (user-authored, rarely edited), so leading with it keeps the largest
+// possible byte-stable prefix for DeepSeek's automatic prefix cache.
 func (s *Set) Block() string {
 	if s.Empty() {
 		return ""
@@ -131,6 +221,16 @@ func (s *Set) Block() string {
 	var b strings.Builder
 	b.WriteString("# Memory\n\n")
 	b.WriteString("Persistent context loaded from memory files. Treat it as durable, user-authored guidance for this project.\n")
+
+	if len(s.PKM) > 0 {
+		b.WriteString("\n<personal-knowledge>\n")
+		b.WriteString("## 个人知识库\n")
+		b.WriteString("User-authored personal knowledge base (~/.reasonix/memory/). Treat this as the user's standing profile — writing style, preferences, contacts, and projects — and honor it without restating it back.\n")
+		for _, d := range s.PKM {
+			fmt.Fprintf(&b, "\n### %s\n\n%s\n", d.Path, strings.TrimSpace(d.Body))
+		}
+		b.WriteString("\n</personal-knowledge>\n")
+	}
 
 	for _, d := range s.Docs {
 		fmt.Fprintf(&b, "\n## %s (%s)\n\n%s\n", d.Path, d.Scope, strings.TrimSpace(d.Body))
@@ -243,4 +343,45 @@ func EnsureMemoryDir() (string, bool, error) {
 		}
 	}
 	return dir, true, nil
+}
+
+// AppendPKMFile appends a learned preference snippet to one of the four PKM
+// files under ~/.reasonix/memory/. name must be a valid PKM filename. The
+// snippet is appended at the end of the file under a "## 自动学习" section so
+// the user can distinguish hand-written entries from auto-learned ones. The
+// directory is ensured to exist (idempotent). Returns the absolute path written.
+func AppendPKMFile(name, content string) error {
+	name = strings.TrimSpace(name)
+	content = strings.TrimSpace(content)
+	if !ValidPKMFileName(name) {
+		return fmt.Errorf("refusing to append %q: not a PKM file", name)
+	}
+	if content == "" {
+		return nil // nothing to append
+	}
+	if _, _, err := EnsureMemoryDir(); err != nil {
+		return fmt.Errorf("ensure pkm dir: %w", err)
+	}
+	dir, err := MemoryDir()
+	if err != nil {
+		return fmt.Errorf("resolve pkm dir: %w", err)
+	}
+	path := filepath.Join(dir, name)
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", name, err)
+	}
+	body := string(existing)
+	snippet := "\n\n## 自动学习\n\n" + content + "\n"
+	// If the file already ends with an auto-learn section, just append the
+	// new line into it instead of creating a new section header each time.
+	if idx := strings.LastIndex(body, "## 自动学习"); idx >= 0 {
+		body = body + "- " + content + "\n"
+	} else {
+		body = body + snippet
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", name, err)
+	}
+	return nil
 }

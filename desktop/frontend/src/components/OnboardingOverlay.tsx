@@ -39,6 +39,7 @@ const TOTAL_STEPS = 4;
 
 // ── LocalStorage helpers ─────────────────────────────────────
 const USER_ROLE_KEY = "reasonix.userRole";
+const ONBOARDING_TASK_PENDING_KEY = "reasonix.onboarding_task_pending";
 
 function saveUserRole(role: UserRole): void {
   try {
@@ -46,6 +47,26 @@ function saveUserRole(role: UserRole): void {
   } catch {
     /* ignore */
   }
+}
+
+function setOnboardingTaskPending(pending: boolean): void {
+  try {
+    window.localStorage.setItem(ONBOARDING_TASK_PENDING_KEY, pending ? "true" : "false");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isOnboardingTaskPending(): boolean {
+  try {
+    return window.localStorage.getItem(ONBOARDING_TASK_PENDING_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function clearOnboardingTaskPending(): void {
+  setOnboardingTaskPending(false);
 }
 
 // Full-window first-run gate: multi-step onboarding flow.
@@ -102,12 +123,13 @@ export function OnboardingOverlay({ onComplete }: { onComplete: () => void }) {
 
   // ── Guided task: complete onboarding ────────────────────────
   const startTask = useCallback(() => {
+    setOnboardingTaskPending(true);
     onComplete();
   }, [onComplete]);
 
   // ── Step indicator ──────────────────────────────────────────
   const stepIndicator = (
-    <div className="onboarding__steps" aria-label={`Step ${step + 1} of ${TOTAL_STEPS}`}>
+    <div className="onboarding__steps" aria-label={t("onboarding.stepIndicator", { current: step + 1, total: TOTAL_STEPS })}>
       {Array.from({ length: TOTAL_STEPS }, (_, i) => (
         <div
           key={i}

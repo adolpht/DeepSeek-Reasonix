@@ -38,7 +38,9 @@ import type {
   ProjectNode,
   ProviderView,
   QuestionAnswer,
+  RecipeView,
   ScheduledTaskView,
+  ClipboardEntry,
   ServerView,
   SessionMeta,
   SettingsView,
@@ -49,6 +51,8 @@ import type {
   TabMeta,
   TagView,
   TemplateMeta,
+  TerminalOutput,
+  TerminalView,
   TodoView,
   TopicMeta,
   UpdateInfo,
@@ -57,6 +61,7 @@ import type {
   WorkspaceChangesView,
   WorkspaceType,
   WorkspaceView,
+  WorkflowView,
 } from "./types";
 
 // AppBindings is derived from the Wails-generated Go → TS method signatures, so
@@ -181,12 +186,32 @@ export interface AppBindings {
   Remember(scope: string, note: string): Promise<string>;
   Forget(name: string): Promise<void>;
   SaveDoc(path: string, body: string): Promise<string>;
+  SavePKMFile(name: string, content: string): Promise<void>;
+  AppendPKMFile(name: string, content: string): Promise<void>;
+  SuppressAutoLearnTypeForTab(tabID: string, type: string): Promise<void>;
+  // Recipe management bindings
+  SaveRecipe(r: RecipeView): Promise<void>;
+  LoadRecipe(name: string): Promise<RecipeView>;
+  ListRecipes(): Promise<RecipeView[]>;
+  DeleteRecipe(name: string): Promise<void>;
+  TriggerEventRecipes(eventType: string, context: Record<string, string>): Promise<string[]>;
+  // Clipboard history bindings
+  ReadClipboard(): Promise<string>;
+  WriteClipboard(text: string): Promise<void>;
+  ListClipboardHistory(limit: number, offset: number): Promise<ClipboardEntry[]>;
+  SearchClipboardHistory(query: string): Promise<ClipboardEntry[]>;
+  // Voice input bindings
+  VoiceInputAvailable(): Promise<boolean>;
+  TranscribeAudio(wavBytes: Uint8Array): Promise<string>;
+  SetVoiceLanguage(lang: string): Promise<void>;
+  SetVoiceModel(model: string): Promise<void>;
   Settings(): Promise<SettingsView>;
   SetDefaultModel(ref: string): Promise<void>;
   SetPlannerModel(ref: string): Promise<void>;
   SetSubagentModel(ref: string): Promise<void>;
   SetSubagentEffort(level: string): Promise<void>;
   SetAutoPlan(mode: string): Promise<void>;
+  SetCodingOpenSpec(enabled: boolean): Promise<void>;
   SaveProvider(p: ProviderView): Promise<void>;
   AddOfficialProviderAccess(kind: string, key: string): Promise<void>;
   FetchProviderModels(p: ProviderView): Promise<string[]>;
@@ -217,6 +242,7 @@ export interface AppBindings {
   ListTabs(): Promise<TabMeta[]>;
   OpenProjectTab(workspaceRoot: string, topicID: string): Promise<TabMeta>;
   OpenGlobalTab(topicID: string): Promise<TabMeta>;
+  OpenTabForScheduledTask(taskName: string): Promise<void>;
   SetActiveTab(tabID: string): Promise<void>;
   ReorderTabs(tabIDs: string[]): Promise<void>;
   CloseTab(tabID: string): Promise<void>;
@@ -310,11 +336,13 @@ export interface AppBindings {
   CreateScheduledTask(name: string, cron: string, skill: string, params: string): Promise<void>;
   UpdateScheduledTask(id: string, name: string, cron: string, skill: string, params: string, enabled: boolean): Promise<void>;
   DeleteScheduledTask(id: string): Promise<void>;
+  OpenTabForScheduledTask(taskName: string): Promise<void>;
   // Todos
   ListTodos(): Promise<TodoView[]>;
   CreateTodo(title: string, description: string, dueDate: string, priority: string): Promise<void>;
   UpdateTodo(id: string, title: string, description: string, dueDate: string, priority: string, status: string): Promise<void>;
   DeleteTodo(id: string): Promise<void>;
+  GetRecentMailSummaries(): Promise<{ from: string; subject: string; date: string }[]>;
 
   // --- Clipboard bindings (for FloatingWindow) ---
   ReadClipboard(): Promise<string>;
@@ -323,6 +351,24 @@ export interface AppBindings {
   RegisterClipboardHotkey(): Promise<void>;
   TriggerClipboardAssist(): Promise<void>;
   UnregisterClipboardHotkey(): Promise<void>;
+
+  // --- Terminal bindings (built-in PTY terminal) ---
+  TerminalStart(cwd: string, shell: string, cols: number, rows: number): Promise<TerminalView>;
+  TerminalWrite(id: string, data: string): Promise<void>;
+  TerminalResize(id: string, cols: number, rows: number): Promise<void>;
+  TerminalKill(id: string): Promise<void>;
+  TerminalShells(): Promise<string[]>;
+
+  // --- Workflow orchestration bindings (desktop/app.go) ---
+  ListWorkflows(): Promise<WorkflowView[]>;
+  LoadWorkflow(id: string): Promise<WorkflowView>;
+  SaveWorkflow(wf: WorkflowView): Promise<void>;
+  RunWorkflow(id: string, input: string): Promise<void>;
+  DeleteWorkflow(id: string): Promise<void>;
+
+  // --- Voice hotkey bindings (desktop/voice_input.go) ---
+  RegisterVoiceHotkey(): Promise<void>;
+  UnregisterVoiceHotkey(): Promise<void>;
 }
 
 // Bidirectional compile-time drift checks. Exclude<A, B> extracts keys in A that
@@ -422,6 +468,15 @@ export function onReady(cb: () => void): () => void {
 export function onProjectTreeChanged(cb: () => void): () => void {
   if (realApp() && typeof window !== "undefined" && window.runtime) {
     return window.runtime.EventsOn("project-tree:changed", () => cb());
+  }
+  return () => {};
+}
+
+// onTerminalOutput subscribes to the built-in terminal's PTY byte stream and
+// exit events. Must match the event name emitted in desktop/terminal.go.
+export function onTerminalOutput(cb: (e: TerminalOutput) => void): () => void {
+  if (realApp() && typeof window !== "undefined" && window.runtime) {
+    return window.runtime.EventsOn("terminal:output", (payload) => cb(payload as TerminalOutput));
   }
   return () => {};
 }
@@ -685,6 +740,7 @@ function makeMockApp(): AppBindings {
     configPath: "~/projects/reasonix/reasonix.toml",
     providerKinds: ["openai"],
     bypass: false,
+    codingOpenSpec: false,
   };
   settings.providers = settings.providers.map((provider) =>
     provider.apiKeyEnv === "DEEPSEEK_API_KEY" ? { ...provider, keySet: !freshMock } : provider,
@@ -1546,6 +1602,12 @@ function makeMockApp(): AppBindings {
           { scope: "project", path: "REASONIX.md" },
           { scope: "local", path: "REASONIX.local.md" },
         ],
+        pkmFiles: [
+          { name: "writing_style.md", path: "~/.reasonix/memory/writing_style.md", body: "# 写作风格\n\n简洁、技术性。" },
+          { name: "preferences.md", path: "~/.reasonix/memory/preferences.md", body: "# 个人偏好\n\n中文沟通。" },
+          { name: "people.md", path: "~/.reasonix/memory/people.md", body: "# 常联系人\n\n- 张三 | 同事 | ..." },
+          { name: "projects.md", path: "~/.reasonix/memory/projects.md", body: "# 在跟项目\n\n- Reasonix | 进行中" },
+        ],
       };
     },
     async Remember(scope: string, note: string) {
@@ -1558,6 +1620,79 @@ function makeMockApp(): AppBindings {
     async SaveDoc(path: string, _body: string) {
       emit({ kind: "notice", level: "info", text: `saved → ${path}` });
       return path;
+    },
+    async SavePKMFile(name: string, _content: string) {
+      emit({ kind: "notice", level: "info", text: `pkm saved → ${name}` });
+    },
+    async AppendPKMFile(name: string, _content: string) {
+      emit({ kind: "notice", level: "info", text: `pkm appended → ${name}` });
+    },
+    async SuppressAutoLearnTypeForTab(_tabID: string, _type: string) {
+      // Browser mock: no-op
+    },
+    // Recipe management mock methods
+    async SaveRecipe(r: RecipeView) {
+      emit({ kind: "notice", level: "info", text: `recipe saved → ${r.name}` });
+    },
+    async LoadRecipe(name: string): Promise<RecipeView> {
+      return {
+        name,
+        description: "Mock recipe",
+        skill: "weekly-report",
+        params: "{}",
+        trigger: "manual",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+    },
+    async ListRecipes(): Promise<RecipeView[]> {
+      return [
+        {
+          name: "weekly-report-template",
+          description: "Generate weekly status report",
+          skill: "weekly-report",
+          params: '{"week": "current"}',
+          trigger: "manual",
+          createdAt: Date.now() - 86400_000,
+          updatedAt: Date.now() - 86400_000,
+        },
+      ];
+    },
+    async DeleteRecipe(_name: string) {
+      emit({ kind: "notice", level: "info", text: `recipe deleted` });
+    },
+    async TriggerEventRecipes(_eventType: string, _context: Record<string, string>): Promise<string[]> {
+      // Browser mock: no recipes to trigger
+      return [];
+    },
+    // Clipboard history mock methods
+    async ReadClipboard(): Promise<string> {
+      return navigator.clipboard.readText().catch(() => "");
+    },
+    async WriteClipboard(text: string): Promise<void> {
+      await navigator.clipboard.writeText(text);
+    },
+    async ListClipboardHistory(_limit: number, _offset: number): Promise<ClipboardEntry[]> {
+      return [
+        { id: 1, kind: "text", content: "Hello world", preview: "Hello world", createdAt: Date.now() - 60000 },
+        { id: 2, kind: "text", content: "Some code snippet", preview: "Some code snippet", createdAt: Date.now() - 120000 },
+      ];
+    },
+    async SearchClipboardHistory(_query: string): Promise<ClipboardEntry[]> {
+      return [];
+    },
+    // Voice input mock methods
+    async VoiceInputAvailable(): Promise<boolean> {
+      return false;
+    },
+    async TranscribeAudio(_wavBytes: Uint8Array): Promise<string> {
+      return "";
+    },
+    async SetVoiceLanguage(_lang: string): Promise<void> {
+      // Mock implementation - no-op
+    },
+    async SetVoiceModel(_model: string): Promise<void> {
+      // Mock implementation - no-op
     },
     async Settings() {
       return JSON.parse(JSON.stringify(settings)) as SettingsView;
@@ -1576,6 +1711,9 @@ function makeMockApp(): AppBindings {
     },
     async SetAutoPlan(mode: string) {
       settings.autoPlan = mode;
+    },
+    async SetCodingOpenSpec(enabled: boolean) {
+      settings.codingOpenSpec = enabled;
     },
     async SaveProvider(p: ProviderView) {
       p.added = true;
@@ -2129,11 +2267,21 @@ function makeMockApp(): AppBindings {
     async DeleteScheduledTask(_id: string): Promise<void> {
       // no-op in mock
     },
+    async OpenTabForScheduledTask(_taskName: string): Promise<void> {
+      // no-op in mock
+    },
     async ListTodos(): Promise<TodoView[]> {
       return [
         { id: "t1", title: t("todos.mockTitle1"), description: "", dueDate: "", priority: "high", status: "in_progress", source: "user", createdAt: Date.now() - 86400_000, updatedAt: Date.now() - 3600_000 },
         { id: "t2", title: t("todos.mockTitle2"), description: "", dueDate: "", priority: "medium", status: "pending", source: "agent", createdAt: Date.now() - 172800_000, updatedAt: Date.now() - 86400_000 },
       ];
+    },
+    async GetRecentMailSummaries(): Promise<{ from: string; subject: string; date: string }[]> {
+      // Browser mock: in the Wails shell this calls the Go-side
+      // GetRecentMailSummaries which dispatches mcp__mail__read_mail via
+      // Controller.CallTool. Without a backend we return an empty list so
+      // the DailyBriefPanel mail section renders its empty-state placeholder.
+      return [];
     },
     async CreateTodo(_title: string, _description: string, _dueDate: string, _priority: string): Promise<void> {
       // no-op in mock
@@ -2143,13 +2291,6 @@ function makeMockApp(): AppBindings {
     },
     async DeleteTodo(_id: string): Promise<void> {
       // no-op in mock
-    },
-    async ReadClipboard(): Promise<string> {
-      // Browser mock: return empty string (clipboard API not available in dev mode)
-      return "";
-    },
-    async WriteClipboard(_text: string): Promise<void> {
-      // Browser mock: no-op
     },
     async ClipboardAssistAction(_action: string, _text: string): Promise<void> {
       // Browser mock: no-op
@@ -2163,5 +2304,32 @@ function makeMockApp(): AppBindings {
     async UnregisterClipboardHotkey(): Promise<void> {
       // Browser mock: no-op
     },
+
+    // --- Terminal mock methods ---
+    async TerminalStart(_cwd: string, shell: string, _cols: number, _rows: number): Promise<TerminalView> {
+      const id = "term_mock_" + Date.now();
+      return { id, shell: shell || "powershell", cwd: _cwd || "~/projects/mock", pid: 0 };
+    },
+    async TerminalWrite(_id: string, _data: string): Promise<void> {
+      // Browser mock: no real PTY
+    },
+    async TerminalResize(_id: string, _cols: number, _rows: number): Promise<void> {},
+    async TerminalKill(_id: string): Promise<void> {},
+    async TerminalShells(): Promise<string[]> {
+      const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+      return /Win/i.test(ua) ? ["powershell", "cmd"] : ["bash", "zsh"];
+    },
+    // --- Workflow + voice hotkey mocks (browser dev only) ---
+    async ListWorkflows(): Promise<WorkflowView[]> {
+      return [];
+    },
+    async LoadWorkflow(_id: string): Promise<WorkflowView> {
+      return { name: "", description: "", nodes: [], edges: [], createdAt: 0, updatedAt: 0 };
+    },
+    async SaveWorkflow(_wf: WorkflowView): Promise<void> {},
+    async RunWorkflow(_id: string, _input: string): Promise<void> {},
+    async DeleteWorkflow(_id: string): Promise<void> {},
+    async RegisterVoiceHotkey(): Promise<void> {},
+    async UnregisterVoiceHotkey(): Promise<void> {},
   };
 }

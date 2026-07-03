@@ -250,20 +250,7 @@ func trimSpace(b []byte) []byte {
 	return b
 }
 
-// --- IMAP config ---
-
-// imapConfig reads IMAP connection settings from environment variables.
-func imapConfig() (host, user, pass string, err error) {
-	host = os.Getenv("MAIL_IMAP_HOST")
-	user = os.Getenv("MAIL_IMAP_USER")
-	pass = os.Getenv("MAIL_IMAP_PASS")
-	if host == "" || user == "" || pass == "" {
-		return "", "", "", fmt.Errorf(
-			"mail IMAP not configured. Set environment variables: MAIL_IMAP_HOST, MAIL_IMAP_USER, MAIL_IMAP_PASS",
-		)
-	}
-	return host, user, pass, nil
-}
+// --- IMAP config (see imap.go: imapConfig) ---
 
 // --- tool definitions ---
 
@@ -337,12 +324,12 @@ func runReadMail(args map[string]any) (any, error) {
 	limit := argIntDefault(args, "limit", 10)
 	offset := argIntDefault(args, "offset", 0)
 
-	host, user, pass, err := imapConfig()
+	auth, err := imapConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	msgs, err := imapReadFolder(host, user, pass, folder, limit, offset)
+	msgs, err := imapReadFolder(auth, folder, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("read mail: %w", err)
 	}
@@ -381,7 +368,7 @@ func runSendMail(args map[string]any) (any, error) {
 	cc := argStringDefault(args, "cc", "")
 	replyToID := argStringDefault(args, "reply_to_message_id", "")
 
-	host, user, pass, err := smtpConfig()
+	auth, err := smtpConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +376,7 @@ func runSendMail(args map[string]any) (any, error) {
 	recipients := splitAddresses(to)
 	ccRecipients := splitAddresses(cc)
 
-	if err := smtpSendMail(host, user, pass, user, recipients, ccRecipients, subject, body, replyToID); err != nil {
+	if err := smtpSendMail(auth, auth.User, recipients, ccRecipients, subject, body, replyToID); err != nil {
 		return nil, fmt.Errorf("send mail: %w", err)
 	}
 
@@ -411,12 +398,12 @@ func runSearchMail(args map[string]any) (any, error) {
 	folder := argStringDefault(args, "folder", "INBOX")
 	limit := argIntDefault(args, "limit", 10)
 
-	host, user, pass, err := imapConfig()
+	auth, err := imapConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	msgs, err := imapSearchMail(host, user, pass, folder, query, limit)
+	msgs, err := imapSearchMail(auth, folder, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search mail: %w", err)
 	}
@@ -443,12 +430,12 @@ func runClassifyMail(args map[string]any) (any, error) {
 	folder := argStringDefault(args, "folder", "INBOX")
 	limit := argIntDefault(args, "limit", 20)
 
-	host, user, pass, err := imapConfig()
+	auth, err := imapConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	msgs, err := imapReadFolder(host, user, pass, folder, limit, 0)
+	msgs, err := imapReadFolder(auth, folder, limit, 0)
 	if err != nil {
 		return nil, fmt.Errorf("classify mail: %w", err)
 	}
@@ -539,7 +526,7 @@ func runOAuth2Authorize(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	tokenFile := argStringDefault(args, "tokenFile", "")
+	tokenFile := argStringDefault(args, "tokenFile", defaultOAuth2TokenFile())
 
 	cfg := OAuth2Config{
 		Provider:     OAuth2Provider(provider),
@@ -560,6 +547,7 @@ func runOAuth2Authorize(args map[string]any) (any, error) {
 	result := map[string]any{
 		"authorizationUrl": url,
 		"provider":         string(cfg.Provider),
+		"tokenFile":        tokenFile,
 		"instructions":     "Visit the URL above in your browser to authorize. After granting access, you will receive a code — pass it to the oauth2_callback tool.",
 	}
 	b, _ := json.MarshalIndent(result, "", "  ")
@@ -583,7 +571,7 @@ func runOAuth2Callback(args map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	tokenFile := argStringDefault(args, "tokenFile", "")
+	tokenFile := argStringDefault(args, "tokenFile", defaultOAuth2TokenFile())
 
 	cfg := OAuth2Config{
 		Provider:     OAuth2Provider(provider),

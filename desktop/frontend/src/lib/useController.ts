@@ -25,6 +25,15 @@ import type {
   WireStep,
   WireUsage,
 } from "./types";
+import type { AgentState } from "./agentGraph";
+
+export interface AutoLearnProposal {
+  id: string;
+  type: string;
+  targetFile: string;
+  content: string;
+  category: string;
+}
 
 export type ToolStatus = "running" | "done" | "error" | "stopped";
 
@@ -60,6 +69,7 @@ export type Item =
       isShell?: boolean; // true for !-prefix shell commands (controls default expand)
       parentId?: string; // a sub-agent call nests under the `task` call with this id
       profile?: { model?: string; effort?: string }; // subagent model/effort from tool event
+      turnIndex?: number; // the turn this tool ran in — used to link step→tool edges
     };
 
 interface State {
@@ -85,7 +95,13 @@ interface State {
   sessionCost: number;
   sessionCurrency: string;
   retry?: { attempt: number; max: number };
+  // Current turn's live steps — replaced on each new turn (turn_started),
+  // snapshot to historySteps at turn_done so ProgressStepper still shows the
+  // last completed plan after a turn ends (see P1-4).
   steps: WireStep[];
+  historySteps: WireStep[];
+  autoLearn?: AutoLearnProposal;
+  agents: Map<string, AgentState>;
   seq: number;
 }
 
@@ -97,10 +113,12 @@ const initialState: State = {
   jobs: [],
   checkpoints: [],
   steps: [],
+  historySteps: [],
   turnStartAt: 0,
   turnTokens: 0,
   sessionCost: 0,
   sessionCurrency: "¥",
+  agents: new Map(),
   seq: 0,
 };
 
@@ -121,11 +139,13 @@ type Action =
   | { type: "local_notice"; level: "info" | "warn"; text: string }
   | { type: "clearApproval" }
   | { type: "clearAsk" }
+  | { type: "clearAutoLearn" }
   | { type: "reset" };
 
 // ---- reducer helpers (unchanged logic) ----
 
-export function historyMessagesToItems(messages: HistoryMessage[], idPrefix: string, startSeq = 0): { items: Item[]; seq: number } {
+export function historyMessagesToItems(messages: HistoryMessage[], idPrefix: string, startSeq = 0): { items: Item[]; seq: number; steps: WireStep[] } {
+  const steps: WireStep[] = [];
   const resultByID = new Map<string, HistoryMessage>();
   for (const m of messages) {
     if (m.role === "tool" && m.toolCallId && !resultByID.has(m.toolCallId)) {
@@ -138,6 +158,14 @@ export function historyMessagesToItems(messages: HistoryMessage[], idPrefix: str
   const consumedToolIDs = new Set<string>();
   for (const m of messages) {
     if (m.role === "system") continue;
+    if (m.role === "step_progress" && m.step) {
+      const s = m.step;
+      const existing = steps.findIndex((x) => x.id === s.id);
+      const restored: WireStep = { ...s, status: "completed" };
+      if (existing >= 0) steps[existing] = restored;
+      else steps.push(restored);
+      continue;
+    }
     if (m.role === "phase") {
       if (m.content.trim() !== "") {
         items.push({ kind: "phase", id: `${idPrefix}${seq}`, text: m.content });
@@ -216,7 +244,7 @@ export function historyMessagesToItems(messages: HistoryMessage[], idPrefix: str
       continue;
     }
   }
-  return { items, seq };
+  return { items, seq, steps };
 }
 
 function ensureAssistant(s: State): { items: Item[]; id: string; seq: number } {
@@ -359,6 +387,10 @@ function applyEvent(s: State, e: WireEvent): State {
         : [...s.steps, e.step!];
       return { ...s, steps: next };
     }
+    case "auto_learn": {
+      if (!e.auto_learn) return s;
+      return { ...s, autoLearn: e.auto_learn };
+    }
     case "turn_done": {
       if (s.pendingUser !== undefined) s = flushPendingUser(s);
       const finalized = s.items.map((it) => {
@@ -368,7 +400,40 @@ function applyEvent(s: State, e: WireEvent): State {
         return it;
       });
       const items: Item[] = e.err ? [...finalized, { kind: "notice", id: `e${s.seq}`, level: "warn", text: e.err }] : finalized;
-      return { ...s, items, live: undefined, running: false, turnActive: false, currentAssistant: undefined, approval: undefined, ask: undefined, steps: [], seq: s.seq + 1 };
+      // Snapshot live steps to historySteps (so ProgressStepper still shows the
+      // last plan after the turn ends) and clear the live slot. agents map is
+      // preserved so completed/closed sub-agents remain visible on the canvas.
+      const finishedSteps = s.steps.map((st) => (st.status === "in_progress" ? { ...st, status: "completed" as const } : st));
+      const historySteps = finishedSteps.length > 0 ? finishedSteps : s.historySteps;
+      return { ...s, items, live: undefined, running: false, turnActive: false, currentAssistant: undefined, approval: undefined, ask: undefined, autoLearn: undefined, steps: [], historySteps, seq: s.seq + 1 };
+    }
+    case "agent_spawned": {
+      const a = e.agent;
+      if (!a) return s;
+      const agents = new Map(s.agents);
+      agents.set(a.id, { kind: "agent_spawned", role: a.role, output: a.output });
+      return { ...s, agents };
+    }
+    case "agent_progress": {
+      const a = e.agent;
+      if (!a) return s;
+      const agents = new Map(s.agents);
+      const prev = agents.get(a.id);
+      agents.set(a.id, { kind: "agent_progress", role: prev?.role ?? a.role, output: a.output ?? prev?.output });
+      return { ...s, agents };
+    }
+    case "agent_completed":
+    case "agent_closed": {
+      const a = e.agent;
+      if (!a) return s;
+      const agents = new Map(s.agents);
+      const prev = agents.get(a.id);
+      agents.set(a.id, {
+        kind: e.kind === "agent_completed" ? "agent_completed" : "agent_closed",
+        role: prev?.role ?? a.role,
+        output: a.output ?? prev?.output,
+      });
+      return { ...s, agents };
     }
     default: return s;
   }
@@ -410,13 +475,14 @@ function reducer(s: State, a: Action): State {
     case "message_action_start": return { ...s, messageAction: a.action };
     case "message_action_done": return { ...s, messageAction: undefined };
     case "history": {
-      const { items, seq } = historyMessagesToItems(a.messages, "h", s.seq);
-      return { ...s, items, seq };
+      const { items, seq, steps } = historyMessagesToItems(a.messages, "h", s.seq);
+      return { ...s, items, seq, steps };
     }
     case "local_notice": return { ...s, running: false, turnActive: false, seq: s.seq + 1, items: [...s.items, { kind: "notice", id: `n${s.seq}`, level: a.level, text: a.text }] };
     case "clearApproval": return { ...s, approval: undefined };
     case "clearAsk": return { ...s, ask: undefined };
-    case "reset": return { ...initialState, meta: s.meta, context: { ...s.context, used: 0 }, balance: s.balance, effort: s.effort, jobs: s.jobs, steps: s.steps };
+    case "clearAutoLearn": return { ...s, autoLearn: undefined };
+    case "reset": return { ...initialState, meta: s.meta, context: { ...s.context, used: 0 }, balance: s.balance, effort: s.effort, jobs: s.jobs, steps: s.steps, historySteps: s.historySteps };
     case "event": return applyEvent(s, a.e);
     default: return s;
   }
@@ -656,6 +722,17 @@ export function useController() {
     app.AnswerQuestionForTab(activeTabId, id, answers).catch(() => {});
   }, [activeTabId, dispatchTo]);
 
+  const answerAutoLearn = useCallback((proposal: AutoLearnProposal | undefined, accept: boolean) => {
+    if (!activeTabId) return;
+    dispatchTo(activeTabId, { type: "clearAutoLearn" });
+    if (!proposal) return;
+    if (accept) {
+      void app.AppendPKMFile(proposal.targetFile, proposal.content);
+    } else {
+      void app.SuppressAutoLearnTypeForTab(activeTabId, proposal.type);
+    }
+  }, [activeTabId, dispatchTo]);
+
   const setControllerMode = useCallback((mode: "plan" | "yolo" | "normal"): Promise<void> => {
     if (!activeTabId) return Promise.resolve();
     return app.SetModeForTab(activeTabId, mode).then(() => {
@@ -742,7 +819,7 @@ export function useController() {
   }, [activeTabId, dispatchTo]);
 
   const fetchMemory = useCallback((): Promise<MemoryView> =>
-    app.Memory().catch(() => ({ docs: [], facts: [], scopes: [], storeDir: "", available: false })), []);
+    app.Memory().catch(() => ({ docs: [], facts: [], scopes: [], pkmFiles: [], storeDir: "", available: false })), []);
   const remember = useCallback(async (scope: string, note: string) => { await app.Remember(scope, note).catch(() => {}); }, []);
   const forget = useCallback(async (name: string) => { await app.Forget(name).catch(() => {}); }, []);
   const saveDoc = useCallback(async (path: string, body: string) => { await app.SaveDoc(path, body).catch(() => {}); }, []);
@@ -826,7 +903,7 @@ export function useController() {
   return {
     state: activeState,
     activeTabId,
-    send, runShell, notice, cancel, approve, answerQuestion, setControllerMode,
+    send, runShell, notice, cancel, approve, answerQuestion, answerAutoLearn, setControllerMode,
     newSession, listSessions, listTrashedSessions, resumeSession, previewSession, deleteSession, restoreSession, purgeTrashedSession, renameSession,
     refreshMeta, pickWorkspace, switchWorkspace, compact, rewind, setModel, setEffort,
     fetchMemory, remember, forget, saveDoc,

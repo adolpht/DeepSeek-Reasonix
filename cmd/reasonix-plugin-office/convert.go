@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"reasonix/internal/proc"
 )
 
 // mdToPDFTool converts Markdown (or a markdown-ish docx/html input pandoc can
@@ -84,6 +86,7 @@ func runMDToPDF(args map[string]any) (any, error) {
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+	proc.HideWindow(cmd)
 	if err := cmd.Run(); err != nil {
 		stderrTrim := strings.TrimSpace(stderr.String())
 		if stderrTrim != "" {

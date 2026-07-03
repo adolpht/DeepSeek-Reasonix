@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { FileText, Table, BarChart3, Code2, Search, ExternalLink, Download, Pencil, ArrowUpDown, Filter, Check } from "lucide-react";
+import { FileText, Table, BarChart3, Code2, Search, ExternalLink, Download, Pencil, ArrowUpDown, Filter, Check, Eye } from "lucide-react";
 import { app } from "../lib/bridge";
 import { useT } from "../lib/i18n";
 import { CodeViewer } from "./CodeViewer";
@@ -30,6 +30,7 @@ export interface RichToolCardProps {
   onOpen?: () => void;
   onExport?: () => void;
   onApplyChanges?: () => void;
+  onPreview?: (path: string, kind: string) => void;
 }
 
 // ── Kind → icon mapping ────────────────────────────────────────────────────
@@ -257,6 +258,7 @@ export function RichToolCard(props: RichToolCardProps) {
     onOpen,
     onExport,
     onApplyChanges,
+    onPreview,
   } = props;
 
   const t = useT();
@@ -307,8 +309,14 @@ export function RichToolCard(props: RichToolCardProps) {
       </div>
 
       {/* footer (shared actions for document / spreadsheet / chart) */}
-      {(kind === "document" || kind === "spreadsheet" || kind === "chart") && (onOpen || onExport) && (
+      {(kind === "document" || kind === "spreadsheet" || kind === "chart") && (onOpen || onExport || onPreview) && (
         <div className="rich-tool-card__footer">
+          {onPreview && filePath && (
+            <button className="chip" onClick={() => onPreview(filePath, kind)}>
+              <Eye size={14} />
+              <span>{t("richToolCard.preview")}</span>
+            </button>
+          )}
           {onOpen && (
             <button className="chip" onClick={onOpen}>
               <ExternalLink size={14} />

@@ -3,6 +3,82 @@ import { useT } from "../lib/i18n";
 import type { WireApproval } from "../lib/types";
 import { PromptAction, PromptDetailToggle, PromptShelf } from "./PromptShelf";
 
+function summarizeSideEffect(toolName: string, subject: string): string | null {
+  if (!subject.trim()) return null;
+
+  const trimmed = subject.trim();
+  let args: Record<string, unknown> | null = null;
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        args = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // not valid JSON; fall through to plain-text handling
+    }
+  }
+
+  const pickStr = (obj: Record<string, unknown>, keys: string[]): string | null => {
+    for (const k of keys) {
+      const v = obj[k];
+      if (typeof v === "string" && v.trim()) return v.trim();
+      if (Array.isArray(v) && v.length > 0) {
+        const joined = v.filter((x): x is string => typeof x === "string").join(", ");
+        if (joined.trim()) return joined.trim();
+      }
+    }
+    return null;
+  };
+
+  const truncate = (s: string, max = 120): string => {
+    const t = s.trim();
+    return t.length > max ? t.slice(0, max - 1) + "…" : t;
+  };
+
+  const tool = toolName.toLowerCase();
+
+  if (args) {
+    if (tool === "write_file" || tool === "edit_file" || tool === "create_file") {
+      const p = pickStr(args, ["file_path", "path", "file", "filename"]);
+      if (p) return p;
+    }
+    if (tool === "run_shell" || tool === "bash" || tool === "shell") {
+      const c = pickStr(args, ["command", "cmd", "script"]);
+      if (c) return truncate(c, 120);
+    }
+    if (tool === "mcp__office__write_docx") {
+      const p = pickStr(args, ["path", "file_path", "output_path"]);
+      if (p) return p;
+    }
+    if (tool === "mcp__sheet__write_sheet") {
+      const p = pickStr(args, ["path", "file_path", "output_path"]);
+      if (p) return p;
+    }
+    if (tool === "mcp__slides__create_ppt" || tool === "mcp__slides__add_slide") {
+      const p = pickStr(args, ["output_path", "ppt_path", "path"]);
+      if (p) return p;
+    }
+    if (tool === "mcp__mail__send_mail") {
+      const to = pickStr(args, ["to", "recipient", "recipients"]);
+      if (to) return truncate(to, 80);
+    }
+    if (tool === "mcp__im__send_message") {
+      const platform = pickStr(args, ["platform", "channel"]);
+      const content = pickStr(args, ["content", "message", "text"]);
+      if (platform && content) return `[${platform}] ${truncate(content, 80)}`;
+      if (content) return truncate(content, 120);
+      if (platform) return platform;
+    }
+    // generic fallback for other write tools
+    const generic = pickStr(args, ["path", "file", "file_path", "output", "output_path", "target"]);
+    if (generic) return generic;
+  }
+
+  // plain text fallback
+  return truncate(trimmed.replace(/\s+/g, " "), 120);
+}
+
 export function ApprovalModal({
   approval,
   onAnswer,
@@ -23,6 +99,7 @@ export function ApprovalModal({
   const isPlanApproval = approval.tool === "exit_plan_mode";
   const subject = approval.subject.trim();
   const subjectSummary = subject.split("\n").find((line) => line.trim())?.trim() ?? "";
+  const summary = summarizeSideEffect(approval.tool, subject);
 
   const choosePlanAction = (key: string) => {
     if (key === "1") setRevisionOpen((open) => !open);
@@ -148,6 +225,12 @@ export function ApprovalModal({
         </>
       }
     >
+      {summary && (
+        <div className="approval__summary" role="note">
+          <span className="approval__summary-label">{t("approval.sideEffect")}</span>
+          <span className="approval__summary-text">{summary}</span>
+        </div>
+      )}
       {detailsOpen && subject && (
         <pre className="approval-subject">{subject}</pre>
       )}

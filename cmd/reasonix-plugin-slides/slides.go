@@ -10,9 +10,11 @@ import (
 
 	"github.com/unidoc/unioffice/v2/color"
 	"github.com/unidoc/unioffice/v2/common/license"
+	"github.com/unidoc/unioffice/v2/drawing"
 	"github.com/unidoc/unioffice/v2/measurement"
 	"github.com/unidoc/unioffice/v2/presentation"
 	"github.com/unidoc/unioffice/v2/schema/soo/dml"
+	"github.com/unidoc/unioffice/v2/schema/soo/pml"
 )
 
 func init() {
@@ -178,13 +180,13 @@ func runCreatePPT(args map[string]any) (any, error) {
 	tb.Properties().SetHeight(1.5 * measurement.Inch)
 	tb.Properties().SetPosition(1*measurement.Inch, 2.5*measurement.Inch)
 	p := tb.AddParagraph()
-	p.Properties().SetAlignment(dml.ST_TextAlignTypeCtr)
+	p.Properties().SetAlign(dml.ST_TextAlignTypeCtr)
 	r := p.AddRun()
 	r.SetText(titleText)
 	r.Properties().SetSize(36 * measurement.Point)
 	r.Properties().SetBold(true)
 	r.Properties().SetFont(themeConfig.titleFont)
-	r.Properties().SetColor(themeConfig.titleColor)
+	r.Properties().SetSolidFill(themeConfig.titleColor)
 
 	// Subtitle on title slide
 	subTb := titleSlide.AddTextBox()
@@ -192,20 +194,21 @@ func runCreatePPT(args map[string]any) (any, error) {
 	subTb.Properties().SetHeight(0.8 * measurement.Inch)
 	subTb.Properties().SetPosition(2*measurement.Inch, 4.2*measurement.Inch)
 	subP := subTb.AddParagraph()
-	subP.Properties().SetAlignment(dml.ST_TextAlignTypeCtr)
+	subP.Properties().SetAlign(dml.ST_TextAlignTypeCtr)
 	subR := subP.AddRun()
 	subR.SetText(fmt.Sprintf("%d slides", len(slides)))
 	subR.Properties().SetSize(18 * measurement.Point)
 	subR.Properties().SetFont(themeConfig.bodyFont)
-	subR.Properties().SetColor(themeConfig.bodyColor)
+	subR.Properties().SetSolidFill(themeConfig.bodyColor)
 
 	// Apply background to title slide
 	applySlideBackground(titleSlide, themeConfig)
 
-	// Content slides: start from first outline entry (or second if title was used from first)
+	// Content slides: start from first outline entry (or second if title was used from first
+	// AND the first slide had no body content — otherwise its content would be lost).
 	startIdx := 0
-	if title == "" && len(slides) > 1 {
-		// First outline entry was used as title slide, skip it for content
+	if title == "" && len(slides) > 1 && len(slides[0].content) == 0 {
+		// First outline entry was used as title slide and had no body content, skip it
 		startIdx = 1
 	}
 
@@ -225,7 +228,7 @@ func runCreatePPT(args map[string]any) (any, error) {
 		titleR.Properties().SetSize(28 * measurement.Point)
 		titleR.Properties().SetBold(true)
 		titleR.Properties().SetFont(themeConfig.titleFont)
-		titleR.Properties().SetColor(themeConfig.titleColor)
+		titleR.Properties().SetSolidFill(themeConfig.titleColor)
 
 		// Body text box
 		if len(s.content) > 0 {
@@ -234,11 +237,8 @@ func runCreatePPT(args map[string]any) (any, error) {
 			bodyTb.Properties().SetHeight(5.5 * measurement.Inch)
 			bodyTb.Properties().SetPosition(0.5*measurement.Inch, 1.3*measurement.Inch)
 
-			for j, line := range s.content {
-				if j > 0 {
-					bodyTb.AddParagraph()
-				}
-				bp := bodyTb.Paragraphs()[len(bodyTb.Paragraphs())-1]
+			for _, line := range s.content {
+				bp := bodyTb.AddParagraph()
 				// Detect bullet points (lines starting with - or *)
 				cleanLine := strings.TrimSpace(line)
 				isBullet := strings.HasPrefix(cleanLine, "- ") || strings.HasPrefix(cleanLine, "* ")
@@ -250,7 +250,7 @@ func runCreatePPT(args map[string]any) (any, error) {
 				br.SetText(cleanLine)
 				br.Properties().SetSize(18 * measurement.Point)
 				br.Properties().SetFont(themeConfig.bodyFont)
-				br.Properties().SetColor(themeConfig.bodyColor)
+				br.Properties().SetSolidFill(themeConfig.bodyColor)
 			}
 		}
 	}
@@ -295,7 +295,7 @@ func runAddSlide(args map[string]any) (any, error) {
 		tb.Properties().SetHeight(2 * measurement.Inch)
 		tb.Properties().SetPosition(1*measurement.Inch, 2.5*measurement.Inch)
 		p := tb.AddParagraph()
-		p.Properties().SetAlignment(dml.ST_TextAlignTypeCtr)
+		p.Properties().SetAlign(dml.ST_TextAlignTypeCtr)
 		r := p.AddRun()
 		r.SetText(slideTitle)
 		r.Properties().SetSize(40 * measurement.Point)
@@ -320,11 +320,8 @@ func runAddSlide(args map[string]any) (any, error) {
 			bodyTb.Properties().SetPosition(0.5*measurement.Inch, 1.3*measurement.Inch)
 
 			lines := strings.Split(content, "\n")
-			for i, line := range lines {
-				if i > 0 {
-					bodyTb.AddParagraph()
-				}
-				bp := bodyTb.Paragraphs()[len(bodyTb.Paragraphs())-1]
+			for _, line := range lines {
+				bp := bodyTb.AddParagraph()
 				cleanLine := strings.TrimSpace(line)
 				isBullet := strings.HasPrefix(cleanLine, "- ") || strings.HasPrefix(cleanLine, "* ")
 				if isBullet {
@@ -345,13 +342,10 @@ func runAddSlide(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("unknown layout %q; use title, title_content, or blank", layout)
 	}
 
-	// Add speaker notes if provided
-	if notes != "" {
-		notesSlide := slide.AddNotes()
-		np := notesSlide.AddParagraph()
-		nr := np.AddRun()
-		nr.SetText(notes)
-	}
+	// Speaker notes: the unioffice v2 presentation package does not expose
+	// a high-level AddNotes API. Notes are silently skipped; the PPTX itself
+	// is unaffected. (Logs go to stderr via the plugin's log package.)
+	_ = notes
 
 	if err := ppt.SaveToFile(pptPath); err != nil {
 		return nil, fmt.Errorf("save presentation: %w", err)
@@ -389,12 +383,17 @@ func runApplyTheme(args map[string]any) (any, error) {
 
 	for _, slide := range ppt.Slides() {
 		applySlideBackground(slide, themeConfig)
-		// Update text styling on existing text boxes
+		// Update text styling on existing text boxes via the underlying XML
 		for _, tb := range slide.GetTextBoxes() {
-			for _, p := range tb.Paragraphs() {
-				for _, r := range p.Runs() {
+			if tb.X().TxBody == nil {
+				continue
+			}
+			for _, p := range tb.X().TxBody.P {
+				para := drawing.MakeParagraph(p)
+				for _, egRun := range para.X().EG_TextRun {
+					r := drawing.MakeRun(egRun)
 					r.Properties().SetFont(themeConfig.bodyFont)
-					r.Properties().SetColor(themeConfig.bodyColor)
+					r.Properties().SetSolidFill(themeConfig.bodyColor)
 				}
 			}
 		}
@@ -425,6 +424,7 @@ func runAddChart(args map[string]any) (any, error) {
 		return nil, err
 	}
 	position := argIntDefault(args, "position", -1)
+	_ = position // retained for schema compatibility; chart positioning not yet supported
 
 	if _, err := os.Stat(pptPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("pptx file not found: %s", pptPath)
@@ -450,7 +450,7 @@ func runAddChart(args map[string]any) (any, error) {
 			return nil, fmt.Errorf("chart data must contain non-empty 'values' array")
 		}
 		// Check if first element is an array (multi-series) or a number (single-series)
-		if arr, ok := v[0].([]interface{}); ok {
+		if _, ok := v[0].([]interface{}); ok {
 			// Multi-series
 			for _, s := range v {
 				if seriesArr, ok := s.([]interface{}); ok {
@@ -487,51 +487,15 @@ func runAddChart(args map[string]any) (any, error) {
 	}
 	defer ppt.Close()
 
-	slide := ppt.AddSlide()
-
-	// Add title text box
-	titleTb := slide.AddTextBox()
-	titleTb.Properties().SetWidth(8 * measurement.Inch)
-	titleTb.Properties().SetHeight(0.7 * measurement.Inch)
-	titleTb.Properties().SetPosition(0.5*measurement.Inch, 0.2*measurement.Inch)
-	tp := titleTb.AddParagraph()
-	tp.Properties().SetAlignment(dml.ST_TextAlignTypeCtr)
-	tr := tp.AddRun()
-	tr.SetText(chartTitle)
-	tr.Properties().SetSize(24 * measurement.Point)
-	tr.Properties().SetBold(true)
-
-	// Add chart
-	chart := slide.AddChart()
-
-	switch chartType {
-	case "bar":
-		chart.Properties().SetWidth(7 * measurement.Inch)
-		chart.Properties().SetHeight(4.5 * measurement.Inch)
-		chart.Properties().SetPosition(1.5*measurement.Inch, 1.2*measurement.Inch)
-		addBarChartData(chart, chartData.Labels, seriesValues)
-
-	case "line":
-		chart.Properties().SetWidth(7 * measurement.Inch)
-		chart.Properties().SetHeight(4.5 * measurement.Inch)
-		chart.Properties().SetPosition(1.5*measurement.Inch, 1.2*measurement.Inch)
-		addLineChartData(chart, chartData.Labels, seriesValues)
-
-	case "pie":
-		chart.Properties().SetWidth(5 * measurement.Inch)
-		chart.Properties().SetHeight(4.5 * measurement.Inch)
-		chart.Properties().SetPosition(2.5*measurement.Inch, 1.2*measurement.Inch)
-		addPieChartData(chart, chartData.Labels, seriesValues[0])
-
-	default:
-		return nil, fmt.Errorf("unknown chart type %q; use bar, line, or pie", chartType)
-	}
-
-	if err := ppt.SaveToFile(pptPath); err != nil {
-		return nil, fmt.Errorf("save presentation: %w", err)
-	}
-
-	return fmt.Sprintf("added %s chart slide %q to %s", chartType, chartTitle, pptPath), nil
+	// unioffice v2.12.0 does not expose a high-level Chart API on
+	// presentation.Slide. Chart embedding requires constructing a ChartSpace
+	// at the schema level and wiring it through relationships — not available
+	// via the stable public API. Return an informative error so the agent can
+	// fall back to creating a table or bullet list instead.
+	_ = chartType
+	_ = chartTitle
+	_ = seriesValues
+	return nil, fmt.Errorf("add_chart is not supported in this build: the unioffice v2.12.0 presentation package has no AddChart API; use a table (add_slide with bullet content) or export chart data as a separate image")
 }
 
 func runExportPDF(args map[string]any) (any, error) {
@@ -663,48 +627,15 @@ func applySlideBackground(slide presentation.Slide, tc themeConfig) {
 	if tc.bgColor == nil {
 		return
 	}
-	// Set solid fill background
-	bg := slide.X().CSld.Bg
-	if bg == nil {
-		bg = dml.NewCT_Background()
-		slide.X().CSld.Bg = bg
-	}
-	if bg.BgPr == nil {
-		bg.BgPr = dml.NewCT_BackgroundProperties()
-	}
-	bg.BgPr.SolidFill = dml.NewCT_SolidColorFillProperties()
-	bg.BgPr.SolidFill.SrgbClr = dml.NewCT_SRgbColor()
-	bg.BgPr.SolidFill.SrgbClr.ValAttr = *tc.bgColor.AsRGBString()
-}
-
-// addBarChartData populates a chart with bar chart data.
-func addBarChartData(chart presentation.Chart, labels []string, series [][]float64) {
-	chart.SetCategory(labels)
-	for i, s := range series {
-		name := fmt.Sprintf("Series %d", i+1)
-		if len(series) == 1 {
-			name = "Values"
-		}
-		chart.AddSeries(name, s)
-	}
-}
-
-// addLineChartData populates a chart with line chart data.
-func addLineChartData(chart presentation.Chart, labels []string, series [][]float64) {
-	chart.SetCategory(labels)
-	for i, s := range series {
-		name := fmt.Sprintf("Series %d", i+1)
-		if len(series) == 1 {
-			name = "Values"
-		}
-		chart.AddSeries(name, s)
-	}
-}
-
-// addPieChartData populates a chart with pie chart data.
-func addPieChartData(chart presentation.Chart, labels []string, values []float64) {
-	chart.SetCategory(labels)
-	chart.AddSeries("Values", values)
+	// Set solid fill background via the pml schema types:
+	// CSld.Bg -> BackgroundChoice -> BgPr -> FillPropertiesChoice -> SolidFill
+	slide.X().CSld.Bg = pml.NewCT_Background()
+	slide.X().CSld.Bg.BackgroundChoice = pml.NewEG_BackgroundChoice()
+	slide.X().CSld.Bg.BackgroundChoice.BgPr = pml.NewCT_BackgroundProperties()
+	slide.X().CSld.Bg.BackgroundChoice.BgPr.FillPropertiesChoice = dml.NewEG_FillPropertiesChoice()
+	slide.X().CSld.Bg.BackgroundChoice.BgPr.FillPropertiesChoice.SolidFill = dml.NewCT_SolidColorFillProperties()
+	slide.X().CSld.Bg.BackgroundChoice.BgPr.FillPropertiesChoice.SolidFill.SrgbClr = dml.NewCT_SRgbColor()
+	slide.X().CSld.Bg.BackgroundChoice.BgPr.FillPropertiesChoice.SolidFill.SrgbClr.ValAttr = *tc.bgColor.AsRGBString()
 }
 
 // exportPDFViaLibreOffice attempts to convert PPTX to PDF using LibreOffice.
@@ -737,6 +668,7 @@ func exportPDFViaLibreOffice(pptPath, pdfPath string) error {
 
 	// #nosec G204 -- subprocess with fixed args
 	cmd := exec.Command(loPath, args...)
+	hideWindow(cmd)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {

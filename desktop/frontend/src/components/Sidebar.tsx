@@ -15,8 +15,12 @@ import {
   Brain,
   Calendar,
   ListChecks,
-  Rss,
+  Workflow,
+  GitBranch,
   PanelLeftOpen,
+  Newspaper,
+  SquareTerminal,
+  Palette,
 } from "lucide-react";
 import type { WorkspaceType } from "../lib/types";
 import { useT } from "../lib/i18n";
@@ -25,22 +29,51 @@ import { OfficePanel } from "./OfficePanel";
 import { Tooltip } from "./Tooltip";
 
 // ── Sidebar section (collapsible) ──────────────────────────────
+function loadSectionCollapsed(storageKey: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(`reasonix.sidebar.section.${storageKey}`) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveSectionCollapsed(storageKey: string, collapsed: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(`reasonix.sidebar.section.${storageKey}`, collapsed ? "1" : "0");
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
 function SidebarSection({
   title,
   defaultCollapsed = false,
+  storageKey,
   children,
 }: {
   title: string;
   defaultCollapsed?: boolean;
+  storageKey?: string;
   children: React.ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [collapsed, setCollapsed] = useState(() =>
+    storageKey ? loadSectionCollapsed(storageKey) : defaultCollapsed
+  );
+  const toggle = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      if (storageKey) saveSectionCollapsed(storageKey, next);
+      return next;
+    });
+  };
   return (
     <section className="sidebar__section sidebar__section--group">
       <button
         type="button"
         className="sidebar__section-header"
-        onClick={() => setCollapsed((c) => !c)}
+        onClick={toggle}
       >
         {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
         <span>{title}</span>
@@ -56,15 +89,21 @@ function SidebarNavItem({
   label,
   tooltipDisabled,
   onClick,
+  active = false,
 }: {
   icon: React.ReactNode;
   label: string;
   tooltipDisabled: boolean;
   onClick: () => void;
+  active?: boolean;
 }) {
   return (
     <Tooltip label={label} fill side="right" disabled={tooltipDisabled}>
-      <button className="sidebar__navitem" onClick={onClick}>
+      <button
+        className={`sidebar__navitem${active ? " sidebar__navitem--active" : ""}`}
+        onClick={onClick}
+        aria-current={active ? "page" : undefined}
+      >
         {icon}
         <span>{label}</span>
       </button>
@@ -87,6 +126,8 @@ export interface SidebarProps {
 
   // Home
   onNavigate: (page: string) => void;
+  /** Current navPage (or null) — used to highlight the active sidebar item. */
+  activePage?: string | null;
 
   // ProjectTree
   activeScope?: string;
@@ -104,7 +145,7 @@ export interface SidebarProps {
   onOpenTemplates: () => void;
 
   // Settings tab navigation (for plugin management)
-  onOpenSettingsTab: (tab: "mcp" | "skills") => void;
+  onOpenSettingsTab: (tab: "mcp" | "skills" | "officePlugins") => void;
 
   // Bottom nav
   onOpenRepoWiki: () => void;
@@ -122,6 +163,7 @@ export function Sidebar({
   onNewSession,
   isRunning,
   onNavigate,
+  activePage,
   activeScope,
   activeWorkspaceRoot,
   activeTopicId,
@@ -164,19 +206,48 @@ export function Sidebar({
             </Tooltip>
           )}
           {workspaceType === "office" && (
-            <Tooltip label={t("sidebar.templates")} side="right">
-              <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onOpenTemplates(); }}>
-                <FileText size={16} />
-              </button>
-            </Tooltip>
+            <>
+              <Tooltip label={t("officePanel.productDesign")} side="right">
+                <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onActivateSkill("product-design"); }}>
+                  <Palette size={16} />
+                </button>
+              </Tooltip>
+              <Tooltip label={t("sidebar.templates")} side="right">
+                <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onOpenTemplates(); }}>
+                  <FileText size={16} />
+                </button>
+              </Tooltip>
+            </>
           )}
           {workspaceType === "assistant" && (
-            <Tooltip label={t("sidebar.assistantTodos")} side="right">
-              <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("todos"); }}>
-                <ListChecks size={16} />
-              </button>
-            </Tooltip>
+            <>
+              <Tooltip label={t("sidebar.dailyBrief")} side="right">
+                <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("dailyBrief"); }}>
+                  <Newspaper size={16} />
+                </button>
+              </Tooltip>
+              <Tooltip label={t("sidebar.assistantTodos")} side="right">
+                <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("todos"); }}>
+                  <ListChecks size={16} />
+                </button>
+              </Tooltip>
+            </>
           )}
+          <Tooltip label={t("sidebar.trace")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("trace"); }}>
+              <Workflow size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t("sidebar.workflow")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("workflow"); }}>
+              <GitBranch size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t("sidebar.terminal")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("terminal"); }}>
+              <SquareTerminal size={16} />
+            </button>
+          </Tooltip>
           <Tooltip label={t("sidebar.allHistory")} side="right">
             <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); void onOpenAllHistory(); }}>
               <History size={16} />
@@ -209,17 +280,18 @@ export function Sidebar({
       </Tooltip>
 
       {/* ── 首页 (Home) ── */}
-      <SidebarSection title={t("sidebar.home")}>
+      <SidebarSection title={t("sidebar.home")} storageKey="home">
         <SidebarNavItem
           icon={<Home size={15} />}
           label={t("sidebar.home")}
           tooltipDisabled={navTooltipDisabled}
           onClick={() => onNavigate("home")}
+          active={activePage === "home"}
         />
       </SidebarSection>
 
       {/* ── 工作台 (Workbench) — dynamic by workspaceType ── */}
-      <SidebarSection title={t("sidebar.workbench")}>
+      <SidebarSection title={t("sidebar.workbench")} storageKey="workbench">
         {workspaceType === "coding" && (
           <>
             <ProjectTree
@@ -246,29 +318,32 @@ export function Sidebar({
         {workspaceType === "assistant" && (
           <div className="sidebar__placeholder">
             <SidebarNavItem
+              icon={<Newspaper size={15} />}
+              label={t("sidebar.dailyBrief")}
+              tooltipDisabled={navTooltipDisabled}
+              onClick={() => onNavigate("dailyBrief")}
+              active={activePage === "dailyBrief"}
+            />
+            <SidebarNavItem
               icon={<Calendar size={15} />}
               label={t("sidebar.assistantSchedule")}
               tooltipDisabled={navTooltipDisabled}
               onClick={() => onNavigate("calendar")}
+              active={activePage === "calendar"}
             />
             <SidebarNavItem
               icon={<ListChecks size={15} />}
               label={t("sidebar.assistantTodos")}
               tooltipDisabled={navTooltipDisabled}
               onClick={() => onNavigate("todos")}
-            />
-            <SidebarNavItem
-              icon={<Rss size={15} />}
-              label={t("sidebar.assistantFeed")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={() => onNavigate("feed")}
+              active={activePage === "todos"}
             />
           </div>
         )}
       </SidebarSection>
 
       {/* ── 资源 (Resources) — dynamic by workspaceType ── */}
-      <SidebarSection title={t("sidebar.resources")}>
+      <SidebarSection title={t("sidebar.resources")} storageKey="resources">
         {workspaceType === "coding" && (
           <>
             <SidebarNavItem
@@ -281,7 +356,7 @@ export function Sidebar({
               icon={<Puzzle size={15} />}
               label={t("sidebar.devPlugins")}
               tooltipDisabled={navTooltipDisabled}
-              onClick={() => onOpenSettingsTab("mcp")}
+              onClick={() => onOpenSettingsTab("officePlugins")}
             />
           </>
         )}
@@ -297,7 +372,7 @@ export function Sidebar({
               icon={<Puzzle size={15} />}
               label={t("sidebar.officePlugins")}
               tooltipDisabled={navTooltipDisabled}
-              onClick={() => onOpenSettingsTab("mcp")}
+              onClick={() => onOpenSettingsTab("officePlugins")}
             />
           </>
         )}
@@ -313,26 +388,45 @@ export function Sidebar({
               icon={<Puzzle size={15} />}
               label={t("sidebar.lifePlugins")}
               tooltipDisabled={navTooltipDisabled}
-              onClick={() => onOpenSettingsTab("mcp")}
+              onClick={() => onOpenSettingsTab("officePlugins")}
             />
           </>
         )}
       </SidebarSection>
 
       {/* ── 管理 (Management) ── */}
-      <SidebarSection title={t("sidebar.management")}>
-        <SidebarNavItem
-          icon={<History size={15} />}
-          label={t("sidebar.allHistory")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => void onOpenAllHistory()}
-        />
+      <SidebarSection title={t("sidebar.management")} storageKey="management">
+        {/* 子分组1：任务管理 */}
         <SidebarNavItem
           icon={<Clock size={15} />}
           label={t("sidebar.scheduledTasks")}
           tooltipDisabled={navTooltipDisabled}
           onClick={() => onNavigate("scheduled")}
+          active={activePage === "scheduled"}
         />
+        <SidebarNavItem
+          icon={<SquareTerminal size={15} />}
+          label={t("sidebar.terminal")}
+          tooltipDisabled={navTooltipDisabled}
+          onClick={() => onNavigate("terminal")}
+          active={activePage === "terminal"}
+        />
+        <SidebarNavItem
+          icon={<Workflow size={15} />}
+          label={t("sidebar.trace")}
+          tooltipDisabled={navTooltipDisabled}
+          onClick={() => onNavigate("trace")}
+          active={activePage === "trace"}
+        />
+        <SidebarNavItem
+          icon={<GitBranch size={15} />}
+          label={t("sidebar.workflow")}
+          tooltipDisabled={navTooltipDisabled}
+          onClick={() => onNavigate("workflow")}
+          active={activePage === "workflow"}
+        />
+        <div className="sidebar__subgroup-divider" />
+        {/* 子分组2：记忆与历史 */}
         <SidebarNavItem
           icon={<Brain size={15} />}
           label={t("sidebar.memory")}
@@ -346,11 +440,19 @@ export function Sidebar({
           onClick={onOpenRepoWiki}
         />
         <SidebarNavItem
+          icon={<History size={15} />}
+          label={t("sidebar.allHistory")}
+          tooltipDisabled={navTooltipDisabled}
+          onClick={() => void onOpenAllHistory()}
+        />
+        <SidebarNavItem
           icon={<Trash2 size={15} />}
           label={t("sidebar.trash")}
           tooltipDisabled={navTooltipDisabled}
           onClick={() => void onOpenTrash()}
         />
+        <div className="sidebar__subgroup-divider" />
+        {/* 子分组3：系统 */}
         <SidebarNavItem
           icon={<SettingsIcon size={15} />}
           label={t("topbar.settings")}

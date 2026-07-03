@@ -35,7 +35,7 @@ export function ModeSwitcher({
             aria-selected={active}
             className={`mode-switcher__btn${active ? " mode-switcher__btn--active" : ""}`}
             onClick={() => onChange(mode.value)}
-            title={t(mode.labelKey as any)}
+            title={t(`modeSwitcher.${mode.value}Hint` as any)}
           >
             <span className="mode-switcher__icon">{mode.icon}</span>
             <span className="mode-switcher__label">{t(mode.labelKey as any)}</span>

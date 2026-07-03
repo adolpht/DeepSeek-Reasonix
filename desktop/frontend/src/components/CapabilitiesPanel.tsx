@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { MessageSquare, Mail, Calendar, FileText, Table, Presentation, Search } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app, openExternal } from "../lib/bridge";
-import { useT } from "../lib/i18n";
+import { useI18n, useT, type Locale } from "../lib/i18n";
 import type { CapabilitiesView, MCPServerInput, ServerView, SkillRootSkillView, SkillRootView, SkillView } from "../lib/types";
 import { InlineConfirmButton } from "./InlineConfirmButton";
 import { ResizableDrawer } from "./ResizableDrawer";
@@ -1522,14 +1523,422 @@ export function SkillsSettingsPage() {
 						<SkillRow
 							key={sk.name}
 							skill={sk}
-							busy={busy}
-							expanded={expandedSkills.has(sk.name)}
-							onToggle={() => toggleSkill(sk.name)}
-							onToggleEnabled={(enabled) => void mutate(() => app.SetSkillEnabled(sk.name, enabled))}
-						/>
-					))}
+						busy={busy}
+						expanded={expandedSkills.has(sk.name)}
+						onToggle={() => toggleSkill(sk.name)}
+						onToggleEnabled={(enabled) => void mutate(() => app.SetSkillEnabled(sk.name, enabled))}
+					/>
+				))}
+			</div>
+		)}
+	</section>
+	);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OfficePluginsSettingsPage — a dedicated settings page listing the official
+// office-flavoured MCP plugins (IM, mail, calendar, office docs, sheet, slides,
+// search) with one-click enable and a simplified env-var form. It reuses the
+// generic AddMCPServer/UpdateMCPServer/RemoveMCPServer/SetMCPServerEnabled
+// bridge calls — no backend changes required — but presents each plugin with
+// only the env variables it actually needs (sourced from each plugin's main.go
+// header comment) instead of the generic KEY=VALUE textarea.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type LocalizedText = { zh: string; en: string };
+
+type OfficePluginEnvVar = {
+	key: string;
+	label: LocalizedText;
+	hint?: LocalizedText;
+	placeholder?: LocalizedText;
+	required?: boolean;
+	secret?: boolean;
+};
+
+type OfficePluginDef = {
+	id: string;        // plugin name in reasonix.toml [[plugins]].name
+	command: string;   // reasonix-plugin-<id>
+	icon: ReactNode;
+	color: string;     // accent class suffix for the left stripe
+	title: LocalizedText;
+	desc: LocalizedText;
+	envVars: OfficePluginEnvVar[];
+};
+
+const OFFICE_PLUGINS: OfficePluginDef[] = [
+	{
+		id: "im",
+		command: "reasonix-plugin-im",
+		icon: <MessageSquare size={16} />,
+		color: "blue",
+		title: { zh: "IM 即时通讯", en: "IM Messaging" },
+		desc: {
+			zh: "接收企业微信 / 飞书 / 钉钉的远程指令并回推执行结果。",
+			en: "Receive remote commands from WeCom / Feishu / DingTalk and push results back.",
+		},
+		envVars: [
+			{ key: "IM_BOT_PORT", label: { zh: "HTTP 监听端口", en: "HTTP listen port" }, placeholder: { zh: "9876", en: "9876" } },
+			{ key: "IM_WECOM_KEY", label: { zh: "企业微信 Webhook Key", en: "WeCom Webhook Key" }, secret: true },
+			{ key: "IM_FEISHU_KEY", label: { zh: "飞书 Webhook Key", en: "Feishu Webhook Key" }, secret: true },
+			{ key: "IM_DINGTALK_KEY", label: { zh: "钉钉 Access Token", en: "DingTalk Access Token" }, secret: true },
+			{ key: "IM_DINGTALK_SECRET", label: { zh: "钉钉签名密钥", en: "DingTalk Sign Secret" }, secret: true },
+		],
+	},
+	{
+		id: "mail",
+		command: "reasonix-plugin-mail",
+		icon: <Mail size={16} />,
+		color: "green",
+		title: { zh: "邮件", en: "Mail" },
+		desc: {
+			zh: "通过 IMAP 读取邮件、SMTP 发送邮件,支持分类与搜索。",
+			en: "Read mail via IMAP, send via SMTP, with classify and search tools.",
+		},
+		envVars: [
+			{ key: "MAIL_IMAP_HOST", label: { zh: "IMAP 服务器地址", en: "IMAP server address" }, placeholder: { zh: "imap.gmail.com:993", en: "imap.gmail.com:993" }, required: true },
+			{ key: "MAIL_IMAP_USER", label: { zh: "IMAP 用户名", en: "IMAP username" }, required: true },
+			{ key: "MAIL_IMAP_PASS", label: { zh: "IMAP 密码 / 应用专用密码", en: "IMAP password / App Password" }, secret: true, required: true },
+			{ key: "MAIL_SMTP_HOST", label: { zh: "SMTP 服务器地址", en: "SMTP server address" }, placeholder: { zh: "smtp.gmail.com:587", en: "smtp.gmail.com:587" } },
+			{ key: "MAIL_SMTP_USER", label: { zh: "SMTP 用户名", en: "SMTP username" } },
+			{ key: "MAIL_SMTP_PASS", label: { zh: "SMTP 密码", en: "SMTP password" }, secret: true },
+		],
+	},
+	{
+		id: "calendar",
+		command: "reasonix-plugin-calendar",
+		icon: <Calendar size={16} />,
+		color: "purple",
+		title: { zh: "日历与待办", en: "Calendar & Todo" },
+		desc: {
+			zh: "读写日历事件与管理待办事项(Windows 调用 Outlook,macOS 调用日历)。",
+			en: "Read/write calendar events and manage todos (Outlook on Windows, Calendar on macOS).",
+		},
+		envVars: [],
+	},
+	{
+		id: "office",
+		command: "reasonix-plugin-office",
+		icon: <FileText size={16} />,
+		color: "orange",
+		title: { zh: "文档处理", en: "Documents" },
+		desc: {
+			zh: "读写 docx、Markdown 转 PDF、渲染模板。PDF 转换需系统安装 pandoc。",
+			en: "Read/write docx, Markdown to PDF, render templates. PDF needs pandoc installed.",
+		},
+		envVars: [],
+	},
+	{
+		id: "sheet",
+		command: "reasonix-plugin-sheet",
+		icon: <Table size={16} />,
+		color: "teal",
+		title: { zh: "表格处理", en: "Spreadsheets" },
+		desc: {
+			zh: "读写 xlsx/csv,支持查询、聚合与图表生成。",
+			en: "Read/write xlsx/csv with query, aggregation and chart tools.",
+		},
+		envVars: [],
+	},
+	{
+		id: "slides",
+		command: "reasonix-plugin-slides",
+		icon: <Presentation size={16} />,
+		color: "pink",
+		title: { zh: "幻灯片", en: "Slides" },
+		desc: {
+			zh: "创建与编辑 pptx,支持主题、图表与 PDF 导出。",
+			en: "Create and edit pptx with themes, charts and PDF export.",
+		},
+		envVars: [
+			{
+				key: "UNIDOC_LICENSE_API_KEY",
+				label: { zh: "unidoc 许可证 API Key", en: "unidoc License API Key" },
+				hint: { zh: "可选,缺失时生成的内容会带水印。", en: "Optional; a watermark is added when absent." },
+				secret: true,
+			},
+		],
+	},
+	{
+		id: "search",
+		command: "reasonix-plugin-search",
+		icon: <Search size={16} />,
+		color: "blue",
+		title: { zh: "网页搜索", en: "Web Search" },
+		desc: {
+			zh: "网页搜索、正文抽取与对比表格。web_search 需要 API Key。",
+			en: "Web search, content extraction and comparison tables. web_search needs an API key.",
+		},
+		envVars: [
+			{ key: "SEARCH_API_KEY", label: { zh: "搜索 API Key", en: "Search API Key" }, secret: true, required: true },
+			{
+				key: "SEARCH_API_PROVIDER",
+				label: { zh: "搜索服务提供商", en: "Search provider" },
+				hint: { zh: "可选:serpapi 或 bing", en: "Optional: serpapi or bing" },
+				placeholder: { zh: "serpapi", en: "serpapi" },
+			},
+		],
+	},
+];
+
+function pickLocaleText(kv: LocalizedText, locale: Locale): string {
+	return locale === "zh" ? kv.zh : kv.en;
+}
+
+function officePluginStatusLabel(s: ServerView | undefined, locale: Locale): { text: string; tone: string } {
+	if (!s) return { text: locale === "zh" ? "未配置" : "Not configured", tone: "neutral" };
+	switch (s.status) {
+		case "connected":
+			return { text: locale === "zh" ? "已连接" : "Connected", tone: "project" };
+		case "failed":
+			return { text: locale === "zh" ? "连接失败" : "Failed", tone: "feedback" };
+		case "initializing":
+			return { text: locale === "zh" ? "启动中" : "Initializing", tone: "neutral" };
+		case "deferred":
+			return { text: locale === "zh" ? "待命" : "Deferred", tone: "neutral" };
+		case "disabled":
+			return { text: locale === "zh" ? "已禁用" : "Disabled", tone: "neutral" };
+		default:
+			return { text: s.status, tone: "neutral" };
+	}
+}
+
+// OfficePluginsSettingsPage is a self-contained office-plugin management page
+// embedded inside the settings centre.
+export function OfficePluginsSettingsPage() {
+	const { locale } = useI18n();
+	const t = useT();
+	const [view, setView] = useState<CapabilitiesView | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [err, setErr] = useState<string | null>(null);
+
+	const reload = useCallback(async () => {
+		setView(normalizeCapabilitiesView(await app.Capabilities().catch(() => ({ servers: [], skills: [], skillRoots: [] }))));
+	}, []);
+	useEffect(() => { void reload(); }, [reload]);
+	useEffect(() => {
+		if (!view || !view.servers.some((s) => s.status === "initializing" || s.status === "deferred")) return;
+		const id = window.setInterval(() => void reload(), 2500);
+		return () => window.clearInterval(id);
+	}, [reload, view]);
+
+	const mutate = async (fn: () => Promise<unknown>) => {
+		setBusy(true);
+		setErr(null);
+		try {
+			await fn();
+			await reload();
+			return true;
+		} catch (e) {
+			setErr(String((e as Error)?.message ?? e));
+			await reload();
+			return false;
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const serverByName = useMemo(() => {
+		const m = new Map<string, ServerView>();
+		for (const s of view?.servers ?? []) m.set(s.name, s);
+		return m;
+	}, [view]);
+
+	const configuredCount = useMemo(
+		() => OFFICE_PLUGINS.filter((p) => serverByName.has(p.id)).length,
+		[serverByName],
+	);
+
+	if (!view) return <div className="empty">{t("caps.loading")}</div>;
+
+	return (
+		<section className="mem-section">
+			{err && <div className="banner banner--error">{err}</div>}
+			<div className="drawer__summary" style={{ marginBottom: 12 }}>
+				{locale === "zh"
+					? `已配置 ${configuredCount}/${OFFICE_PLUGINS.length} 个办公插件`
+					: `${configuredCount}/${OFFICE_PLUGINS.length} office plugins configured`}
+			</div>
+			<div className="office-plugins-grid">
+				{OFFICE_PLUGINS.map((def) => (
+					<OfficePluginCard
+						key={def.id}
+						def={def}
+						server={serverByName.get(def.id)}
+						busy={busy}
+						locale={locale}
+						onEnable={(env) => void mutate(() => app.AddMCPServer({
+							name: def.id, transport: "stdio", command: def.command, args: [], url: "", env,
+						}))}
+						onRemove={() => void mutate(() => app.RemoveMCPServer(def.id))}
+						onToggle={(on) => void mutate(() => app.SetMCPServerEnabled(def.id, on))}
+					/>
+				))}
+			</div>
+		</section>
+	);
+}
+
+function OfficePluginCard({
+	def,
+	server,
+	busy,
+	locale,
+	onEnable,
+	onRemove,
+	onToggle,
+}: {
+	def: OfficePluginDef;
+	server: ServerView | undefined;
+	busy: boolean;
+	locale: Locale;
+	onEnable: (env: Record<string, string>) => void;
+	onRemove: () => void;
+	onToggle: (on: boolean) => void;
+}) {
+	const t = useT();
+	const [expanded, setExpanded] = useState(false);
+	const [envDraft, setEnvDraft] = useState<Record<string, string>>({});
+	const configured = Boolean(server?.configured);
+	const status = officePluginStatusLabel(server, locale);
+	const enabled = server?.status === "connected" || server?.status === "deferred" || server?.status === "initializing";
+	const hasEnv = def.envVars.length > 0;
+
+	// For already-configured plugins the backend replaces env wholesale on
+	// UpdateMCPServer, and existing secret values are not readable from the
+	// frontend. Rather than risk silently wiping keys, configured plugins are
+	// managed via enable/disable + remove; credentials are re-entered by
+	// removing and re-adding (mirrors the KeyField "clear + set" pattern).
+	const canSave = !configured && (!hasEnv || def.envVars.every((v) => !v.required || (envDraft[v.key] ?? "").trim() !== ""));
+
+	const handleSave = () => {
+		const env: Record<string, string> = {};
+		for (const v of def.envVars) {
+			const val = (envDraft[v.key] ?? "").trim();
+			if (val) env[v.key] = val;
+		}
+		onEnable(env);
+	};
+
+	return (
+		<article className={`provider-access-card provider-access-card--office provider-access-card--${def.color}`}>
+			<div className="provider-access-card__head">
+				<div className="provider-access-card__identity">
+					<div className="provider-access-card__title">
+						<span className="provider-access-card__icon">{def.icon}</span>
+						{pickLocaleText(def.title, locale)}
+						<span className={`badge badge--${status.tone}`}>{status.text}</span>
+					</div>
+					<div className="provider-access-card__desc">{pickLocaleText(def.desc, locale)}</div>
+				</div>
+				<div className="provider-access-card__actions">
+					{configured ? (
+						<Tooltip label={enabled ? t("caps.disable") : t("caps.enable")}>
+							<label className="cap-switch">
+								<input
+									type="checkbox"
+									checked={enabled}
+									disabled={busy}
+									onChange={(e) => onToggle(e.target.checked)}
+								/>
+								<span className="cap-switch__track" />
+							</label>
+						</Tooltip>
+					) : (
+						<button
+							className="btn btn--primary btn--small"
+							disabled={busy || !canSave}
+							onClick={handleSave}
+						>
+							{locale === "zh" ? "启用" : "Enable"}
+						</button>
+					)}
+				</div>
+			</div>
+
+			<div className="provider-access-meta">
+				<span className="provider-model-chip provider-model-chip--mono">{def.command}</span>
+				{hasEnv ? (
+					<span>{locale === "zh" ? `${def.envVars.length} 个配置项` : `${def.envVars.length} settings`}</span>
+				) : (
+					<span>{locale === "zh" ? "无需配置" : "No setup required"}</span>
+				)}
+			</div>
+
+			{!configured && hasEnv && (
+				<div className="provider-card-block">
+					<button
+						type="button"
+						className="btn btn--small"
+						aria-expanded={expanded}
+						onClick={() => setExpanded((v) => !v)}
+					>
+						{expanded ? t("common.collapse") : (locale === "zh" ? "配置" : "Configure")}
+					</button>
+					{expanded && (
+						<div className="provider-editor provider-editor--office">
+							{def.envVars.map((v) => (
+								<div key={v.key} className="settings-field settings-field--stacked">
+									<div className="settings-field__copy">
+										<div className="settings-field__label">
+											{pickLocaleText(v.label, locale)}
+											{v.required && <span className="badge badge--feedback">*</span>}
+										</div>
+										{v.hint && <div className="settings-field__hint">{pickLocaleText(v.hint, locale)}</div>}
+									</div>
+									<div className="settings-field__control">
+										<input
+											className="mem-input"
+											type={v.secret ? "password" : "text"}
+											placeholder={v.placeholder ? pickLocaleText(v.placeholder, locale) : (v.secret ? "••••••" : "")}
+											value={envDraft[v.key] ?? ""}
+											disabled={busy}
+											onChange={(e) => setEnvDraft((prev) => ({ ...prev, [v.key]: e.target.value }))}
+										/>
+									</div>
+								</div>
+							))}
+							<div className="prov-card__actions">
+								<button
+									className="btn btn--primary btn--small"
+									disabled={busy || !canSave}
+									onClick={handleSave}
+								>
+									{locale === "zh" ? "保存并启用" : "Save & enable"}
+								</button>
+								<button className="btn btn--small" disabled={busy} onClick={() => setExpanded(false)}>
+									{t("common.cancel")}
+								</button>
+							</div>
+						</div>
+					)}
 				</div>
 			)}
-		</section>
+
+			{configured && (
+				<div className="provider-card-block">
+					{hasEnv && (
+						<div className="provider-card-status provider-card-status--warn">
+							{locale === "zh"
+								? "如需修改凭证,请先移除再重新配置。"
+								: "To change credentials, remove and reconfigure."}
+						</div>
+					)}
+					{server?.error && (
+						<div className="provider-card-status provider-card-status--warn">{server.error}</div>
+					)}
+					<div className="prov-card__actions">
+						<InlineConfirmButton
+							label={t("caps.remove")}
+							confirmLabel={t("caps.confirmRemove")}
+							cancelLabel={t("common.cancel")}
+							disabled={busy}
+							danger
+							onConfirm={onRemove}
+						/>
+					</div>
+				</div>
+			)}
+		</article>
 	);
 }

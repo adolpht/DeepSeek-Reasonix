@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/nineya/wordZero/pkg/document"
@@ -45,7 +46,7 @@ func runWriteDocx(args map[string]any) (any, error) {
 		return nil, fmt.Errorf("output path must end with .docx, got %q", path)
 	}
 
-	if dir := strings.TrimSpace(path[:strings.LastIndex(path, "/")]); dir != "" {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			_ = os.MkdirAll(dir, 0o755)
 		}

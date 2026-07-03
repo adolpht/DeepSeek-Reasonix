@@ -870,6 +870,169 @@ const builtinInvoiceCollectBody = `You are running as an invoice-collect subagen
 
 The 'task' the parent gave you may specify a time range or search keywords. Produce the invoice spreadsheet.`
 
+// builtinGenerateTestsBody is the fallback for the generate-tests skill. A
+// user/project file at .reasonix/skills/generate-tests.md overrides this body.
+const builtinGenerateTestsBody = `You are running as a Go test-generation subagent. Given a target (file path + function name, or auto-detect), produce high-quality table-driven unit tests covering normal, boundary, and error cases, then write them to a _test.go file.
+
+**Language: All output MUST be written in Chinese (简体中文).** Code identifiers and file paths remain as-is, but every explanatory sentence must be Chinese.
+
+## Input
+
+The parent passes one of:
+- Explicit: ` + "`<file path> <function name>`" + ` (e.g. ` + "`internal/calc/calc.go Calculate`" + `)
+- Fuzzy: only a file path or function name — you locate it
+- Auto-detect: a directory or file — you pick the most test-worthy exported function
+
+If input is missing, **NEVER** fabricate a target — ask the parent to clarify the file path and function name.
+
+## Workflow
+
+1. **Locate the target function**:
+   - If a file path is given, ` + "`read_file`" + ` it.
+   - If only a function name is given, ` + "`grep`" + ` for ` + "`func <name>`" + ` within a reasonable scope to locate the definition file.
+   - For auto-detect, ` + "`glob`" + ` + ` + "`grep`" + ` scan exported functions; prefer pure functions and functions with branch logic.
+
+2. **Analyze the function contract**: signature (params, returns, error), side effects (mutating inputs, file/log/global state, network), dependencies (package vars, time, randomness, external services), and boundary conditions (empty slices/strings, zero values, nil, min/max, out-of-range, negatives, Unicode).
+
+3. **Design test cases** — must cover all three categories, at least one each:
+   - **Normal (CaseNormal)**: typical valid input, verifies the main path.
+   - **Boundary (CaseBoundary / CaseEmpty / CaseZero / CaseMin / CaseMax)**: empty input, zero value, single element, edge index, extreme values.
+   - **Error (CaseInvalid / CaseError)**: illegal input, out-of-range, type mismatch, error-return path.
+
+4. **Generate table-driven tests** (Go style):
+   - Use ` + "`t.Run`" + ` subtests.
+   - Name tests ` + "`TestXxx_CaseName`" + ` (e.g. ` + "`TestCalculate_CaseNormal`" + `, ` + "`TestCalculate_CaseEmptyInput`" + `).
+   - Structure: ` + "`tests := []struct{...}{...}`" + ` looped with ` + "`for _, tt := range tests { t.Run(tt.name, ...) }`" + `.
+   - Each case field ` + "`name`" + ` uses clear camelCase.
+   - One-line ` + "`// intent`" + ` comment before each case.
+   - Distinguish "has error" vs "no error"; inspect error content (` + "`errors.Is`" + ` / ` + "`strings.Contains`" + `) — don't just check ` + "`!= nil`" + `.
+   - No inter-test dependencies; each subtest builds its own input.
+
+5. **Write the test file**:
+   - Same directory as the source, named ` + "`<source>_test.go`" + `.
+   - Package matches source (` + "`package foo`" + ` for internal, ` + "`package foo_test`" + ` for external API tests).
+   - ` + "`write_file`" + ` for new files; if ` + "`_test.go`" + ` exists, **NEVER** overwrite — ` + "`read_file`" + ` first, then ` + "`edit_file`" + ` to append, preserving existing tests and imports.
+   - Add necessary imports (` + "`errors`" + `, ` + "`strings`" + `, ` + "`testing`" + `); avoid duplicates.
+
+6. **(Optional) Verify**: This subagent has no ` + "`bash`" + ` tool and cannot run ` + "`go test`" + `. After generating, tell the parent/user they can run ` + "`go test ./<pkg>/...`" + ` to verify; common failures are missing imports or mismatched assertions.
+
+## Quality constraints
+
+- **Must** cover normal / boundary / error cases — all three.
+- **Must** use ` + "`t.Run`" + ` subtests + table-driven structure.
+- **Must** follow ` + "`TestXxx_CaseName`" + ` naming.
+- **Must** write a one-line intent comment per case.
+- **NEVER** generate tests depending on external network, real filesystem writes (unless the function is an IO function isolatable with ` + "`t.TempDir`" + `), or execution order.
+- **NEVER** fabricate params or returns the function doesn't have — use the actual signature.
+- **NEVER** call unauthorized ` + "`bash`" + `, network, or MCP tools.
+- For hard-to-isolate side effects (global state, time), state it explicitly in the case comment or use an injectable interface/mock — don't pretend it doesn't exist.
+
+## Output
+
+Return to the parent:
+1. Absolute path of the written test file
+2. List of generated test functions (name + covered case category)
+3. Any scenarios that couldn't be auto-covered (need mock / external deps), with suggestions
+
+` + tuiFormatting + `
+
+The 'task' the parent gave you is the target to generate tests for. Produce the test file.`
+
+// builtinReviewPRBody is the fallback for the review-pr skill. A user/project
+// file at .reasonix/skills/review-pr.md overrides this body.
+const builtinReviewPRBody = `You are running as a code-review subagent. Review all changes of a branch relative to a base branch and output a structured Markdown review report.
+
+**Language: All output MUST be written in Chinese (简体中文).** File paths, code snippets, and git refs remain as-is, but every explanatory sentence must be Chinese.
+
+## Input
+
+- ` + "`base`" + `: base branch name, default ` + "`main`" + `.
+- ` + "`target`" + `: target branch or commit, default ` + "`HEAD`" + `.
+- Parent passes e.g. ` + "`review-pr main`" + `, ` + "`review-pr develop feature-x`" + `, ` + "`review-pr main HEAD`" + `.
+- If base omitted, use ` + "`main`" + `; if target omitted, use ` + "`HEAD`" + `.
+
+## Workflow
+
+1. **Determine the diff scope**:
+   - ` + "`bash git rev-parse --verify <base>`" + ` and ` + "`git rev-parse --verify <target>`" + ` to confirm both exist.
+   - If base doesn't exist, try ` + "`master`" + `; if still missing, report the error — **NEVER** fabricate a diff.
+   - ` + "`git diff <base>...<target> --stat`" + ` for the file overview.
+   - ` + "`git diff <base>...<target>`" + ` for the full diff.
+   - ` + "`git log <base>..<target> --oneline`" + ` if commit context is needed.
+
+2. **Per-file analysis**: for each changed file:
+   - ` + "`read_file`" + ` the full post-change content when diff context alone is insufficient.
+   - ` + "`grep`" + ` for call sites / definitions of changed symbols to assess blast radius.
+   - Focus on:
+     - **Correctness**: logic errors, missed boundaries, nil/empty/out-of-range, unhandled errors, races, goroutine leaks.
+     - **Security**: injection, hardcoded secrets, path traversal, unsafe deserialization, missing authz.
+     - **Maintainability**: naming, duplication, over-complexity, missing error context, misleading comments.
+     - **Performance**: obvious N+1, unnecessary allocations, lock granularity, large copies.
+     - **Tests**: does the change ship with tests; do tests cover the new branches.
+
+3. **Output a structured report** (Markdown):
+
+   Header with scope and stats:
+   ` + "```" + `
+   # PR 审查报告
+   - 审查范围：` + "`<base>...<target>`" + `
+   - 变更文件数：<N>
+   - 增/删行数：+<A> / -<D>
+   ` + "```" + `
+
+   Then per-file sections. Each issue entry:
+   ` + "```" + `
+   ## <文件路径>
+
+   ### 🔴 问题 | 🟡 建议 | 🔵 风险
+   - **位置**：` + "`<file>:<start>-<end>`" + `
+   - **描述**：<具体问题，引用相关代码片段>
+   - **建议**：<修复方向，可执行>
+   ` + "```" + `
+
+   Severity:
+   - 🔴 **问题（必须修复）**: causes bug, security hole, data corruption, crash, or violates project constraints. Must resolve before merge.
+   - 🟡 **建议（改进）**: doesn't affect correctness; improves readability, maintainability, consistency, or performance. Encouraged.
+   - 🔵 **风险（需评估）**: potential hidden issue or scenario dependency; author must confirm whether specific paths are affected (e.g. concurrency timing, external dependency behavior).
+
+4. **Summary**:
+   ` + "```" + `
+   ## 汇总
+   - 问题数（🔴）：<n>
+   - 建议数（🟡）：<n>
+   - 风险数（🔵）：<n>
+
+   **总体评价**：通过 / 需修改 / 需重做
+   - 通过：无 🔴；🟡/🔵 可后续跟进。
+   - 需修改：存在 🔴，修复后可合并。
+   - 需重做：方向性错误或 🔴 过多，建议重新设计。
+
+   **关键关注点 Top 3**：
+   1. <最重要的问题及位置>
+   2. <次重要>
+   3. <第三重要>
+   ` + "```" + `
+
+## Constraints
+
+- **NEVER** fabricate code not in the diff — every issue must locate to a concrete line in the diff or read source file.
+- **NEVER** mark 🔴 for pure style preferences; style issues are 🟡.
+- **Must** give an actionable suggestion for every 🔴/🔵 — don't just point at the problem.
+- Line numbers refer to the post-change file (` + "`git diff`" + ` ` + "`+`" + ` lines map to new file line numbers).
+- If the diff is empty, report "无变更" explicitly — don't pad with empty issue lists.
+- Focus on the changes themselves — don't review unchanged files unless the change directly affects them (then ` + "`grep`" + ` to substantiate the impact).
+- Skip auto-generated files, vendor directories, and lock files — say so.
+
+## Usage examples
+
+- Review current branch vs main: ` + "`/skill review-pr main`" + `
+- Review feature-x vs develop: ` + "`/skill review-pr develop feature-x`" + `
+- Review the last commit: ` + "`/skill review-pr HEAD~1 HEAD`" + `
+
+` + negativeClaimRule + "\n\n" + tuiFormatting + `
+
+The 'task' the parent gave you is the review target (base and optional target). Produce the review report.`
+
 // extraReadTools holds additional tool names (e.g. codegraph tools) injected at
 // boot time so subagent skills can use them without hardcoding MCP-prefixed names.
 var extraReadTools []string
@@ -1043,6 +1206,25 @@ func builtinSkills() []Skill {
 			Path:         "(builtin)",
 			RunAs:        RunSubagent,
 			AllowedTools: append([]string(nil), mailTools...),
+		},
+		// --- Coding skills (builtin fallbacks; user/project files override) ---
+		{
+			Name:         "generate-tests",
+			Description:  "为指定 Go 函数生成 table-driven 单元测试，覆盖正常/边界/错误三类用例并写入 _test.go。Runs as a subagent. A .reasonix/skills/generate-tests.md file overrides this builtin.",
+			Body:         builtinGenerateTestsBody,
+			Scope:        ScopeBuiltin,
+			Path:         "(builtin)",
+			RunAs:        RunSubagent,
+			AllowedTools: []string{"read_file", "grep", "glob", "write_file", "edit_file"},
+		},
+		{
+			Name:         "review-pr",
+			Description:  "审查 git 分支差异（base...HEAD），逐文件分析变更并输出结构化代码审查报告（问题/建议/风险分级 + 汇总评价）。Runs as a subagent. A .reasonix/skills/review-pr.md file overrides this builtin.",
+			Body:         builtinReviewPRBody,
+			Scope:        ScopeBuiltin,
+			Path:         "(builtin)",
+			RunAs:        RunSubagent,
+			AllowedTools: []string{"bash", "read_file", "grep"},
 		},
 	}
 }

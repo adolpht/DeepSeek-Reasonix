@@ -19,7 +19,33 @@ export type EventKind =
   | "compaction_done"
   | "retrying"
   | "intent_classified"
-  | "step_progress";
+  | "step_progress"
+  | "auto_learn"
+  | "agent_spawned"
+  | "agent_progress"
+  | "agent_completed"
+  | "agent_closed";
+
+// Discriminated WireEvent: payload fields only type-reachable when `kind`
+// actually carries them. Keeps the reducer exhaustive and prevents accessing
+// `agent` on a `text` event, etc.
+export type DiscriminatedWireEvent =
+  | { kind: "turn_started"; tabId?: string }
+  | { kind: "reasoning" | "text"; text?: string; tabId?: string }
+  | { kind: "message"; text?: string; reasoning?: string; tabId?: string }
+  | { kind: "tool_dispatch" | "tool_result" | "tool_progress"; tool?: WireTool; tabId?: string }
+  | { kind: "usage"; usage?: WireUsage; tabId?: string; sessionCost?: number; sessionCurrency?: string }
+  | { kind: "notice"; text?: string; level?: "info" | "warn"; tabId?: string }
+  | { kind: "phase"; text?: string; tabId?: string }
+  | { kind: "approval_request"; approval?: WireApproval; tabId?: string }
+  | { kind: "ask_request"; ask?: WireAsk; tabId?: string }
+  | { kind: "turn_done"; err?: string; tabId?: string }
+  | { kind: "compaction_started" | "compaction_done"; compaction?: WireCompaction; tabId?: string }
+  | { kind: "retrying"; retryAttempt?: number; retryMax?: number; tabId?: string }
+  | { kind: "intent_classified"; text?: string; tabId?: string }
+  | { kind: "step_progress"; step?: WireStep; tabId?: string }
+  | { kind: "auto_learn"; auto_learn?: AutoLearnProposal; tabId?: string }
+  | { kind: "agent_spawned" | "agent_progress" | "agent_completed" | "agent_closed"; agent?: WireAgent; tabId?: string };
 
 export interface WireCompaction {
   trigger?: string; // "auto" | "manual"
@@ -101,6 +127,14 @@ export interface QuestionAnswer {
   selected: string[];
 }
 
+export interface AutoLearnProposal {
+  id: string;
+  type: string;
+  targetFile: string;
+  content: string;
+  category: string;
+}
+
 export interface WireEvent {
   kind: EventKind;
   text?: string;
@@ -112,9 +146,11 @@ export interface WireEvent {
   ask?: WireAsk;
   compaction?: WireCompaction;
   step?: WireStep;
+  agent?: WireAgent;
   err?: string;
   retryAttempt?: number;
   retryMax?: number;
+  auto_learn?: AutoLearnProposal;
   // Tab routing: set by the Go-side tabEventSink so multi-tab frontends
   // route each event to the correct per-tab reducer.
   tabId?: string;
@@ -124,6 +160,12 @@ export interface WireEvent {
   sessionCurrency?: string;
   // Deprecated compatibility alias. Prefer sessionCost + sessionCurrency.
   sessionCostUsd?: number;
+}
+
+export interface WireAgent {
+  id: string;
+  role?: string;
+  output?: string;
 }
 
 // Tab management types (desktop/tabs.go).
@@ -216,6 +258,9 @@ export interface HistoryMessage {
   messages?: number;
   summary?: string;
   archive?: string;
+  // StepProgress events persisted in history (role = "step_progress"). The
+  // frontend restores them as completed steps for ProgressStepper + AgentCanvas.
+  step?: WireStep;
 }
 
 export interface HistoryToolCall {
@@ -328,7 +373,7 @@ export interface FilePreview {
   size: number;
   truncated: boolean;
   binary: boolean;
-  kind?: "image" | "pdf";
+  kind?: "image" | "pdf" | "docx" | "xlsx" | "csv";
   mime?: string;
   url?: string;
   err?: string;
@@ -467,16 +512,24 @@ export interface MemoryScope {
   path: string;
 }
 
+// MemoryPKMFile is one personal-knowledge-base file under ~/.reasonix/memory/.
+export interface MemoryPKMFile {
+  name: string; // "people.md" | "projects.md" | "preferences.md" | "writing_style.md"
+  path: string; // absolute path
+  body: string; // file contents ("" when missing/empty)
+}
+
 export interface MemoryView {
   docs: MemoryDoc[];
   facts: MemoryFact[];
   scopes: MemoryScope[];
+  pkmFiles: MemoryPKMFile[];
   storeDir: string;
   available: boolean;
 }
 
 // SettingsTab is the top-level navigation item in the Settings Centre modal.
-export type SettingsTab = "general" | "models" | "providers" | "mcp" | "skills" | "memory" | "permissions" | "sandbox" | "network" | "appearance" | "updates";
+export type SettingsTab = "general" | "models" | "providers" | "mcp" | "skills" | "memory" | "permissions" | "sandbox" | "network" | "appearance" | "updates" | "officePlugins";
 
 // Settings panel payloads (desktop/settings_app.go).
 export interface ProviderView {
@@ -569,6 +622,7 @@ export interface SettingsView {
   configPath: string;
   providerKinds: string[]; // provider implementations the kernel registered (for the kind picker)
   bypass: boolean; // live YOLO state (runtime-only) — whether approvals are skipped this session
+  codingOpenSpec: boolean; // coding-mode-only toggle for the built-in OpenSpec SDD skills (opsx-*)
 }
 
 // Auto-updater payloads (desktop/updater.go). UpdateInfo drives the update banner;
@@ -669,6 +723,43 @@ export interface ScheduledTaskView {
   createdAt: number; // unix ms
 }
 
+// RecipeView is a reusable automation workflow configuration.
+export interface RecipeView {
+  name: string;
+  description: string;
+  skill: string;
+  params: string;
+  trigger: "manual" | "cron" | "event";
+  cronExpr?: string;
+  eventType?: string;
+  matchRules?: Record<string, string>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ClipboardEntry {
+  id: number;
+  kind: string;
+  content: string;
+  preview: string;
+  createdAt: number;
+}
+
+export interface TerminalView {
+  id: string;
+  shell: string;
+  cwd: string;
+  pid: number;
+}
+
+export interface TerminalOutput {
+  id: string;
+  data: string;
+  exit: boolean;
+  code?: number;
+  err?: string;
+}
+
 export interface TodoView {
   id: string;
   title: string;
@@ -695,8 +786,47 @@ export interface SuggestedSkill {
   description: string;
 }
 
+// Workflow orchestration types (desktop/app.go WorkflowView).
+export interface WorkflowNodeView {
+  id: string;
+  label: string;
+  kind: "skill" | "prompt" | "tool" | "condition" | "parallel";
+  config: string;
+  model?: string;
+  effort?: string;
+  positionX: number;
+  positionY: number;
+}
+
+export interface WorkflowEdgeView {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+}
+
+export interface WorkflowView {
+  name: string;
+  description: string;
+  nodes: WorkflowNodeView[];
+  edges: WorkflowEdgeView[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface HomePageData {
   recentTasks: SessionMeta[];
   suggestedSkills: SuggestedSkill[];
   dailyTip: string;
+}
+
+// MailSummary is a lightweight mail preview row for the Daily Brief panel.
+// The Go backend proxies to the mail MCP plugin; in dev mode the mock returns [].
+export interface MailSummary {
+  id: string;
+  from: string;
+  subject: string;
+  preview: string;
+  date: number; // unix ms
+  read: boolean;
 }

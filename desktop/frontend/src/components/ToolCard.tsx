@@ -113,7 +113,7 @@ function splitPreview(text: string, n: number): { preview: string; total: number
 // ToolCard renders one tool call. `subcalls` are sub-agent calls nested under a
 // `task` card (their ParentID points at this call); they render inline, live, so
 // the sub-agent's work is visible as it happens.
-export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolItem; subcalls?: ToolItem[] }) {
+export const ToolCard = memo(function ToolCard({ item, subcalls, onPreview, className }: { item: ToolItem; subcalls?: ToolItem[]; onPreview?: (path: string, kind: string) => void; className?: string }) {
   const t = useT();
   const diffs = diffsFor(item.name, item.args);
   const subject = subjectOf(item.name, item.args);
@@ -185,7 +185,7 @@ export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolI
       open={hasProcessBody ? open : undefined}
       onOpenChange={hasProcessBody ? setOpen : undefined}
       defaultOpen={item.isShell && hasArgsOrOutput}
-      className={`tool tool--${item.status}${quiet ? " tool--quiet" : ""}`}
+      className={`tool tool--${item.status}${quiet ? " tool--quiet" : ""}${className ? ` ${className}` : ""}`}
     >
 
       {summary && <div className="tool__summary">{summary}</div>}
@@ -206,6 +206,7 @@ export const ToolCard = memo(function ToolCard({ item, subcalls }: { item: ToolI
             searchResults={richDetection.searchResults}
             onOpen={richDetection.filePath ? () => { void app.OpenInOSDefault(richDetection.filePath!); } : undefined}
             onExport={richDetection.filePath ? () => { void app.ExportToWorkspace("", `exports/${richDetection.filePath!.split(/[/\\]/).pop()}`, ""); } : undefined}
+            onPreview={onPreview}
           />
         </div>
       )}

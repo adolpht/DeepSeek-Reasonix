@@ -25,10 +25,10 @@ import type { NetworkView, ProviderView, SettingsTab, SettingsView } from "../li
 import { InlineConfirmButton } from "./InlineConfirmButton";
 import { Tooltip } from "./Tooltip";
 import { AnchoredPopover } from "./AnchoredPopover";
-import { MCPServersSettingsPage, SkillsSettingsPage } from "./CapabilitiesPanel";
+import { MCPServersSettingsPage, OfficePluginsSettingsPage, SkillsSettingsPage } from "./CapabilitiesPanel";
 import { MemorySettingsPage } from "./MemoryPanel";
 
-const SETTINGS_TABS: SettingsTab[] = ["general", "models", "mcp", "skills", "memory", "permissions", "sandbox", "network", "appearance", "updates"];
+const SETTINGS_TABS: SettingsTab[] = ["general", "models", "mcp", "officePlugins", "skills", "memory", "permissions", "sandbox", "network", "appearance", "updates"];
 
 // SettingsPanel is the desktop settings centre — a centred modal with left
 // navigation and a right content area. It hosts all settings pages plus MCP,
@@ -128,6 +128,7 @@ export function SettingsPanel({ onClose, onChanged, initialTab, autoSwitchMode, 
                 {tab === "general" && s && <SettingsPageShell s={s} tab={tab} busy={busy} apply={apply}><GeneralSection s={s} busy={busy} apply={apply} /></SettingsPageShell>}
                 {tab === "models" && s && <SettingsPageShell s={s} tab={tab} busy={busy} apply={apply}><ModelsSection s={s} busy={busy} apply={apply} backgroundApply={backgroundApply} /></SettingsPageShell>}
                 {tab === "mcp" && <SettingsPageShell s={s} tab={tab} busy={false} apply={apply}><MCPServersSettingsPage /></SettingsPageShell>}
+                {tab === "officePlugins" && <SettingsPageShell s={s} tab={tab} busy={false} apply={apply}><OfficePluginsSettingsPage /></SettingsPageShell>}
                 {tab === "skills" && <SettingsPageShell s={s} tab={tab} busy={false} apply={apply}><SkillsSettingsPage /></SettingsPageShell>}
                 {tab === "memory" && <SettingsPageShell s={s} tab={tab} busy={false} apply={apply}><MemorySettingsPage /></SettingsPageShell>}
                 {tab === "permissions" && s && <SettingsPageShell s={s} tab={tab} busy={busy} apply={apply}><PermissionsSection s={s} busy={busy} apply={apply} /></SettingsPageShell>}
@@ -196,6 +197,7 @@ function settingsPageKind(tab: SettingsTab): "form" | "manager" {
   switch (tab) {
     case "models":
     case "mcp":
+    case "officePlugins":
     case "skills":
     case "memory":
       return "manager";
@@ -280,6 +282,8 @@ function settingsTabLabel(id: SettingsTab, t: ReturnType<typeof useT>): string {
       return t("settings.tab.providers");
     case "mcp":
       return t("settings.tab.mcp");
+    case "officePlugins":
+      return t("settings.tab.officePlugins");
     case "skills":
       return t("settings.tab.skills");
     case "memory":
@@ -307,6 +311,8 @@ function settingsTabMeta(id: SettingsTab, s: SettingsView, t: ReturnType<typeof 
       return t("settings.providerCount", { n: s.providers.length });
     case "mcp":
       return t("caps.connectorsTab");
+    case "officePlugins":
+      return t("settings.tabSub.officePlugins");
     case "skills":
       return t("caps.skillsTab");
     case "memory":
@@ -531,6 +537,20 @@ function GeneralSection({ s, busy, apply }: SectionProps) {
           ))}
         </div>
       </SettingsField>
+      <SettingsField label={t("settings.openSpec")} hint={t("settings.openSpecHint")}>
+        <div className="set-seg">
+          {([false, true] as const).map((on) => (
+            <button
+              key={on ? "on" : "off"}
+              className={`set-seg__btn${s.codingOpenSpec === on ? " set-seg__btn--on" : ""}`}
+              disabled={busy}
+              onClick={() => void apply(() => app.SetCodingOpenSpec(on))}
+            >
+              {t(`settings.openSpec.${on ? "on" : "off"}`)}
+            </button>
+          ))}
+        </div>
+      </SettingsField>
     </SettingsSection>
   );
 }
@@ -539,25 +559,33 @@ function NetworkSection({ s, busy, apply }: SectionProps) {
   const t = useT();
   const savedNetwork = normalizeNetworkView(s.network);
   const [draft, setDraft] = useState<NetworkView>(savedNetwork);
-  useEffect(() => setDraft(normalizeNetworkView(s.network)), [s.network]);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(savedNetwork);
   const setProxy = (next: Partial<NetworkView["proxy"]>) => {
     setDraft({ ...draft, proxy: { ...draft.proxy, ...next } });
   };
+  // Immediate-apply pattern (mirrors GeneralSection / SandboxSection): segment
+  // controls apply on click; text inputs commit on blur. No save button needed.
+  const commit = () => {
+    if (JSON.stringify(draft) !== JSON.stringify(savedNetwork)) {
+      void apply(() => app.SetNetwork(draft));
+    }
+  };
+  const setProxyMode = (mode: ProxyMode) => {
+    const next = { ...draft, proxyMode: mode };
+    setDraft(next);
+    if (JSON.stringify(next) !== JSON.stringify(savedNetwork)) {
+      void apply(() => app.SetNetwork(next));
+    }
+  };
+  const setProxyType = (typ: (typeof PROXY_TYPES)[number]) => {
+    const next = { ...draft, proxy: { ...draft.proxy, type: typ } };
+    setDraft(next);
+    if (JSON.stringify(next) !== JSON.stringify(savedNetwork)) {
+      void apply(() => app.SetNetwork(next));
+    }
+  };
 
   return (
-    <SettingsSection
-      title={t("settings.tab.network")}
-      actions={
-        <button
-          className="btn btn--primary btn--small"
-          disabled={busy || !dirty}
-          onClick={() => void apply(() => app.SetNetwork(draft))}
-        >
-          {t("settings.saveNetwork")}
-        </button>
-      }
-    >
+    <SettingsSection title={t("settings.tab.network")}>
       <SettingsField label={t("settings.proxyMode")}>
         <div className="set-seg">
           {PROXY_MODES.map((mode) => (
@@ -565,7 +593,7 @@ function NetworkSection({ s, busy, apply }: SectionProps) {
               key={mode}
               className={`set-seg__btn${draft.proxyMode === mode ? " set-seg__btn--on" : ""}`}
               disabled={busy}
-              onClick={() => setDraft({ ...draft, proxyMode: mode })}
+              onClick={() => setProxyMode(mode)}
             >
               {proxyModeLabel(mode, t)}
             </button>
@@ -582,7 +610,7 @@ function NetworkSection({ s, busy, apply }: SectionProps) {
                   key={typ}
                   className={`set-seg__btn${draft.proxy.type === typ ? " set-seg__btn--on" : ""}`}
                   disabled={busy}
-                  onClick={() => setProxy({ type: typ })}
+                  onClick={() => setProxyType(typ)}
                 >
                   {typ.toUpperCase()}
                 </button>
@@ -597,6 +625,7 @@ function NetworkSection({ s, busy, apply }: SectionProps) {
               value={draft.proxy.server}
               disabled={busy || !!draft.proxyUrl.trim()}
               onChange={(e) => setProxy({ server: e.target.value })}
+              onBlur={commit}
             />
             <label className="set-label">{t("settings.proxyPort")}</label>
             <input
@@ -606,6 +635,7 @@ function NetworkSection({ s, busy, apply }: SectionProps) {
               disabled={busy || !!draft.proxyUrl.trim()}
               inputMode="numeric"
               onChange={(e) => setProxy({ port: Number(e.target.value) || 0 })}
+              onBlur={commit}
             />
             </div>
           </SettingsField>
@@ -616,6 +646,7 @@ function NetworkSection({ s, busy, apply }: SectionProps) {
               value={draft.proxy.username}
               disabled={busy || !!draft.proxyUrl.trim()}
               onChange={(e) => setProxy({ username: e.target.value })}
+              onBlur={commit}
             />
             <label className="set-label">{t("settings.proxyPassword")}</label>
             <input
@@ -624,6 +655,7 @@ function NetworkSection({ s, busy, apply }: SectionProps) {
               value={draft.proxy.password}
               disabled={busy || !!draft.proxyUrl.trim()}
               onChange={(e) => setProxy({ password: e.target.value })}
+              onBlur={commit}
             />
             </div>
           </SettingsField>
@@ -634,6 +666,7 @@ function NetworkSection({ s, busy, apply }: SectionProps) {
                 value={draft.proxyUrl}
                 disabled={busy}
                 onChange={(e) => setDraft({ ...draft, proxyUrl: e.target.value })}
+                onBlur={commit}
               />
           </SettingsField>
           <SettingsField label={t("settings.noProxy")}>
@@ -643,6 +676,7 @@ function NetworkSection({ s, busy, apply }: SectionProps) {
               value={draft.noProxy}
               disabled={busy}
               onChange={(e) => setDraft({ ...draft, noProxy: e.target.value })}
+              onBlur={commit}
             />
           </SettingsField>
         </>

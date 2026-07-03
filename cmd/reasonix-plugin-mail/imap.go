@@ -8,21 +8,16 @@ import (
 	"mime"
 	"mime/quotedprintable"
 	"net/mail"
+	"os"
 	"strings"
 	"time"
 
+	"net/textproto"
+
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
-	"github.com/emersion/go-message/charset"
+	_ "github.com/emersion/go-message/charset" // side-effect: registers charset decoder
 )
-
-func init() {
-	// Register charset readers so go-imap can decode non-UTF-8 charsets
-	// (e.g. GB2312, ISO-8859-1) commonly found in email.
-	charset.RegisterCharsetReader(func(charset string, r io.Reader) (io.Reader, error) {
-		return r, nil
-	})
-}
 
 // mailMessage is a simplified representation of an email for tool output.
 type mailMessage struct {
@@ -32,30 +27,126 @@ type mailMessage struct {
 	Snippet string `json:"snippet"`
 }
 
-// imapDial connects to the IMAP server over TLS and authenticates.
-func imapDial(host, user, pass string) (*client.Client, error) {
-	c, err := client.DialTLS(host, &tls.Config{
+// xoauth2SASLClient implements the XOAUTH2 SASL mechanism for go-imap.
+type xoauth2SASLClient struct {
+	user  string
+	token string
+}
+
+func (c *xoauth2SASLClient) Start() (string, []byte, error) {
+	return "XOAUTH2", []byte(OAuth2IMAPAuthString(c.user, c.token)), nil
+}
+
+func (c *xoauth2SASLClient) Next(challenge []byte) ([]byte, error) {
+	return nil, nil
+}
+
+// imapConfig reads IMAP connection settings from environment variables and
+// resolves the authentication method. OAuth2 is preferred when configured
+// (provider + client credentials + persisted token); otherwise it falls back
+// to PLAIN password auth. Returns a clear error if neither is available.
+func imapConfig() (mailAuthConfig, error) {
+	host := os.Getenv("MAIL_IMAP_HOST")
+	user := os.Getenv("MAIL_IMAP_USER")
+	if host == "" || user == "" {
+		return mailAuthConfig{}, fmt.Errorf(
+			"mail IMAP not configured. Set environment variables: MAIL_IMAP_HOST, MAIL_IMAP_USER (plus MAIL_IMAP_PASS or OAuth2 env vars)",
+		)
+	}
+
+	if cfg, ok := loadOAuth2ConfigFromEnv(); ok {
+		if cfg.Provider != OAuth2Gmail && cfg.Provider != OAuth2Outlook {
+			return mailAuthConfig{}, fmt.Errorf("unsupported OAuth2 provider %q; use \"gmail\" or \"outlook\"", cfg.Provider)
+		}
+		tok, err := loadOAuth2TokenFn(cfg.TokenFile)
+		if err != nil {
+			return mailAuthConfig{}, fmt.Errorf(
+				"OAuth2 configured but no token found at %q: %w. Please run oauth2_authorize/oauth2_callback first",
+				cfg.TokenFile, err,
+			)
+		}
+		return mailAuthConfig{Host: host, User: user, OAuth2: &cfg, Token: tok}, nil
+	}
+
+	pass := os.Getenv("MAIL_IMAP_PASS")
+	if pass == "" {
+		return mailAuthConfig{}, fmt.Errorf(
+			"请先配置 OAuth2（调用 oauth2_authorize）或设置 MAIL_IMAP_PASS 环境变量",
+		)
+	}
+	return mailAuthConfig{Host: host, User: user, Password: pass}, nil
+}
+
+// imapDial connects to the IMAP server over TLS and authenticates. When the
+// auth config carries an OAuth2 token, XOAUTH2 SASL is used; otherwise PLAIN
+// login. On OAuth2 auth failure the token is force-refreshed and the login is
+// retried once on a fresh connection.
+func imapDial(auth mailAuthConfig) (*client.Client, error) {
+	if auth.useOAuth2() {
+		return imapDialOAuth2(auth)
+	}
+	return imapDialPlain(auth)
+}
+
+// imapDialPlain connects and authenticates with a PLAIN password.
+func imapDialPlain(auth mailAuthConfig) (*client.Client, error) {
+	c, err := client.DialTLS(auth.Host, &tls.Config{
 		// Many self-hosted or corporate IMAP servers use certificates that
-		// are not in the system trust store; we allow it for usability but
-		// log a warning.
+		// are not in the system trust store; we allow it for usability.
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("connect to IMAP server %s: %w", host, err)
+		return nil, fmt.Errorf("connect to IMAP server %s: %w", auth.Host, err)
 	}
-	log.Printf("connected to %s", host)
-
-	if err := c.Login(user, pass); err != nil {
+	if err := c.Login(auth.User, auth.Password); err != nil {
 		c.Logout()
 		return nil, fmt.Errorf("IMAP login failed: %w", err)
 	}
-	log.Printf("logged in as %s", user)
+	log.Printf("connected to %s (PLAIN) as %s", auth.Host, auth.User)
 	return c, nil
 }
 
+// imapDialOAuth2 connects and authenticates with XOAUTH2, retrying once after
+// a forced token refresh if the server rejects the initial access token.
+func imapDialOAuth2(auth mailAuthConfig) (*client.Client, error) {
+	accessToken, err := getOAuth2AccessTokenFn(*auth.OAuth2, auth.Token)
+	if err != nil {
+		return nil, fmt.Errorf("oauth2 get access token: %w", err)
+	}
+
+	c, err := client.DialTLS(auth.Host, &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		return nil, fmt.Errorf("connect to IMAP server %s: %w", auth.Host, err)
+	}
+	if err := c.Authenticate(&xoauth2SASLClient{user: auth.User, token: accessToken}); err == nil {
+		log.Printf("connected to %s (XOAUTH2) as %s", auth.Host, auth.User)
+		return c, nil
+	}
+
+	// Auth failed — force a token refresh and retry on a fresh connection.
+	log.Printf("IMAP XOAUTH2 auth failed: %v; refreshing token and retrying", err)
+	c.Logout()
+	expired := *auth.Token
+	expired.Expiry = time.Now().Add(-time.Hour)
+	refreshed, rerr := getOAuth2AccessTokenFn(*auth.OAuth2, &expired)
+	if rerr != nil {
+		return nil, fmt.Errorf("oauth2 refresh token: %w", rerr)
+	}
+	c2, err := client.DialTLS(auth.Host, &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		return nil, fmt.Errorf("reconnect to IMAP server %s: %w", auth.Host, err)
+	}
+	if err := c2.Authenticate(&xoauth2SASLClient{user: auth.User, token: refreshed}); err != nil {
+		c2.Logout()
+		return nil, fmt.Errorf("IMAP XOAUTH2 login failed: %w", err)
+	}
+	log.Printf("connected to %s (XOAUTH2 after refresh) as %s", auth.Host, auth.User)
+	return c2, nil
+}
+
 // imapReadFolder reads emails from the specified mailbox folder.
-func imapReadFolder(host, user, pass, folder string, limit, offset int) ([]mailMessage, error) {
-	c, err := imapDial(host, user, pass)
+func imapReadFolder(auth mailAuthConfig, folder string, limit, offset int) ([]mailMessage, error) {
+	c, err := imapDial(auth)
 	if err != nil {
 		return nil, err
 	}
@@ -85,10 +176,10 @@ func imapReadFolder(host, user, pass, folder string, limit, offset int) ([]mailM
 	seqSet.AddRange(uint32(end), uint32(start))
 
 	// Fetch the essential fields.
-	section := &imap.FetchSection{Body: []imap.FetchSectionItem{imap.FetchBodyPeek}}
+	section := &imap.BodySectionName{Peek: true}
 	fetchItems := []imap.FetchItem{
 		imap.FetchEnvelope,
-		imap.FetchBodySection(section),
+		section.FetchItem(),
 		imap.FetchItem("BODY[HEADER.FIELDS (MESSAGE-ID)]"),
 	}
 
@@ -114,24 +205,23 @@ func imapReadFolder(host, user, pass, folder string, limit, offset int) ([]mailM
 }
 
 // imapSearchMail searches emails matching a query using IMAP SEARCH.
-func imapSearchMail(host, user, pass, folder, query string, limit int) ([]mailMessage, error) {
-	c, err := imapDial(host, user, pass)
+func imapSearchMail(auth mailAuthConfig, folder, query string, limit int) ([]mailMessage, error) {
+	c, err := imapDial(auth)
 	if err != nil {
 		return nil, err
 	}
 	defer c.Logout()
 
-	mbox, err := c.Select(folder, true)
-	if err != nil {
+	if _, err := c.Select(folder, true); err != nil {
 		return nil, fmt.Errorf("select folder %q: %w", folder, err)
 	}
 
 	// Build search criteria: match subject OR from OR body.
 	criteria := imap.NewSearchCriteria()
 	subjCriteria := imap.NewSearchCriteria()
-	subjCriteria.Header = map[string]string{"Subject": query}
+	subjCriteria.Header = textproto.MIMEHeader{"Subject": []string{query}}
 	fromCriteria := imap.NewSearchCriteria()
-	fromCriteria.Header = map[string]string{"From": query}
+	fromCriteria.Header = textproto.MIMEHeader{"From": []string{query}}
 	bodyCriteria := imap.NewSearchCriteria()
 	bodyCriteria.Body = []string{query}
 
@@ -161,10 +251,10 @@ func imapSearchMail(host, user, pass, folder, query string, limit int) ([]mailMe
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(uids...)
 
-	section := &imap.FetchSection{Body: []imap.FetchSectionItem{imap.FetchBodyPeek}}
+	section := &imap.BodySectionName{Peek: true}
 	fetchItems := []imap.FetchItem{
 		imap.FetchEnvelope,
-		imap.FetchBodySection(section),
+		section.FetchItem(),
 	}
 
 	messages := make(chan *imap.Message, limit)
@@ -221,16 +311,15 @@ func decodeHeader(s string) string {
 
 // extractSnippet reads the text/plain body part and returns the first ~200 chars.
 func extractSnippet(msg *imap.Message) string {
-	section := &imap.FetchSection{Body: []imap.FetchSectionItem{imap.FetchBodyPeek}}
+	section := &imap.BodySectionName{Peek: true}
 	r := msg.GetBody(section)
 	if r == nil {
 		return ""
 	}
 
 	// Parse the MIME structure to find the text/plain part.
-	mediaType, params, err := mime.ParseMediaType(msg.Envelope.Subject)
-	_ = mediaType
-	_ = params
+	mediaType, params, _ := mime.ParseMediaType(msg.Envelope.Subject)
+	_, _ = mediaType, params
 	// Fallback: just read the raw body and try to extract readable text.
 	return readTextSnippet(r, 200)
 }

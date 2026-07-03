@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"golang.org/x/oauth2"
 )
 
 // --- classify tests ---
@@ -74,6 +76,7 @@ func TestClassifyOther(t *testing.T) {
 	msgs2 := []mailMessage{
 		{From: "support@vendor.com", Subject: "Invoice #123", Snippet: "Your invoice is attached", Date: "2025-01-01T00:00:00Z"},
 	}
+	_ = results
 	results2 := classifyEmails(msgs2)
 	if results2[0].Category == CategoryUrgent {
 		t.Errorf("should not be urgent for subject %q", results2[0].Subject)
@@ -235,7 +238,7 @@ func TestImapConfigMissing(t *testing.T) {
 		os.Setenv("MAIL_IMAP_PASS", origPass)
 	}()
 
-	_, _, _, err := imapConfig()
+	_, err := imapConfig()
 	if err == nil {
 		t.Error("expected error when IMAP config is missing")
 	}
@@ -254,7 +257,7 @@ func TestSmtpConfigMissing(t *testing.T) {
 		os.Setenv("MAIL_SMTP_PASS", origPass)
 	}()
 
-	_, _, _, err := smtpConfig()
+	_, err := smtpConfig()
 	if err == nil {
 		t.Error("expected error when SMTP config is missing")
 	}
@@ -511,4 +514,92 @@ func TestDecodeHeader(t *testing.T) {
 		t.Error("decodeHeader returned empty for encoded string")
 	}
 	_ = fmt.Sprintf("decoded: %s", decodeHeader("=?UTF-8?B?5L2g5aW9?="))
+}
+
+// --- OAuth2 tests ---
+
+func TestOAuth2IMAPAuthString(t *testing.T) {
+	got := OAuth2IMAPAuthString("user@gmail.com", "ya29.token123")
+	want := "user=user@gmail.com\x01auth=Bearer ya29.token123\x01\x01"
+	if got != want {
+		t.Errorf("OAuth2IMAPAuthString = %q, want %q", got, want)
+	}
+}
+
+func TestOAuth2SMTPAuthString(t *testing.T) {
+	got := OAuth2SMTPAuthString("user@gmail.com", "ya29.token456")
+	// SMTP uses the same format as IMAP.
+	want := OAuth2IMAPAuthString("user@gmail.com", "ya29.token456")
+	if got != want {
+		t.Errorf("OAuth2SMTPAuthString = %q, want %q", got, want)
+	}
+}
+
+func TestMailAuthConfigUseOAuth2(t *testing.T) {
+	// No OAuth2 config → false.
+	plain := mailAuthConfig{Host: "imap.gmail.com:993", User: "u", Password: "p"}
+	if plain.useOAuth2() {
+		t.Error("plain config should not use OAuth2")
+	}
+
+	// With OAuth2 config and token → true.
+	withOAuth := mailAuthConfig{
+		Host:   "imap.gmail.com:993",
+		User:   "u@gmail.com",
+		OAuth2: &OAuth2Config{Provider: OAuth2Gmail, ClientID: "id", ClientSecret: "secret"},
+		Token:  &oauth2.Token{AccessToken: "at"},
+	}
+	if !withOAuth.useOAuth2() {
+		t.Error("config with OAuth2+Token should use OAuth2")
+	}
+
+	// OAuth2 config but nil token → false.
+	noToken := mailAuthConfig{
+		Host:   "imap.gmail.com:993",
+		User:   "u@gmail.com",
+		OAuth2: &OAuth2Config{Provider: OAuth2Gmail, ClientID: "id", ClientSecret: "secret"},
+	}
+	if noToken.useOAuth2() {
+		t.Error("config with OAuth2 but no Token should not use OAuth2")
+	}
+}
+
+func TestDefaultOAuth2TokenFile(t *testing.T) {
+	path := defaultOAuth2TokenFile()
+	if !strings.HasSuffix(path, "mail_oauth2_token.json") {
+		t.Errorf("token file should end with mail_oauth2_token.json, got %q", path)
+	}
+}
+
+func TestLoadOAuth2ConfigFromEnv(t *testing.T) {
+	origProvider := os.Getenv("MAIL_OAUTH2_PROVIDER")
+	origID := os.Getenv("MAIL_OAUTH2_CLIENT_ID")
+	origSecret := os.Getenv("MAIL_OAUTH2_CLIENT_SECRET")
+	defer func() {
+		os.Setenv("MAIL_OAUTH2_PROVIDER", origProvider)
+		os.Setenv("MAIL_OAUTH2_CLIENT_ID", origID)
+		os.Setenv("MAIL_OAUTH2_CLIENT_SECRET", origSecret)
+	}()
+
+	// No env vars → not configured.
+	os.Unsetenv("MAIL_OAUTH2_PROVIDER")
+	_, ok := loadOAuth2ConfigFromEnv()
+	if ok {
+		t.Error("should not be configured without env vars")
+	}
+
+	// All env vars set → configured.
+	os.Setenv("MAIL_OAUTH2_PROVIDER", "gmail")
+	os.Setenv("MAIL_OAUTH2_CLIENT_ID", "test-id")
+	os.Setenv("MAIL_OAUTH2_CLIENT_SECRET", "test-secret")
+	cfg, ok := loadOAuth2ConfigFromEnv()
+	if !ok {
+		t.Error("should be configured with all env vars")
+	}
+	if cfg.Provider != OAuth2Gmail {
+		t.Errorf("provider = %q, want gmail", cfg.Provider)
+	}
+	if cfg.ClientID != "test-id" {
+		t.Errorf("clientID = %q, want test-id", cfg.ClientID)
+	}
 }

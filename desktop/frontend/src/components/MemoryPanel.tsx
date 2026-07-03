@@ -92,12 +92,14 @@ export function MemoryPanel({
   onRemember,
   onForget,
   onSaveDoc,
+  onSavePKM,
 }: {
   view: MemoryView | null;
   onClose: () => void;
   onRemember: (scope: string, note: string) => Promise<void> | void;
   onForget: (name: string) => Promise<void> | void;
   onSaveDoc: (path: string, body: string) => Promise<void> | void;
+  onSavePKM?: (name: string, content: string) => Promise<void> | void;
 }) {
   const t = useT();
   const [note, setNote] = useState("");
@@ -105,6 +107,11 @@ export function MemoryPanel({
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  // PKM editor state
+  const [pkmTab, setPkmTab] = useState<string>("writing_style.md");
+  const [pkmDraft, setPkmDraft] = useState<string>("");
+  const [pkmEditing, setPkmEditing] = useState(false);
+  const [pkmBusy, setPkmBusy] = useState(false);
 
   const [highlight, setHighlight] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -536,7 +543,81 @@ export function MemoryPanel({
               })}
             </section>
 
-
+            {/* PKM — Personal Knowledge Base (4 editable files). */}
+            {view && view.pkmFiles.length > 0 && (
+            <section className="mem-section">
+              <div className="mem-section__row">
+                <div>
+                  <div className="mem-section__title">{t("memory.pkmTitle")}</div>
+                  <div className="mem-note">{t("memory.pkmHint")}</div>
+                </div>
+                <span className="mem-count">{view.pkmFiles.length}</span>
+              </div>
+              <div className="mem-filter" role="tablist">
+                {view.pkmFiles.map((f) => (
+                  <button
+                    key={f.name}
+                    className={`mem-filter__item${pkmTab === f.name ? " mem-filter__item--on" : ""}`}
+                    onClick={() => { setPkmTab(f.name); setPkmEditing(false); }}
+                    type="button"
+                  >
+                    {t(`memory.pkmFile.${f.name.replace(".md", "")}` as any)}
+                  </button>
+                ))}
+              </div>
+              {(() => {
+                const file = view.pkmFiles.find((f) => f.name === pkmTab);
+                if (!file) return <div className="mem-empty">{t("memory.pkmNoFiles")}</div>;
+                return pkmEditing ? (
+                  <div className="mem-doc__edit">
+                    <textarea
+                      className="mem-textarea"
+                      value={pkmDraft}
+                      onChange={(e) => setPkmDraft(e.target.value)}
+                      spellCheck={false}
+                    />
+                    <div className="mem-doc__actions">
+                      <button
+                        className="btn btn--small"
+                        onClick={() => setPkmEditing(false)}
+                        disabled={pkmBusy}
+                        type="button"
+                      >
+                        {t("common.cancel")}
+                      </button>
+                      <button
+                        className="btn btn--primary btn--small"
+                        onClick={() => {
+                          setPkmBusy(true);
+                          Promise.resolve((onSavePKM ?? app.SavePKMFile)(file.name, pkmDraft))
+                            .finally(() => setPkmBusy(false));
+                          setPkmEditing(false);
+                        }}
+                        disabled={pkmBusy}
+                        type="button"
+                      >
+                        {t("common.save")}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mem-doc">
+                    <div className="mem-doc__head">
+                      <span className="mem-doc__path">{file.path}</span>
+                      <button
+                        className="btn btn--small"
+                        onClick={() => { setPkmDraft(file.body); setPkmEditing(true); }}
+                        type="button"
+                      >
+                        {t("common.edit")}
+                      </button>
+                    </div>
+                    <pre className="mem-doc__body">{file.body || `— ${t("memory.pkmNoFiles")} —`}</pre>
+                  </div>
+                );
+              })()}
+            </section>
+            )}
 
             {/* Saved auto-memories — read-only; the model owns these. */}
             <section className="mem-section">
@@ -582,9 +663,14 @@ export function MemorySettingsPage() {
 	const [expanded, setExpanded] = useState<string | null>(null);
 	const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
 	const [confirmForget, setConfirmForget] = useState<string | null>(null);
-	const [tab, setTab] = useState<"memories" | "docs">("memories");
+	const [tab, setTab] = useState<"memories" | "docs" | "pkm">("memories");
 	const [showAdd, setShowAdd] = useState(false);
 	const factRefs = useRef<Record<string, HTMLElement | null>>({});
+	// PKM editor state
+	const [pkmTab, setPkmTab] = useState<string>("writing_style.md");
+	const [pkmDraft, setPkmDraft] = useState<string>("");
+	const [pkmEditing, setPkmEditing] = useState(false);
+	const [pkmBusy, setPkmBusy] = useState(false);
 
 	const reload = useCallback(async () => {
 		setView(await app.Memory().catch(() => null));
@@ -734,6 +820,18 @@ export function MemorySettingsPage() {
 					<span>{t("memory.instructionFiles")}</span>
 					<small>{view.docs.length}</small>
 				</button>
+				{view.pkmFiles.length > 0 && (
+				<button
+					className={"settings-subtab" + (tab === "pkm" ? " settings-subtab--active" : "")}
+					role="tab"
+					aria-selected={tab === "pkm"}
+					type="button"
+					onClick={() => setTab("pkm")}
+				>
+					<span>{t("memory.pkmTitle")}</span>
+					<small>{view.pkmFiles.length}</small>
+				</button>
+				)}
 			</div>
 
 			{tab === "memories" && <section className="mem-section">
@@ -1031,6 +1129,80 @@ export function MemorySettingsPage() {
 						</div>
 					);
 				})}
+			</section>}
+
+			{tab === "pkm" && view.pkmFiles.length > 0 && <section className="mem-section">
+				<div className="mem-section__head">
+					<div>
+						<div className="mem-section__title">{t("memory.pkmTitle")}</div>
+						<div className="mem-note">{t("memory.pkmHint")}</div>
+					</div>
+					<span className="mem-count">{view.pkmFiles.length}</span>
+				</div>
+				<div className="mem-filter" role="tablist">
+					{view.pkmFiles.map((f) => (
+						<button
+							key={f.name}
+							className={"mem-filter__item" + (pkmTab === f.name ? " mem-filter__item--on" : "")}
+							onClick={() => { setPkmTab(f.name); setPkmEditing(false); }}
+							type="button"
+						>
+							{t(`memory.pkmFile.${f.name.replace(".md", "")}` as any)}
+						</button>
+					))}
+				</div>
+				{(() => {
+					const file = view.pkmFiles.find((f) => f.name === pkmTab);
+					if (!file) return <div className="mem-empty">{t("memory.pkmNoFiles")}</div>;
+					return pkmEditing ? (
+						<div className="mem-doc__edit">
+							<textarea
+								className="mem-textarea"
+								value={pkmDraft}
+								onChange={(e) => setPkmDraft(e.target.value)}
+								spellCheck={false}
+							/>
+							<div className="mem-doc__actions">
+								<button
+									className="btn btn--small"
+									onClick={() => setPkmEditing(false)}
+									disabled={pkmBusy}
+									type="button"
+								>
+									{t("common.cancel")}
+								</button>
+								<button
+									className="btn btn--primary btn--small"
+									onClick={() => {
+										setPkmBusy(true);
+										app.SavePKMFile(file.name, pkmDraft)
+											.then(() => reload())
+											.catch(() => {})
+											.finally(() => { setPkmBusy(false); setPkmEditing(false); });
+									}}
+									disabled={pkmBusy}
+									type="button"
+								>
+									{t("common.save")}
+								</button>
+							</div>
+						</div>
+					) : (
+						<div className="mem-doc">
+							<div className="mem-doc__head">
+								<span className="mem-doc__path">{file.path}</span>
+								<button
+									className="btn btn--small"
+									onClick={() => { setPkmDraft(file.body); setPkmEditing(true); }}
+									type="button"
+								>
+									{t("common.edit")}
+								</button>
+							</div>
+							<pre className="mem-doc__body">{file.body || `— ${t("memory.pkmNoFiles")} —`}</pre>
+						</div>
+					);
+				})()}
 			</section>}
 		</>
 	);

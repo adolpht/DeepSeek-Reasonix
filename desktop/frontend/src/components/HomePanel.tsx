@@ -19,10 +19,12 @@ import {
   Clock,
   Zap,
   ChevronRight,
+  Trophy,
 } from "lucide-react";
 import type { WorkspaceType, SessionMeta, HomePageData } from "../lib/types";
 import { app } from "../lib/bridge";
 import { useT } from "../lib/i18n";
+import { isOnboardingTaskPending } from "./OnboardingOverlay";
 
 // ── Quick action definitions per workspace type ────────────────
 interface QuickAction {
@@ -97,6 +99,15 @@ export function HomePanel({
 }: HomePanelProps) {
   const t = useT();
   const [data, setData] = useState<HomePageData | null>(null);
+  const [onboardingPending, setOnboardingPending] = useState(() => isOnboardingTaskPending());
+
+  // Re-check onboarding status on mount and after celebration closes.
+  useEffect(() => {
+    const check = () => setOnboardingPending(isOnboardingTaskPending());
+    check();
+    const timer = setInterval(check, 2000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +128,21 @@ export function HomePanel({
 
   return (
     <div className="home-panel">
+      {/* ── Onboarding progress ── */}
+      {onboardingPending && (
+        <section className="home-panel__onboarding-progress">
+          <div className="home-panel__progress-bar">
+            <div className="home-panel__progress-fill" style={{ width: "50%" }} />
+          </div>
+          <p className="home-panel__progress-text">{t("home.onboardingProgress")}</p>
+        </section>
+      )}
+      {!onboardingPending && (
+        <section className="home-panel__onboarding-complete">
+          <Trophy size={14} />
+          <span>{t("home.onboardingComplete")}</span>
+        </section>
+      )}
       {/* ── Greeting ── */}
       <section className="home-panel__greeting">
         <span className="home-panel__greeting-icon">{getGreetingIcon()}</span>

@@ -17,13 +17,16 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
+	"github.com/atotto/clipboard"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"reasonix/internal/agent"
 	"reasonix/internal/billing"
@@ -41,6 +44,8 @@ import (
 	"reasonix/internal/provider"
 	"reasonix/internal/scheduler"
 	"reasonix/internal/skill"
+	"reasonix/internal/recipe"
+	"reasonix/internal/workflow"
 )
 
 // eventChannel is the Wails runtime event name the frontend subscribes to for the
@@ -78,9 +83,16 @@ type App struct {
 	mediaTokens *mediaTokenStore
 	dataStore   *datastore.Store
 	sched       *scheduler.Scheduler
+	recipeStore   *recipe.Store
+	workflowStore *workflow.Store
+	clipboardHistory *ClipboardHistory
+	terminals      *terminalManager
 }
 
 // mediaTokenEntry holds metadata for a workspace media file served via temporary URL.
+// When content is non-nil the middleware serves from memory instead of opening
+// absPath — used for generated HTML previews (docx/xlsx → HTML) that don't
+// exist as files on disk.
 type mediaTokenEntry struct {
 	absPath   string
 	filename  string
@@ -88,6 +100,7 @@ type mediaTokenEntry struct {
 	kind      string
 	size      int64
 	modTime   time.Time
+	content   []byte // inline content; nil = serve from absPath
 	createdAt time.Time
 	expiresAt time.Time
 }
@@ -172,6 +185,45 @@ func (s *mediaTokenStore) create(absPath, filename, mime, kind string, size int6
 	return token
 }
 
+// createInline registers a blob of in-memory content (e.g. generated HTML)
+// with the token store and returns a token. The middleware will serve the
+// content directly without touching disk. Used by office-file previews
+// (docx/xlsx → HTML) where no on-disk artifact exists.
+func (s *mediaTokenStore) createInline(filename, mime, kind string, content []byte) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.cleanupLocked()
+
+	tok := make([]byte, 16)
+	if _, err := rand.Read(tok); err != nil {
+		panic("crypto/rand.Read failed: " + err.Error())
+	}
+	token := hex.EncodeToString(tok)
+
+	now := time.Now()
+	s.byTok[token] = &mediaTokenEntry{
+		absPath:   "", // no file — served from content
+		filename:  filename,
+		mime:      mime,
+		kind:      kind,
+		size:      int64(len(content)),
+		modTime:   now,
+		content:   content,
+		createdAt: now,
+		expiresAt: now.Add(s.ttl),
+	}
+	s.order = append(s.order, token)
+
+	for len(s.order) > s.maxN {
+		oldest := s.order[0]
+		delete(s.byTok, oldest)
+		s.order = s.order[1:]
+	}
+
+	return token
+}
+
 func (s *mediaTokenStore) get(token string) *mediaTokenEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -227,17 +279,28 @@ func (a *App) workspaceMediaMiddleware() func(http.Handler) http.Handler {
 				return
 			}
 
+			w.Header().Set("Content-Type", entry.mime)
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": entry.filename}))
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Cache-Control", "private, max-age=600")
+
+			// Inline content (e.g. generated HTML for docx/xlsx previews) is
+			// served directly from memory — no disk file to open.
+			if entry.content != nil {
+				w.Header().Set("Content-Length", strconv.Itoa(len(entry.content)))
+				w.WriteHeader(http.StatusOK)
+				if r.Method != http.MethodHead {
+					_, _ = w.Write(entry.content)
+				}
+				return
+			}
+
 			f, err := os.Open(entry.absPath)
 			if err != nil {
 				http.NotFound(w, r)
 				return
 			}
 			defer f.Close()
-
-			w.Header().Set("Content-Type", entry.mime)
-			w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": entry.filename}))
-			w.Header().Set("X-Content-Type-Options", "nosniff")
-			w.Header().Set("Cache-Control", "private, max-age=600")
 			http.ServeContent(w, r, entry.filename, entry.modTime, f)
 		})
 	}
@@ -251,11 +314,37 @@ func NewApp() *App {
 		// Log but don't fail: the app can still run without persistent data.
 		fmt.Fprintf(os.Stderr, "warning: data store init failed: %v\n", err)
 	}
-	app := &App{tabs: map[string]*WorkspaceTab{}, mediaTokens: newMediaTokenStore(), dataStore: ds}
+	rs, err := recipe.NewStore("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: recipe store init failed: %v\n", err)
+	}
+	ws, err := workflow.NewStore("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: workflow store init failed: %v\n", err)
+	}
+	var ch *ClipboardHistory
+	if cfg, err := config.Load(); err == nil && cfg.ClipboardHistory.EnabledOrDefault() {
+		ch, err = NewClipboardHistory(filepath.Join(desktopConfigDir(), "clipboard_history.db"))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: clipboard history init failed: %v\n", err)
+		} else {
+			_ = ch.ClearOldClipboard(cfg.ClipboardHistory.RetentionDaysOrDefault())
+			_ = ch.EnforceMaxEntries(cfg.ClipboardHistory.MaxEntriesOrDefault())
+		}
+	}
+	app := &App{tabs: map[string]*WorkspaceTab{}, mediaTokens: newMediaTokenStore(), dataStore: ds, recipeStore: rs, workflowStore: ws, clipboardHistory: ch, terminals: newTerminalManager()}
 	if ds != nil {
-		app.sched = scheduler.NewScheduler(ds, func(name, skill, params string) string {
-			return app.executeScheduledTask(name, skill, params)
-		})
+		app.sched = scheduler.NewScheduler(ds,
+			func(name, skill, params string) string {
+				return app.executeScheduledTask(name, skill, params)
+			},
+			func(name, skill string) {
+				app.onScheduledTaskStart(name, skill)
+			},
+			func(name, skill, result string) {
+				app.onScheduledTaskDone(name, skill, result)
+			},
+		)
 	}
 	return app
 }
@@ -281,11 +370,82 @@ func (a *App) startup(ctx context.Context) {
 	installSystemQuitHook()
 	a.startTray()
 
+	// Scaffold ~/.reasonix/memory/ (the PKM files) on the Wails startup path so
+	// the desktop app is independent of the CLI boot path. Best-effort: a failure
+	// (e.g. read-only home) is logged but never blocks startup, since memory.Load
+	// silently skips missing PKM files and the rest of memory still works.
+	if _, _, err := memory.EnsureMemoryDir(); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: pkm memory dir not scaffolded:", err)
+	}
+
 	go a.restoreOrBuildTabs()
 
 	// Start the cron scheduler in the background.
 	if a.sched != nil {
 		go a.sched.Start()
+	}
+
+	// Start clipboard monitoring in the background.
+	if a.clipboardHistory != nil {
+		go a.monitorClipboard()
+	}
+
+	// Activate voice input: probe for whisper and register the global hotkey
+	// (Ctrl+Shift+V) so the user can start voice input from anywhere. The hotkey
+	// is registered whenever voice_input is enabled — the frontend handles the
+	// fallback toast when whisper is not installed.
+	initVoiceInput()
+	if voiceInputEnabled {
+		if err := a.RegisterVoiceHotkey(); err != nil {
+			fmt.Fprintln(os.Stderr, "warning: voice hotkey not registered:", err)
+		}
+	}
+
+	// Activate clipboard global hotkey (Ctrl+Shift+R) to toggle FloatingWindow.
+	if err := a.RegisterClipboardHotkey(); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: clipboard hotkey not registered:", err)
+	}
+}
+
+func (a *App) monitorClipboard() {
+	var lastContent string
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// Rich content (copied files or images) takes priority over plain
+		// text. On non-Windows this is a no-op stub returning present=false,
+		// so the original text-only behaviour is preserved there.
+		if kind, content, present := readClipboardRichNonText(); present {
+			if content != "" {
+				// Reset text dedup: the clipboard switched to a non-text item,
+				// so a later re-copy of the same text should be recorded again.
+				lastContent = ""
+				_ = a.clipboardHistory.RecordClipboard(kind, content)
+				a.enforceClipboardMax()
+			}
+			continue
+		}
+		content, err := clipboard.ReadAll()
+		if err != nil {
+			continue
+		}
+		if content == "" || content == lastContent {
+			continue
+		}
+		lastContent = content
+		_ = a.clipboardHistory.RecordClipboard("text", content)
+		a.enforceClipboardMax()
+	}
+}
+
+// enforceClipboardMax trims the clipboard history to the configured maximum
+// entry count (falling back to 1000 when the config cannot be loaded).
+func (a *App) enforceClipboardMax() {
+	if cfg, err := config.Load(); err == nil {
+		_ = a.clipboardHistory.EnforceMaxEntries(cfg.ClipboardHistory.MaxEntriesOrDefault())
+	} else {
+		_ = a.clipboardHistory.EnforceMaxEntries(1000)
 	}
 }
 
@@ -442,6 +602,10 @@ func (a *App) snapshotAllTabs() {
 // shutdown snapshots all tabs, saves the final window geometry, and closes tabs.
 func (a *App) shutdown(context.Context) {
 	a.stopTray()
+	// Kill all live terminal PTY sessions so no orphan shell processes survive.
+	if a.terminals != nil {
+		a.terminals.closeAll()
+	}
 	// Save window geometry synchronously from Go so it's persisted even if the
 	// frontend's beforeunload promise hasn't resolved yet.
 	a.saveWindowStateSync()
@@ -590,6 +754,82 @@ func (a *App) executeScheduledTask(name, skill, params string) string {
 	display := "[Scheduled: " + name + "]"
 	ctrl.SubmitDisplay(display, input)
 	return "submitted to workspace"
+}
+
+// onScheduledTaskStart is called when a scheduled task begins execution.
+// It emits a frontend event so the UI can open a dedicated tab and sends a
+// system notification to alert the user.
+func (a *App) onScheduledTaskStart(name, skill string) {
+	if a.ctx == nil {
+		return
+	}
+	// Emit frontend event for tab creation.
+	wruntime.EventsEmit(a.ctx, "scheduled_task_started", map[string]string{
+		"name":  name,
+		"skill": skill,
+	})
+	// Bring window to front if minimized.
+	wruntime.WindowShow(a.ctx)
+}
+
+// onScheduledTaskDone is called when a scheduled task completes execution.
+// It emits a frontend event and sends a system notification with the result.
+func (a *App) onScheduledTaskDone(name, skill, result string) {
+	if a.ctx == nil {
+		return
+	}
+	title := "定时任务已完成"
+	body := skill + " 执行完毕"
+	if result != "" && result != "submitted to workspace" {
+		body = body + ": " + result
+	}
+	wruntime.EventsEmit(a.ctx, "scheduled_task_completed", map[string]string{
+		"name":   name,
+		"skill":  skill,
+		"result": result,
+	})
+	// System notification via tray or native notify (if available).
+	if a.tray != nil {
+		a.tray.Notify(title, body)
+	}
+}
+
+// OpenTabForScheduledTask creates a new tab for a scheduled task execution.
+// The tab title includes the task name and current date for easy identification.
+func (a *App) OpenTabForScheduledTask(taskName string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Use first available workspace root or fall back to global scope.
+	var workspaceRoot string
+	for _, tab := range a.tabs {
+		if tab.Scope == "project" && tab.WorkspaceRoot != "" {
+			workspaceRoot = tab.WorkspaceRoot
+			break
+		}
+	}
+
+	scope := "project"
+	if workspaceRoot == "" {
+		scope = "global"
+	}
+
+	// Create topic with timestamp in title.
+	dateStr := time.Now().Format("2006-01-02")
+	topicTitle := fmt.Sprintf("定时任务：%s %s", taskName, dateStr)
+	topic, err := a.CreateTopic(scope, workspaceRoot, topicTitle)
+	if err != nil {
+		return fmt.Errorf("create topic: %w", err)
+	}
+
+	// Create new tab entry.
+	tab := a.createTabEntry(scope, workspaceRoot, topic.ID)
+	a.tabs[tab.ID] = tab
+	a.activeTabID = tab.ID
+
+	// Emit tab list update event.
+	wruntime.EventsEmit(a.ctx, "tabs:changed")
+	return nil
 }
 
 // RunAnalyzeProject submits the /analyze-project slash command as a turn. The
@@ -3130,6 +3370,21 @@ func previewMediaKind(path string) (kind string, mime string) {
 	return "", ""
 }
 
+// previewOfficeKind reports whether the file is an office document (docx/xlsx/csv)
+// that can be parsed to HTML for inline preview. Returns the kind label and true
+// when the extension matches; ("", false) otherwise.
+func previewOfficeKind(path string) (kind string, ok bool) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".docx":
+		return "docx", true
+	case ".xlsx", ".xlsm":
+		return "xlsx", true
+	case ".csv":
+		return "csv", true
+	}
+	return "", false
+}
+
 func workspaceEntryRel(rel, name string) string {
 	rel = strings.Trim(filepath.ToSlash(rel), "/")
 	if rel == "" || rel == "." {
@@ -3275,6 +3530,32 @@ func (a *App) ReadFile(rel string) FilePreview {
 		out.Kind = kind
 		out.Mime = mime
 		out.URL = "/__reasonix_workspace_media/" + token + "/" + url.PathEscape(info.Name())
+		return out
+	}
+	// Office documents (docx/xlsx/csv): parse to HTML and serve via inline
+	// media token so the file tree can render them in an <iframe>.
+	if kind, ok := previewOfficeKind(path); ok {
+		htmlName := strings.TrimSuffix(info.Name(), filepath.Ext(path)) + ".html"
+		var (
+			htmlStr  string
+			parseErr error
+		)
+		switch kind {
+		case "docx":
+			htmlStr, parseErr = parseDocxToHTML(path)
+		case "xlsx":
+			htmlStr, parseErr = parseXlsxToHTML(path)
+		case "csv":
+			htmlStr, parseErr = parseCSVToHTML(path)
+		}
+		if parseErr != nil {
+			out.Err = parseErr.Error()
+			return out
+		}
+		token := a.ensureMediaTokenStore().createInline(htmlName, "text/html; charset=utf-8", kind, []byte(htmlStr))
+		out.Kind = kind
+		out.Mime = "text/html; charset=utf-8"
+		out.URL = "/__reasonix_workspace_media/" + token + "/" + url.PathEscape(htmlName)
 		return out
 	}
 	f, err := os.Open(path)
@@ -3568,34 +3849,52 @@ type MemoryScope struct {
 	Path  string `json:"path"`
 }
 
+// MemoryPKMFile is one personal-knowledge-base file (people.md / projects.md /
+// preferences.md / writing_style.md under ~/.reasonix/memory/), surfaced for the
+// panel's PKM editor. Name is the bare filename; Path is absolute; Body is the
+// trimmed file contents (empty when the file exists but is whitespace-only).
+type MemoryPKMFile struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Body string `json:"body"`
+}
+
 // MemoryView is the whole memory panel payload: hierarchical docs, saved facts,
-// and the writable scopes for the quick-add selector.
+// the writable scopes for the quick-add selector, and the PKM files.
 type MemoryView struct {
-	Docs      []MemoryDoc   `json:"docs"`
-	Facts     []MemoryFact  `json:"facts"`
-	Scopes    []MemoryScope `json:"scopes"`
-	StoreDir  string        `json:"storeDir"`
-	Available bool          `json:"available"`
+	Docs      []MemoryDoc     `json:"docs"`
+	Facts     []MemoryFact    `json:"facts"`
+	Scopes    []MemoryScope   `json:"scopes"`
+	PKMFiles  []MemoryPKMFile `json:"pkmFiles"`
+	StoreDir  string          `json:"storeDir"`
+	Available bool            `json:"available"`
 }
 
 // writableScopes are the quick-add targets the panel offers, broad → specific.
 var writableScopes = []memory.Scope{memory.ScopeUser, memory.ScopeProject, memory.ScopeLocal}
 
 // Memory returns the loaded memory for the panel: the REASONIX.md hierarchy, the
-// saved auto-memories, and the writable scopes. Read-only; mutations go through
-// Remember / SaveDoc.
+// saved auto-memories, the writable scopes, and the PKM files. Read-only;
+// mutations go through Remember / SaveDoc / SavePKMFile.
 func (a *App) Memory() MemoryView {
 	// Always return non-nil slices: a nil Go slice marshals to JSON `null`, which
 	// would crash the panel's `view.facts.length` / `.map`.
-	view := MemoryView{Docs: []MemoryDoc{}, Facts: []MemoryFact{}, Scopes: []MemoryScope{}}
+	view := MemoryView{
+		Docs:     []MemoryDoc{},
+		Facts:    []MemoryFact{},
+		Scopes:   []MemoryScope{},
+		PKMFiles: []MemoryPKMFile{},
+	}
 	a.mu.RLock()
 	ctrl := a.activeCtrlLocked()
 	a.mu.RUnlock()
 	if ctrl == nil {
+		view.PKMFiles = pkmFilesView()
 		return view
 	}
 	set := ctrl.Memory()
 	if set == nil {
+		view.PKMFiles = pkmFilesView()
 		return view
 	}
 	view.StoreDir = set.Store.Dir
@@ -3613,7 +3912,38 @@ func (a *App) Memory() MemoryView {
 			view.Scopes = append(view.Scopes, MemoryScope{Scope: string(sc), Path: p})
 		}
 	}
+	// PKM files come from the set when PKM is enabled (already loaded by Load),
+	// otherwise fall back to reading the directory so the panel can still show
+	// (and let the user edit) files that exist on disk even before a rebuild.
+	if len(set.PKM) > 0 {
+		for _, d := range set.PKM {
+			view.PKMFiles = append(view.PKMFiles, MemoryPKMFile{
+				Name: filepath.Base(d.Path), Path: d.Path, Body: d.Body,
+			})
+		}
+	} else {
+		view.PKMFiles = pkmFilesView()
+	}
 	return view
+}
+
+// pkmFilesView reads the four PKM files from ~/.reasonix/memory/ directly, for
+// the panel. It always returns the full four-file list (in the fixed
+// writing_style → preferences → people → projects order) so the editor can
+// render every tab even when a file is missing — Body is "" for a missing or
+// empty file. Missing the whole directory yields an empty slice.
+func pkmFilesView() []MemoryPKMFile {
+	dir, err := memory.MemoryDir()
+	if err != nil {
+		return []MemoryPKMFile{}
+	}
+	out := make([]MemoryPKMFile, 0, 4)
+	for _, name := range memory.PKMFileOrder() {
+		path := filepath.Join(dir, name)
+		body, _ := os.ReadFile(path)
+		out = append(out, MemoryPKMFile{Name: name, Path: path, Body: string(body)})
+	}
+	return out
 }
 
 // Remember quick-adds a one-line note to the doc-memory file for scope — the
@@ -3653,6 +3983,122 @@ func (a *App) SaveDoc(path, body string) (string, error) {
 	return ctrl.SaveDoc(path, body)
 }
 
+// SavePKMFile overwrites one of the four personal-knowledge-base files
+// (people.md / projects.md / preferences.md / writing_style.md) under
+// ~/.reasonix/memory/ with the panel editor's contents. name must be one of the
+// recognized filenames — anything else is refused so the panel can't be used to
+// write arbitrary paths. The file is written directly (the controller's SaveDoc
+// path only knows the REASONIX.md / AGENTS.md hierarchy), then the controller is
+// rebuilt so the new PKM content folds into the cache-stable system prompt on
+// the next turn. Returns the absolute path written.
+func (a *App) SavePKMFile(name, content string) error {
+	name = strings.TrimSpace(name)
+	if !memory.ValidPKMFileName(name) {
+		return fmt.Errorf("refusing to save %q: not a PKM file", name)
+	}
+	dir, err := memory.MemoryDir()
+	if err != nil {
+		return fmt.Errorf("resolve pkm dir: %w", err)
+	}
+	// EnsureMemoryDir is idempotent: it creates the dir + default files when
+	// missing, so a first save never fails on a missing directory and never
+	// clobbers an existing file.
+	if _, _, err := memory.EnsureMemoryDir(); err != nil {
+		return fmt.Errorf("ensure pkm dir: %w", err)
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", name, err)
+	}
+	// Rebuild the controller so the edited PKM body is re-loaded into the
+	// system prompt prefix for the next turn. rebuild is best-effort: if it
+	// fails the file is still on disk and will be picked up on the next boot.
+	if err := a.rebuild(); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: controller rebuild after PKM save failed:", err)
+	}
+	return nil
+}
+
+// AppendPKMFile appends a learned preference snippet to one of the four PKM
+// files under ~/.reasonix/memory/. Used by the AutoLearn approval flow: when
+// the user accepts a detected preference proposal, the frontend calls this
+// method with the proposal's TargetFile and Content. The controller is rebuilt
+// so the new PKM content folds into the cache-stable system prompt next turn.
+func (a *App) AppendPKMFile(name, content string) error {
+	if err := memory.AppendPKMFile(name, content); err != nil {
+		return err
+	}
+	if err := a.rebuild(); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: controller rebuild after PKM append failed:", err)
+	}
+	return nil
+}
+
+// SuppressAutoLearnTypeForTab marks a preference type as rejected by the user
+// for the given tab's conversation, so the auto-learner won't propose the same
+// type again this session. tabID "" targets the active tab.
+func (a *App) SuppressAutoLearnTypeForTab(tabID, typ string) {
+	ctrl := a.ctrlByTabID(tabID)
+	if ctrl != nil {
+		ctrl.SuppressAutoLearnType(typ)
+	}
+}
+
+// MailSummaryView is a compact mail summary for the DailyBriefPanel.
+type MailSummaryView struct {
+	From    string `json:"from"`
+	Subject string `json:"subject"`
+	Date    string `json:"date"`
+}
+
+// GetRecentMailSummaries fetches the 5 most recent emails from INBOX by
+// dispatching a read_mail tool call through the active tab's controller. This
+// bypasses the agent loop (no model call) so the DailyBriefPanel can load
+// synchronously. Returns an empty list (not an error) if the mail MCP plugin is
+// not connected or not configured — the panel shows a placeholder in that case.
+func (a *App) GetRecentMailSummaries() []MailSummaryView {
+	ctrl := a.ctrlByTabID("")
+	if ctrl == nil {
+		return []MailSummaryView{}
+	}
+	args, _ := json.Marshal(map[string]any{"folder": "INBOX", "limit": 5})
+	out, err := ctrl.CallTool(a.ctx, "mcp__mail__read_mail", args)
+	if err != nil {
+		return []MailSummaryView{}
+	}
+	return parseMailSummaries(out)
+}
+
+// parseMailSummaries extracts From/Subject/Date from the plain-text output of
+// the read_mail tool. Each email block typically starts with "From:" and ends
+// before the next "From:" or the end of the output.
+func parseMailSummaries(text string) []MailSummaryView {
+	var result []MailSummaryView
+	var current *MailSummaryView
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "From:") {
+			if current != nil {
+				result = append(result, *current)
+			}
+			current = &MailSummaryView{From: strings.TrimSpace(strings.TrimPrefix(line, "From:"))}
+		} else if current != nil {
+			if strings.HasPrefix(line, "Subject:") {
+				current.Subject = strings.TrimSpace(strings.TrimPrefix(line, "Subject:"))
+			} else if strings.HasPrefix(line, "Date:") {
+				current.Date = strings.TrimSpace(strings.TrimPrefix(line, "Date:"))
+			}
+		}
+	}
+	if current != nil {
+		result = append(result, *current)
+	}
+	if result == nil {
+		result = []MailSummaryView{}
+	}
+	return result
+}
+
 // parseScope maps a frontend scope id to a memory.Scope, defaulting to project.
 func parseScope(s string) memory.Scope {
 	switch memory.Scope(s) {
@@ -3663,6 +4109,147 @@ func parseScope(s string) memory.Scope {
 	default:
 		return memory.ScopeProject
 	}
+}
+
+// RecipeView is the JSON-serializable recipe structure sent to the frontend.
+// It mirrors internal/recipe.Recipe but with trigger config expanded for UI consumption.
+type RecipeView struct {
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	Skill         string            `json:"skill"`
+	Params        string            `json:"params"`
+	Trigger       string            `json:"trigger"`
+	CronExpr      string            `json:"cronExpr,omitempty"`
+	EventType     string            `json:"eventType,omitempty"`
+	MatchRules    map[string]string `json:"matchRules,omitempty"`
+	CreatedAt     int64             `json:"createdAt"`
+	UpdatedAt     int64             `json:"updatedAt"`
+}
+
+// SaveRecipe persists a new or updated recipe. The name must be unique and filename-safe.
+func (a *App) SaveRecipe(r RecipeView) error {
+	if a.recipeStore == nil {
+		return fmt.Errorf("recipe store not initialized")
+	}
+	rec := recipe.Recipe{
+		Name:        r.Name,
+		Description: r.Description,
+		Skill:       r.Skill,
+		Params:      r.Params,
+		Trigger:     recipe.TriggerType(r.Trigger),
+		TriggerConfig: recipe.TriggerConfig{
+			CronExpr:   r.CronExpr,
+			EventType:  r.EventType,
+			MatchRules: r.MatchRules,
+		},
+		CreatedAt: r.CreatedAt,
+		UpdatedAt: r.UpdatedAt,
+	}
+	return a.recipeStore.Save(rec)
+}
+
+// LoadRecipe reads a recipe by name. Returns error if not found.
+func (a *App) LoadRecipe(name string) (RecipeView, error) {
+	if a.recipeStore == nil {
+		return RecipeView{}, fmt.Errorf("recipe store not initialized")
+	}
+	rec, err := a.recipeStore.Load(name)
+	if err != nil {
+		return RecipeView{}, err
+	}
+	return RecipeView{
+		Name:        rec.Name,
+		Description: rec.Description,
+		Skill:       rec.Skill,
+		Params:      rec.Params,
+		Trigger:     string(rec.Trigger),
+		CronExpr:    rec.TriggerConfig.CronExpr,
+		EventType:   rec.TriggerConfig.EventType,
+		MatchRules:  rec.TriggerConfig.MatchRules,
+		CreatedAt:   rec.CreatedAt,
+		UpdatedAt:   rec.UpdatedAt,
+	}, nil
+}
+
+// ListRecipes returns all recipes, sorted by creation time descending.
+func (a *App) ListRecipes() ([]RecipeView, error) {
+	if a.recipeStore == nil {
+		return nil, fmt.Errorf("recipe store not initialized")
+	}
+	recipes, err := a.recipeStore.List()
+	if err != nil {
+		return nil, err
+	}
+	views := make([]RecipeView, 0, len(recipes))
+	for _, r := range recipes {
+		views = append(views, RecipeView{
+			Name:        r.Name,
+			Description: r.Description,
+			Skill:       r.Skill,
+			Params:      r.Params,
+			Trigger:     string(r.Trigger),
+			CronExpr:    r.TriggerConfig.CronExpr,
+			EventType:   r.TriggerConfig.EventType,
+			MatchRules:  r.TriggerConfig.MatchRules,
+			CreatedAt:   r.CreatedAt,
+			UpdatedAt:   r.UpdatedAt,
+		})
+	}
+	return views, nil
+}
+
+// DeleteRecipe removes a recipe by name. Returns error if not found.
+func (a *App) DeleteRecipe(name string) error {
+	if a.recipeStore == nil {
+		return fmt.Errorf("recipe store not initialized")
+	}
+	return a.recipeStore.Delete(name)
+}
+
+// TriggerEventRecipes checks for event-triggered recipes matching the given event
+// type and context, then executes each matching recipe by creating a new tab and
+// submitting the skill command. Returns the names of triggered recipes.
+func (a *App) TriggerEventRecipes(eventType string, context map[string]string) ([]string, error) {
+	if a.recipeStore == nil {
+		return nil, nil
+	}
+	matched, err := a.recipeStore.FindMatchingEventRecipes(eventType, context)
+	if err != nil || len(matched) == 0 {
+		return nil, err
+	}
+	var triggered []string
+	for _, r := range matched {
+		// Create a tab for the recipe execution.
+		tabTitle := fmt.Sprintf("Recipe: %s", r.Name)
+		topic, topicErr := a.CreateTopic("global", "", tabTitle)
+		if topicErr != nil {
+			continue
+		}
+		// Submit the skill command with parameters.
+		input := "/" + r.Skill
+		if r.Params != "" && r.Params != "{}" {
+			input += " " + r.Params
+		}
+		a.SubmitDisplayToTab(topic.ID, "Recipe: "+r.Name, input)
+		triggered = append(triggered, r.Name)
+	}
+	return triggered, nil
+}
+
+// ListClipboardHistory returns recent clipboard entries.
+func (a *App) ListClipboardHistory(limit, offset int) ([]ClipboardEntry, error) {
+	if a.clipboardHistory == nil {
+		return nil, fmt.Errorf("clipboard history not initialized")
+	}
+	return a.clipboardHistory.ListClipboard(limit, offset)
+}
+
+// SearchClipboardHistory searches clipboard entries matching the query.
+func (a *App) SearchClipboardHistory(query string) ([]ClipboardEntry, error) {
+	if a.clipboardHistory == nil {
+		return nil, fmt.Errorf("clipboard history not initialized")
+	}
+	return a.clipboardHistory.SearchClipboard(query)
 }
 
 // onboardingKeyEnv is the default provider (deepseek) key from config.Default().
@@ -4460,5 +5047,201 @@ func notificationViewFromModel(n datastore.Notification) NotificationView {
 		Body:      n.Body,
 		Read:      n.Read,
 		CreatedAt: n.CreatedAt,
+	}
+}
+
+// WorkflowView is the wire format for workflow objects sent to the frontend.
+type WorkflowView struct {
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	Nodes       []WorkflowNodeView  `json:"nodes"`
+	Edges       []WorkflowEdgeView  `json:"edges"`
+	CreatedAt   int64               `json:"createdAt"`
+	UpdatedAt   int64               `json:"updatedAt"`
+}
+
+// WorkflowNodeView is the wire format for workflow nodes sent to the frontend.
+type WorkflowNodeView struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Kind      string `json:"kind"`
+	Config    string `json:"config"`
+	Model     string `json:"model,omitempty"`
+	Effort    string `json:"effort,omitempty"`
+	PositionX int    `json:"positionX"`
+	PositionY int    `json:"positionY"`
+}
+
+// WorkflowEdgeView is the wire format for workflow edges sent to the frontend.
+type WorkflowEdgeView struct {
+	ID     string `json:"id"`
+	Source string `json:"source"`
+	Target string `json:"target"`
+	Label  string `json:"label,omitempty"`
+}
+
+// SaveWorkflow persists a new or updated workflow. The name must be unique and filename-safe.
+func (a *App) SaveWorkflow(w WorkflowView) error {
+	if a.workflowStore == nil {
+		return fmt.Errorf("workflow store not initialized")
+	}
+	nodes := make([]workflow.WorkflowNode, len(w.Nodes))
+	for i, n := range w.Nodes {
+		nodes[i] = workflow.WorkflowNode{
+			ID:        n.ID,
+			Label:     n.Label,
+			Kind:      n.Kind,
+			Config:    n.Config,
+			Model:     n.Model,
+			Effort:    n.Effort,
+			PositionX: n.PositionX,
+			PositionY: n.PositionY,
+		}
+	}
+	edges := make([]workflow.WorkflowEdge, len(w.Edges))
+	for i, e := range w.Edges {
+		edges[i] = workflow.WorkflowEdge{
+			ID:     e.ID,
+			Source: e.Source,
+			Target: e.Target,
+			Label:  e.Label,
+		}
+	}
+	wf := workflow.Workflow{
+		Name:        w.Name,
+		Description: w.Description,
+		Nodes:       nodes,
+		Edges:       edges,
+		CreatedAt:   w.CreatedAt,
+		UpdatedAt:   w.UpdatedAt,
+	}
+	return a.workflowStore.Save(wf)
+}
+
+// LoadWorkflow reads a workflow by name. Returns error if not found.
+func (a *App) LoadWorkflow(name string) (WorkflowView, error) {
+	if a.workflowStore == nil {
+		return WorkflowView{}, fmt.Errorf("workflow store not initialized")
+	}
+	wf, err := a.workflowStore.Load(name)
+	if err != nil {
+		return WorkflowView{}, err
+	}
+	return workflowViewFromModel(wf), nil
+}
+
+// ListWorkflows returns all workflows, sorted by creation time descending.
+func (a *App) ListWorkflows() ([]WorkflowView, error) {
+	if a.workflowStore == nil {
+		return nil, fmt.Errorf("workflow store not initialized")
+	}
+	workflows, err := a.workflowStore.List()
+	if err != nil {
+		return nil, err
+	}
+	views := make([]WorkflowView, 0, len(workflows))
+	for _, wf := range workflows {
+		views = append(views, workflowViewFromModel(wf))
+	}
+	return views, nil
+}
+
+// DeleteWorkflow removes a workflow by name. Returns error if not found.
+func (a *App) DeleteWorkflow(name string) error {
+	if a.workflowStore == nil {
+		return fmt.Errorf("workflow store not initialized")
+	}
+	return a.workflowStore.Delete(name)
+}
+
+// RunWorkflow creates a new tab and submits the workflow as a structured prompt.
+// It builds a composite prompt from the DAG nodes and edges, then submits it
+// for sequential execution.
+func (a *App) RunWorkflow(name string, input string) error {
+	if a.workflowStore == nil {
+		return fmt.Errorf("workflow store not initialized")
+	}
+	wf, err := a.workflowStore.Load(name)
+	if err != nil {
+		return err
+	}
+
+	// Build a structured prompt describing the workflow steps.
+	var sb strings.Builder
+	sb.WriteString("Execute the following workflow: ")
+	sb.WriteString(wf.Name)
+	if wf.Description != "" {
+		sb.WriteString(" — ")
+		sb.WriteString(wf.Description)
+	}
+	sb.WriteString("\n\nSteps:\n")
+	for i, node := range wf.Nodes {
+		sb.WriteString(fmt.Sprintf("%d. [%s] %s", i+1, node.Kind, node.Label))
+		if node.Config != "" {
+			sb.WriteString(fmt.Sprintf(" (config: %s)", node.Config))
+		}
+		if node.Model != "" {
+			sb.WriteString(fmt.Sprintf(" (model: %s)", node.Model))
+		}
+		if node.Effort != "" {
+			sb.WriteString(fmt.Sprintf(" (effort: %s)", node.Effort))
+		}
+		sb.WriteString("\n")
+	}
+	if len(wf.Edges) > 0 {
+		sb.WriteString("\nConnections:\n")
+		for _, edge := range wf.Edges {
+			desc := fmt.Sprintf("  %s → %s", edge.Source, edge.Target)
+			if edge.Label != "" {
+				desc += fmt.Sprintf(" (%s)", edge.Label)
+			}
+			sb.WriteString(desc + "\n")
+		}
+	}
+	if input != "" {
+		sb.WriteString("\nInput: " + input + "\n")
+	}
+	sb.WriteString("\nPlease execute each step in order, following the connections described above.")
+
+	tabTitle := fmt.Sprintf("Workflow: %s", wf.Name)
+	topic, topicErr := a.CreateTopic("global", "", tabTitle)
+	if topicErr != nil {
+		return fmt.Errorf("create tab for workflow: %w", topicErr)
+	}
+	a.SubmitDisplayToTab(topic.ID, "Workflow: "+wf.Name, sb.String())
+	return nil
+}
+
+// workflowViewFromModel converts an internal workflow.Workflow to a WorkflowView.
+func workflowViewFromModel(wf workflow.Workflow) WorkflowView {
+	nodes := make([]WorkflowNodeView, len(wf.Nodes))
+	for i, n := range wf.Nodes {
+		nodes[i] = WorkflowNodeView{
+			ID:        n.ID,
+			Label:     n.Label,
+			Kind:      n.Kind,
+			Config:    n.Config,
+			Model:     n.Model,
+			Effort:    n.Effort,
+			PositionX: n.PositionX,
+			PositionY: n.PositionY,
+		}
+	}
+	edges := make([]WorkflowEdgeView, len(wf.Edges))
+	for i, e := range wf.Edges {
+		edges[i] = WorkflowEdgeView{
+			ID:     e.ID,
+			Source: e.Source,
+			Target: e.Target,
+			Label:  e.Label,
+		}
+	}
+	return WorkflowView{
+		Name:        wf.Name,
+		Description: wf.Description,
+		Nodes:       nodes,
+		Edges:       edges,
+		CreatedAt:   wf.CreatedAt,
+		UpdatedAt:   wf.UpdatedAt,
 	}
 }

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -61,7 +63,13 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, args json.RawMessage) (str
 	}
 
 	parentID, _, _, ok := CallContext(ctx)
-	agentID := fmt.Sprintf("agent-%d", time.Now().UnixNano())
+	// Derive a deterministic agent id from prompt + role + parent so a replay
+	// of the same spawn yields the same id (eases testing + replay). Truncate
+	// to 8 hex chars for readability — collisions within one parent are
+	// acceptable (Pool keys by this id and will reject duplicates).
+	seed := p.Prompt + "|" + p.Role + "|" + parentID
+	h := sha256.Sum256([]byte(seed))
+	agentID := "agent-" + hex.EncodeToString(h[:4])
 	if ok && parentID != "" {
 		agentID = parentID + "/" + agentID
 	}

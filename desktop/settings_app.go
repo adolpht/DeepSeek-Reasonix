@@ -102,6 +102,11 @@ type SettingsView struct {
 	// Bypass is the live YOLO state (runtime-only, not from config), so the panel's
 	// toggle reflects whether approvals are currently being skipped this session.
 	Bypass bool `json:"bypass"`
+	// CodingOpenSpec is the coding-mode-only toggle for the built-in OpenSpec
+	// SDD workflow (10 opsx-* skills). False (default) hides them from the
+	// skill index, slash menu, and run_skill tool; true surfaces them so the
+	// user can invoke /opsx-propose etc. in the coding workspace.
+	CodingOpenSpec bool `json:"codingOpenSpec"`
 }
 
 func nonNil(s []string) []string {
@@ -272,6 +277,7 @@ func (a *App) Settings() SettingsView {
 		ConfigPath:        cfgPath,
 		ProviderKinds:     nonNil(provider.Kinds()),
 		Bypass:            ctrl != nil && ctrl.Bypass(),
+		CodingOpenSpec:    cfg.DesktopCodingOpenSpec(),
 	}
 	builtIns := builtInProviderNames()
 	added := providerAccessSet(cfg.Desktop.ProviderAccess)
@@ -590,6 +596,16 @@ func (a *App) SetSubagentEffort(level string) error {
 // SetAutoPlan updates the automatic plan-mode gate (off|on).
 func (a *App) SetAutoPlan(mode string) error {
 	return a.applyConfigChange(func(c *config.Config) error { return c.SetAutoPlan(mode) })
+}
+
+// SetCodingOpenSpec toggles the OpenSpec SDD workflow for the coding workspace.
+// Uses applyConfigChange (not applyConfigOnly) so the controller rebuilds and
+// the 10 opsx-* skills immediately appear in / disappear from the skill index,
+// slash menu, and run_skill tool — no restart needed.
+func (a *App) SetCodingOpenSpec(enabled bool) error {
+	return a.applyConfigChange(func(c *config.Config) error {
+		return c.SetDesktopCodingOpenSpec(enabled)
+	})
 }
 
 func desktopAutoPlanMode(mode string) string {

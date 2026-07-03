@@ -175,6 +175,15 @@ func (c *Config) SetUICloseBehavior(mode string) error {
 	return c.SetDesktopCloseBehavior(mode)
 }
 
+// SetDesktopCodingOpenSpec toggles the OpenSpec SDD workflow for the coding
+// workspace. When enabled, the 10 built-in opsx-* skills become discoverable;
+// when disabled, the boot flow adds them to the skill store's disabled list.
+// It is desktop-only and must not affect CLI runtime or provider-visible data.
+func (c *Config) SetDesktopCodingOpenSpec(enabled bool) error {
+	c.Desktop.Coding.OpenSpecEnabled = enabled
+	return nil
+}
+
 // SetProviderThinking updates a provider's provider-specific thinking mode knob.
 func (c *Config) SetProviderThinking(name, thinking string) error {
 	for i := range c.Providers {

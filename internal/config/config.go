@@ -40,25 +40,28 @@ func SkillNameKey(name string) string {
 
 // Config is Reasonix's runtime configuration.
 type Config struct {
-	ConfigVersion int                 `toml:"config_version"`
-	DefaultModel  string              `toml:"default_model"`
-	Language      string              `toml:"language"` // ui/model language tag (e.g. "zh"); empty = auto-detect from $LANG / $REASONIX_LANG
-	UI            UIConfig            `toml:"ui"`
-	Desktop       DesktopConfig       `toml:"desktop"`
-	Notifications NotificationsConfig `toml:"notifications"`
-	Agent         AgentConfig         `toml:"agent"`
-	Providers     []ProviderEntry     `toml:"providers"`
-	Tools         ToolsConfig         `toml:"tools"`
-	Permissions   PermissionsConfig   `toml:"permissions"`
-	Sandbox       SandboxConfig       `toml:"sandbox"`
-	Network       NetworkConfig       `toml:"network"`
-	Plugins       []PluginEntry       `toml:"plugins"`
-	Skills        SkillsConfig        `toml:"skills"`
-	Codegraph     CodegraphConfig     `toml:"codegraph"`
-	Statusline    StatuslineConfig    `toml:"statusline"`
-	LSP           LSPConfig           `toml:"lsp"`
-	Store         StoreConfig         `toml:"store"`
-	Agents        AgentPoolConfig     `toml:"agents"`
+	ConfigVersion    int                    `toml:"config_version"`
+	DefaultModel     string                 `toml:"default_model"`
+	Language         string                 `toml:"language"` // ui/model language tag (e.g. "zh"); empty = auto-detect from $LANG / $REASONIX_LANG
+	UI               UIConfig               `toml:"ui"`
+	Desktop          DesktopConfig          `toml:"desktop"`
+	Notifications    NotificationsConfig    `toml:"notifications"`
+	Agent            AgentConfig            `toml:"agent"`
+	Providers        []ProviderEntry        `toml:"providers"`
+	Tools            ToolsConfig            `toml:"tools"`
+	Permissions      PermissionsConfig      `toml:"permissions"`
+	Sandbox          SandboxConfig          `toml:"sandbox"`
+	Network          NetworkConfig          `toml:"network"`
+	Plugins          []PluginEntry          `toml:"plugins"`
+	Skills           SkillsConfig           `toml:"skills"`
+	Codegraph        CodegraphConfig        `toml:"codegraph"`
+	Statusline       StatuslineConfig       `toml:"statusline"`
+	LSP              LSPConfig              `toml:"lsp"`
+	Store            StoreConfig            `toml:"store"`
+	Agents           AgentPoolConfig        `toml:"agents"`
+	PKM              PKMConfig              `toml:"pkm"`
+	ClipboardHistory ClipboardHistoryConfig `toml:"clipboard_history"`
+	VoiceInput       VoiceInputConfig       `toml:"voice_input"`
 }
 
 // StoreConfig configures the session persistence backend.
@@ -80,11 +83,35 @@ type UIConfig struct {
 // separate from top-level language and [ui] so desktop choices do not affect CLI
 // language, terminal colours, or provider-visible prompt/request data.
 type DesktopConfig struct {
-	Language       string   `toml:"language"`        // auto|en|zh; empty/auto = browser/OS auto-detect
-	Theme          string   `toml:"theme"`           // auto|dark|light; empty resolves to dark
-	ThemeStyle     string   `toml:"theme_style"`     // graphite|ember|aurora|midnight|sandstone|porcelain|linen|glacier
-	CloseBehavior  string   `toml:"close_behavior"`  // quit|background; desktop window close behavior
-	ProviderAccess []string `toml:"provider_access"` // desktop-only list of provider entries shown in Settings > Model > Access
+	Language       string       `toml:"language"`        // auto|en|zh; empty/auto = browser/OS auto-detect
+	Theme          string       `toml:"theme"`           // auto|dark|light; empty resolves to dark
+	ThemeStyle     string       `toml:"theme_style"`     // graphite|ember|aurora|midnight|sandstone|porcelain|linen|glacier
+	CloseBehavior  string       `toml:"close_behavior"`  // quit|background; desktop window close behavior
+	ProviderAccess []string     `toml:"provider_access"` // desktop-only list of provider entries shown in Settings > Model > Access
+	Coding         CodingConfig `toml:"coding"`          // coding-mode-specific preferences (OpenSpec SDD toggle, etc.)
+}
+
+// CodingConfig holds coding-mode-only preferences. These do not affect the CLI
+// runtime or provider-visible prompt data; they gate coding-workflow features
+// surfaced under the "coding" workspace type (e.g. the built-in OpenSpec SDD
+// skill set: opsx-propose/apply/archive/explore/new/continue/ff/verify/
+// bulk-archive/onboard).
+type CodingConfig struct {
+	// OpenSpecEnabled controls whether the 10 built-in opsx-* skills are
+	// discoverable in the coding workspace. When false (the default), the
+	// boot flow adds the opsx-* names to the skill store's disabled list so
+	// they never appear in the skill index, slash menu, or run_skill tool.
+	// Toggling it rebuilds the controller so the change is live.
+	OpenSpecEnabled bool `toml:"openspec_enabled"`
+}
+
+// DesktopCodingOpenSpec reports whether the OpenSpec SDD workflow is enabled
+// for the coding workspace. Default is false (opt-in).
+func (c *Config) DesktopCodingOpenSpec() bool {
+	if c == nil {
+		return false
+	}
+	return c.Desktop.Coding.OpenSpecEnabled
 }
 
 // NotificationsConfig controls optional system notifications for CLI chat/run.
@@ -237,6 +264,88 @@ func (c CodegraphConfig) ShouldAutoStart() bool {
 
 func (c CodegraphConfig) ResolvedTier() string {
 	return resolvedMCPTier(c.Tier)
+}
+
+// PKMConfig governs the personal knowledge base — the four user-authored
+// files under ~/.reasonix/memory/ (people.md, projects.md, preferences.md,
+// writing_style.md) that fold into the system prompt as durable, cache-stable
+// context. Enabled defaults to true so existing configs (which never wrote a
+// [pkm] section) keep PKM after an upgrade. AutoLearn enables the preference
+// scanner that detects user preference declarations and writes them back to
+// the PKM files; AutoLearnConfirm requires user approval before each write
+// (when false, detected preferences are written automatically).
+type PKMConfig struct {
+	Enabled          bool `toml:"enabled"`
+	AutoLearn        bool `toml:"auto_learn"`         // enable model-driven PKM updates
+	AutoLearnConfirm bool `toml:"auto_learn_confirm"` // require user approval before each write
+}
+
+// PKMEnabled reports whether PKM injection is active. It defaults to true when
+// the [pkm] section is absent, matching the upgrade-preserving behaviour of
+// Codegraph / LSP.
+func (c PKMConfig) EnabledOrDefault() bool {
+	return c.Enabled
+}
+
+// ClipboardHistoryConfig governs the clipboard history feature.
+type ClipboardHistoryConfig struct {
+	Enabled       bool `toml:"enabled"`        // Enable clipboard history tracking
+	RetentionDays int  `toml:"retention_days"` // Days to keep entries (default 30)
+	MaxEntries    int  `toml:"max_entries"`    // Maximum entries to keep (default 1000)
+}
+
+func (c ClipboardHistoryConfig) EnabledOrDefault() bool {
+	return c.Enabled
+}
+
+func (c ClipboardHistoryConfig) RetentionDaysOrDefault() int {
+	if c.RetentionDays <= 0 {
+		return 30
+	}
+	return c.RetentionDays
+}
+
+func (c ClipboardHistoryConfig) MaxEntriesOrDefault() int {
+	if c.MaxEntries <= 0 {
+		return 1000
+	}
+	return c.MaxEntries
+}
+
+// VoiceInputConfig governs the voice input feature.
+type VoiceInputConfig struct {
+	Enabled     bool   `toml:"enabled"`      // Enable voice input
+	WhisperPath string `toml:"whisper_path"` // Path to whisper binary
+	Hotkey      string `toml:"hotkey"`       // Global hotkey (default: Ctrl+Shift+V)
+	Model       string `toml:"model"`        // Whisper model: tiny|base|small|medium|large (default: base)
+	Language    string `toml:"language"`     // Spoken language: auto|zh|en|ja|... (default: auto)
+}
+
+func (c VoiceInputConfig) EnabledOrDefault() bool {
+	return c.Enabled
+}
+
+func (c VoiceInputConfig) HotkeyOrDefault() string {
+	if c.Hotkey != "" {
+		return c.Hotkey
+	}
+	return "Ctrl+Shift+V"
+}
+
+// ModelOrDefault returns the configured whisper model, falling back to "base".
+func (c VoiceInputConfig) ModelOrDefault() string {
+	if m := strings.TrimSpace(c.Model); m != "" {
+		return m
+	}
+	return "base"
+}
+
+// LanguageOrDefault returns the configured spoken language, falling back to "auto".
+func (c VoiceInputConfig) LanguageOrDefault() string {
+	if l := strings.TrimSpace(c.Language); l != "" {
+		return l
+	}
+	return "auto"
 }
 
 // NetworkConfig controls ordinary outbound HTTP traffic such as model providers,
@@ -538,10 +647,10 @@ type AgentConfig struct {
 
 // AgentPoolConfig for multi-agent parallel orchestration
 type AgentPoolConfig struct {
-	MaxThreads   int                `toml:"max_threads"`    // Max concurrent sub-agents (default 6)
-	MaxDepth     int                `toml:"max_depth"`      // Max nesting depth (default 1)
-	JobTimeout   string             `toml:"job_timeout"`    // Single agent timeout (default "5m")
-	DefaultModel string             `toml:"default_model"`  // Sub-agent default model
+	MaxThreads   int                `toml:"max_threads"`   // Max concurrent sub-agents (default 6)
+	MaxDepth     int                `toml:"max_depth"`     // Max nesting depth (default 1)
+	JobTimeout   string             `toml:"job_timeout"`   // Single agent timeout (default "5m")
+	DefaultModel string             `toml:"default_model"` // Sub-agent default model
 	CustomRoles  []CustomRoleConfig `toml:"roles"`
 }
 
@@ -660,9 +769,9 @@ type ToolsConfig struct {
 // to true; the tools degrade gracefully when the interpreter is not found.
 type REPLConfig struct {
 	Enabled     bool   `toml:"enabled"`
-	JSPath      string `toml:"js_path"`       // path to node binary; default: "node"
-	PythonPath  string `toml:"python_path"`   // path to python3 binary; default: "python3"
-	EvalTimeout string `toml:"eval_timeout"`  // per-eval timeout; default: "30s"
+	JSPath      string `toml:"js_path"`      // path to node binary; default: "node"
+	PythonPath  string `toml:"python_path"`  // path to python3 binary; default: "python3"
+	EvalTimeout string `toml:"eval_timeout"` // per-eval timeout; default: "30s"
 }
 
 const defaultBashTimeoutSeconds = 120
@@ -867,7 +976,12 @@ func Default() *Config {
 		Codegraph: CodegraphConfig{Enabled: true, AutoInstall: true},
 		// LSP tools on by default, but dormant until a language server is on PATH;
 		// a missing server yields an install hint rather than an error.
-		LSP:     LSPConfig{Enabled: true},
+		LSP: LSPConfig{Enabled: true},
+		// PKM (personal knowledge base) on by default: the four files under
+		// ~/.reasonix/memory/ fold into the system prompt as durable context.
+		// EnsureMemoryDir scaffolds them on first boot. Set [pkm] enabled = false
+		// to opt out.
+		PKM:     PKMConfig{Enabled: true},
 		Network: NetworkConfig{ProxyMode: netclient.ModeAuto},
 		Providers: []ProviderEntry{
 			{Name: "deepseek-flash", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-flash", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.02, Input: 1, Output: 2, Currency: "¥"}},

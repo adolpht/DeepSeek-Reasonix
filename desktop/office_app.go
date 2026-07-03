@@ -11,6 +11,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -236,14 +237,17 @@ func (a *App) OpenInOSDefault(path string) error {
 	return openWorkspacePath(path)
 }
 
-// RenderDocPreview registers a document (docx/pdf/image) with the media-token
-// store and returns URLs the frontend can use to preview it.
+// RenderDocPreview registers a document (docx/xlsx/pdf/image) with the
+// media-token store and returns URLs the frontend can use to preview it.
 //
-// For images (png/jpg/gif/svg/webp) the returned URL renders inline in an
-// <img> tag. For docx/pdf the URL triggers a browser download — actual
-// page-by-page rendering requires an external renderer (LibreOffice/pandoc)
-// and is a future enhancement tracked in the roadmap. The `page` argument is
-// accepted for forward compatibility but currently ignored for non-images.
+//   - Images (png/jpg/gif/svg/webp): inline <img> URL
+//   - PDF: inline <iframe> URL (browser's native PDF viewer)
+//   - docx: parsed to HTML and served via inline media token (renders in <iframe>)
+//   - xlsx/csv: parsed to JSON {headers, rows} and placed in the URL field
+//     directly (SheetViewer parses it client-side; no media token needed)
+//
+// The `page` argument is accepted for forward compatibility but currently
+// ignored — docx/xlsx previews are single-page.
 //
 // Returns a non-nil slice (possibly empty on error) per the bound-method
 // contract; callers can safely index [0] only when len > 0.
@@ -264,7 +268,7 @@ func (a *App) RenderDocPreview(absPath string, page int) ([]DocPreviewPage, erro
 		return out, fmt.Errorf("path is a directory")
 	}
 	name := filepath.Base(absPath)
-	ext := filepath.Ext(name)
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
 
 	// Images: register with media token store and return the inline URL.
 	if kind, mime, ok := previewKindForExt(ext); ok {
@@ -276,19 +280,71 @@ func (a *App) RenderDocPreview(absPath string, page int) ([]DocPreviewPage, erro
 		}}, nil
 	}
 
-	// docx/pdf: for now, register the file as a binary blob so the frontend
-	// gets a stable URL it can show as a download chip. When a renderer is
-	// wired in (roadmap §5.4 acceptance: "Agent 生成 docx 后，前端可内嵌预览
-	// 前 5 页"), this branch will shell out to the renderer and return one
-	// page entry per rendered image. Today: a single "page" pointing at the
-	// raw file so the user can click through to OpenInOSDefault.
-	mime := "application/octet-stream"
-	switch strings.ToLower(strings.TrimPrefix(ext, ".")) {
-	case "docx":
-		mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	case "pdf":
-		mime = "application/pdf"
+	// PDF: serve the raw file with application/pdf MIME so the browser's
+	// native PDF viewer renders it inside an <iframe>.
+	if ext == "pdf" {
+		tok := a.ensureMediaTokenStore().create(absPath, name, "application/pdf", "pdf", info.Size(), info.ModTime())
+		return []DocPreviewPage{{
+			URL:   "/__reasonix_workspace_media/" + tok + "/" + url.PathEscape(name),
+			Page:  1,
+			Total: 1,
+		}}, nil
 	}
+
+	// docx: parse to HTML and serve via inline media token. The frontend
+	// renders it in an <iframe>.
+	if ext == "docx" {
+		htmlStr, err := parseDocxToHTML(absPath)
+		if err != nil {
+			return out, fmt.Errorf("parse docx: %w", err)
+		}
+		htmlName := strings.TrimSuffix(name, filepath.Ext(name)) + ".html"
+		tok := a.ensureMediaTokenStore().createInline(htmlName, "text/html; charset=utf-8", "docx", []byte(htmlStr))
+		return []DocPreviewPage{{
+			URL:   "/__reasonix_workspace_media/" + tok + "/" + url.PathEscape(htmlName),
+			Page:  1,
+			Total: 1,
+		}}, nil
+	}
+
+	// xlsx: parse to structured JSON and return it directly in the URL
+	// field. SheetViewer does JSON.parse(p.url) to extract {headers, rows}
+	// — no media token is needed because the data is self-contained.
+	if ext == "xlsx" || ext == "xlsm" {
+		td, err := parseXlsxToTable(absPath)
+		if err != nil {
+			return out, fmt.Errorf("parse xlsx: %w", err)
+		}
+		js, err := json.Marshal(td)
+		if err != nil {
+			return out, fmt.Errorf("marshal xlsx data: %w", err)
+		}
+		return []DocPreviewPage{{
+			URL:   string(js),
+			Page:  1,
+			Total: 1,
+		}}, nil
+	}
+
+	// csv: parse to structured JSON like xlsx (SheetViewer handles it).
+	if ext == "csv" {
+		td, err := parseCSVToTable(absPath)
+		if err != nil {
+			return out, fmt.Errorf("parse csv: %w", err)
+		}
+		js, err := json.Marshal(td)
+		if err != nil {
+			return out, fmt.Errorf("marshal csv data: %w", err)
+		}
+		return []DocPreviewPage{{
+			URL:   string(js),
+			Page:  1,
+			Total: 1,
+		}}, nil
+	}
+
+	// Fallback: register as binary blob so the frontend gets a download URL.
+	mime := "application/octet-stream"
 	tok := a.ensureMediaTokenStore().create(absPath, name, mime, "binary", info.Size(), info.ModTime())
 	return []DocPreviewPage{{
 		URL:   "/__reasonix_workspace_media/" + tok + "/" + url.PathEscape(name),

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -45,6 +46,78 @@ var (
 	oauth2Token *oauth2.Token
 	oauth2Cfg   *oauth2.Config
 )
+
+// These function variables are indirection points used by the IMAP/SMTP
+// auth paths so tests can override them without making real network calls.
+var (
+	getOAuth2AccessTokenFn = GetOAuth2AccessToken
+	loadOAuth2TokenFn      = LoadOAuth2Token
+)
+
+// mailAuthConfig holds the resolved connection + authentication settings for
+// either IMAP or SMTP. When OAuth2 fields are populated, XOAUTH2 is used;
+// otherwise the PLAIN password path is used.
+type mailAuthConfig struct {
+	Host     string
+	User     string
+	Password string        // used when authenticating via PLAIN
+	OAuth2   *OAuth2Config // non-nil when authenticating via XOAUTH2
+	Token    *oauth2.Token // non-nil when authenticating via XOAUTH2
+}
+
+// useOAuth2 reports whether this connection should authenticate via XOAUTH2.
+func (a mailAuthConfig) useOAuth2() bool {
+	return a.OAuth2 != nil && a.Token != nil
+}
+
+// defaultOAuth2TokenFile returns the standard token persistence path:
+// ~/.reasonix/mail_oauth2_token.json
+func defaultOAuth2TokenFile() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(".reasonix", "mail_oauth2_token.json")
+	}
+	return filepath.Join(home, ".reasonix", "mail_oauth2_token.json")
+}
+
+// loadOAuth2ConfigFromEnv reads the OAuth2 provider configuration from
+// environment variables. The bool result reports whether OAuth2 is configured.
+func loadOAuth2ConfigFromEnv() (OAuth2Config, bool) {
+	provider := os.Getenv("MAIL_OAUTH2_PROVIDER")
+	if provider == "" {
+		return OAuth2Config{}, false
+	}
+	clientID := os.Getenv("MAIL_OAUTH2_CLIENT_ID")
+	clientSecret := os.Getenv("MAIL_OAUTH2_CLIENT_SECRET")
+	if clientID == "" || clientSecret == "" {
+		return OAuth2Config{}, false
+	}
+	tokenFile := os.Getenv("MAIL_OAUTH2_TOKEN_FILE")
+	if tokenFile == "" {
+		tokenFile = defaultOAuth2TokenFile()
+	}
+	return OAuth2Config{
+		Provider:     OAuth2Provider(provider),
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		TokenFile:    tokenFile,
+	}, true
+}
+
+// persistOAuth2Token writes the token to the given file, creating parent
+// directories as needed. Errors are intentionally non-fatal: token refresh
+// is best-effort and a failed write should not abort an in-flight mail op.
+func persistOAuth2Token(tokenFile string, token *oauth2.Token) {
+	if tokenFile == "" {
+		return
+	}
+	if dir := filepath.Dir(tokenFile); dir != "" && dir != "." {
+		_ = os.MkdirAll(dir, 0o700)
+	}
+	if data, err := json.Marshal(token); err == nil {
+		_ = os.WriteFile(tokenFile, data, 0o600)
+	}
+}
 
 // oauth2Endpoint returns the OAuth2 endpoint for the given provider.
 func oauth2Endpoint(provider OAuth2Provider) oauth2.Endpoint {
@@ -98,11 +171,7 @@ func ExchangeOAuth2Code(cfg OAuth2Config, code string) (*oauth2.Token, error) {
 		return nil, fmt.Errorf("oauth2 exchange: %w", err)
 	}
 	// Persist token
-	if cfg.TokenFile != "" {
-		if data, err := json.Marshal(token); err == nil {
-			os.WriteFile(cfg.TokenFile, data, 0600)
-		}
-	}
+	persistOAuth2Token(cfg.TokenFile, token)
 	oauth2Mu.Lock()
 	oauth2Token = token
 	oauth2Cfg = config
@@ -149,11 +218,7 @@ func GetOAuth2AccessToken(cfg OAuth2Config, token *oauth2.Token) (string, error)
 		return "", fmt.Errorf("refresh token: %w", err)
 	}
 	// Persist refreshed token
-	if cfg.TokenFile != "" {
-		if data, err := json.Marshal(t); err == nil {
-			os.WriteFile(cfg.TokenFile, data, 0600)
-		}
-	}
+	persistOAuth2Token(cfg.TokenFile, t)
 	return t.AccessToken, nil
 }
 
