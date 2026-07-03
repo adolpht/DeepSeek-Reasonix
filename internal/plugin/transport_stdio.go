@@ -203,7 +203,16 @@ func windowsStdioFallbackPATH(env []string) string {
 	if appData == "" && userProfile != "" {
 		appData = filepath.Join(userProfile, "AppData", "Roaming")
 	}
+	// Add the directory containing the running executable and its plugins/
+	// subdirectory. This ensures bundled MCP plugins (e.g.
+	// reasonix-plugin-office.exe in <install>/plugins/) are discoverable
+	// even when the GUI was launched without the shell PATH (Windows Store
+	// click, auto-updater, etc.).
+	exeDir, _ := filepath.Abs(filepath.Dir(os.Args[0]))
+
 	candidates := []string{
+		exeDir,
+		filepath.Join(exeDir, "plugins"),
 		filepath.Join(programFiles, "nodejs"),
 		filepath.Join(programFilesX86, "nodejs"),
 		filepath.Join(localAppData, "Programs", "nodejs"),
