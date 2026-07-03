@@ -142,13 +142,13 @@ Section
     ## MCP plugins: bundled alongside the main executable so the agent can
     ## discover them via the default PATH-relative command in reasonix.toml.
     SetOutPath "$INSTDIR\plugins"
-    File "..\..\..\bin\plugins\reasonix-plugin-office.exe"
-    File "..\..\..\bin\plugins\reasonix-plugin-sheet.exe"
-    File "..\..\..\bin\plugins\reasonix-plugin-search.exe"
-    File "..\..\..\bin\plugins\reasonix-plugin-calendar.exe"
-    File "..\..\..\bin\plugins\reasonix-plugin-slides.exe"
-    File "..\..\..\bin\plugins\reasonix-plugin-mail.exe"
-    File "..\..\..\bin\plugins\reasonix-plugin-im.exe"
+    File "..\..\bin\plugins\reasonix-plugin-office.exe"
+    File "..\..\bin\plugins\reasonix-plugin-sheet.exe"
+    File "..\..\bin\plugins\reasonix-plugin-search.exe"
+    File "..\..\bin\plugins\reasonix-plugin-calendar.exe"
+    File "..\..\bin\plugins\reasonix-plugin-slides.exe"
+    File "..\..\bin\plugins\reasonix-plugin-mail.exe"
+    File "..\..\bin\plugins\reasonix-plugin-im.exe"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
