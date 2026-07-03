@@ -2812,10 +2812,12 @@ func (a *App) SetModelForTab(tabID, name string) error {
 
 	var carried []provider.Message
 	prevPath := ""
+	var granted map[string]bool
 	if tab.Ctrl != nil {
 		prevPath = tab.Ctrl.SessionPath()
 		_ = tab.Ctrl.Snapshot()
 		carried = tab.Ctrl.History()
+		granted = tab.Ctrl.GetGranted()
 		tab.Ctrl.Close()
 	}
 
@@ -2839,6 +2841,9 @@ func (a *App) SetModelForTab(tabID, name string) error {
 	a.mu.Unlock()
 	newCtrl.EnableInteractiveApproval()
 	applyTabModeToController(newCtrl, tab.mode)
+	if len(granted) > 0 {
+		newCtrl.SetGranted(granted)
+	}
 
 	path := agent.ContinueSessionPath(prevPath, newCtrl.SessionDir(), newCtrl.Label())
 	if len(carried) > 0 {
@@ -2904,10 +2909,12 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 	}
 	var carried []provider.Message
 	prevPath := ""
+	var granted map[string]bool
 	if tab.Ctrl != nil {
 		prevPath = tab.Ctrl.SessionPath()
 		_ = tab.Ctrl.Snapshot()
 		carried = tab.Ctrl.History()
+		granted = tab.Ctrl.GetGranted()
 		tab.Ctrl.Close()
 	}
 	newCtrl, err := boot.Build(a.bootContext(), boot.Options{
@@ -2931,6 +2938,9 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 	a.mu.Unlock()
 	newCtrl.EnableInteractiveApproval()
 	applyTabModeToController(newCtrl, tab.mode)
+	if len(granted) > 0 {
+		newCtrl.SetGranted(granted)
+	}
 	path := agent.ContinueSessionPath(prevPath, newCtrl.SessionDir(), newCtrl.Label())
 	if len(carried) > 0 {
 		newCtrl.Resume(&agent.Session{Messages: carried}, path)

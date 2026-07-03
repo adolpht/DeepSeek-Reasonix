@@ -2229,3 +2229,22 @@ func (c *Controller) requestApproval(ctx context.Context, tool, subject string) 
 		return false, false, ctx.Err()
 	}
 }
+
+func (c *Controller) GetGranted() map[string]bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	result := make(map[string]bool, len(c.granted))
+	for k, v := range c.granted {
+		result[k] = v
+	}
+	return result
+}
+
+func (c *Controller) SetGranted(granted map[string]bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.granted = make(map[string]bool, len(granted))
+	for k, v := range granted {
+		c.granted[k] = v
+	}
+}
