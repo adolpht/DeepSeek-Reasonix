@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 
 	"github.com/creack/pty"
 )
 
 // unixPty implements ptyProcess using creack/pty (POSIX).
 type unixPty struct {
-	cmd *exec.Cmd
-	ptmx *os.File
+	cmd       *exec.Cmd
+	ptmx      *os.File
+	closeOnce sync.Once
+	closed    chan struct{}
 }
 
 // startPty creates a new PTY session on non-Windows platforms using creack/pty.
@@ -31,7 +34,7 @@ func startPty(exe string, args []string, cwd string, cols, rows int) (ptyProcess
 		_ = pty.Setsize(ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 	}
 
-	return &unixPty{cmd: cmd, ptmx: ptmx}, nil
+	return &unixPty{cmd: cmd, ptmx: ptmx, closed: make(chan struct{})}, nil
 }
 
 func (u *unixPty) Read(p []byte) (int, error) {
@@ -47,6 +50,11 @@ func (u *unixPty) Resize(cols, rows uint16) error {
 }
 
 func (u *unixPty) Wait() (int, error) {
+	select {
+	case <-u.closed:
+		return -1, fmt.Errorf("pty already closed")
+	default:
+	}
 	waitErr := u.cmd.Wait()
 	if waitErr != nil {
 		if ee, ok := waitErr.(*exec.ExitError); ok {
@@ -58,10 +66,13 @@ func (u *unixPty) Wait() (int, error) {
 }
 
 func (u *unixPty) Close() {
-	_ = u.ptmx.Close()
-	if u.cmd.Process != nil {
-		_ = u.cmd.Process.Kill()
-	}
+	u.closeOnce.Do(func() {
+		close(u.closed)
+		_ = u.ptmx.Close()
+		if u.cmd.Process != nil {
+			_ = u.cmd.Process.Kill()
+		}
+	})
 }
 
 func (u *unixPty) Pid() int {

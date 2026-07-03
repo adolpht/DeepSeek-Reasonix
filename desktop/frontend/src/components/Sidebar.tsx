@@ -198,13 +198,11 @@ export function Sidebar({
               <Home size={16} />
             </button>
           </Tooltip>
-          {workspaceType === "coding" && (
-            <Tooltip label={t("sidebar.fileManagement")} side="right">
-              <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("files"); }}>
-                <FolderOpen size={16} />
-              </button>
-            </Tooltip>
-          )}
+          <Tooltip label={t("sidebar.fileManagement")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("files"); }}>
+              <FolderOpen size={16} />
+            </button>
+          </Tooltip>
           {workspaceType === "office" && (
             <>
               <Tooltip label={t("officePanel.productDesign")} side="right">
@@ -292,21 +290,17 @@ export function Sidebar({
 
       {/* ── 工作台 (Workbench) — dynamic by workspaceType ── */}
       <SidebarSection title={t("sidebar.workbench")} storageKey="workbench">
-        {workspaceType === "coding" && (
-          <>
-            <ProjectTree
-              activeScope={activeScope}
-              activeWorkspaceRoot={activeWorkspaceRoot}
-              activeTopicId={activeTopicId}
-              onOpenTopic={onOpenTopic}
-              onOpenProjectHistory={onOpenProjectHistory}
-              onTopicsChanged={onTopicsChanged}
-              onRenameTopic={onRenameTopic}
-              refreshSignal={refreshSignal}
-              onAddProject={onAddProject}
-            />
-          </>
-        )}
+        <ProjectTree
+          activeScope={activeScope}
+          activeWorkspaceRoot={activeWorkspaceRoot}
+          activeTopicId={activeTopicId}
+          onOpenTopic={onOpenTopic}
+          onOpenProjectHistory={onOpenProjectHistory}
+          onTopicsChanged={onTopicsChanged}
+          onRenameTopic={onRenameTopic}
+          refreshSignal={refreshSignal}
+          onAddProject={onAddProject}
+        />
         {workspaceType === "office" && (
           <>
             <OfficePanel
@@ -344,22 +338,12 @@ export function Sidebar({
 
       {/* ── 资源 (Resources) — dynamic by workspaceType ── */}
       <SidebarSection title={t("sidebar.resources")} storageKey="resources">
-        {workspaceType === "coding" && (
-          <>
-            <SidebarNavItem
-              icon={<FolderOpen size={15} />}
-              label={t("sidebar.fileManagement")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={() => onNavigate("files")}
-            />
-            <SidebarNavItem
-              icon={<Puzzle size={15} />}
-              label={t("sidebar.devPlugins")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={() => onOpenSettingsTab("officePlugins")}
-            />
-          </>
-        )}
+        <SidebarNavItem
+          icon={<FolderOpen size={15} />}
+          label={t("sidebar.fileManagement")}
+          tooltipDisabled={navTooltipDisabled}
+          onClick={() => onNavigate("files")}
+        />
         {workspaceType === "office" && (
           <>
             <SidebarNavItem
@@ -368,30 +352,14 @@ export function Sidebar({
               tooltipDisabled={navTooltipDisabled}
               onClick={onOpenTemplates}
             />
-            <SidebarNavItem
-              icon={<Puzzle size={15} />}
-              label={t("sidebar.officePlugins")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={() => onOpenSettingsTab("officePlugins")}
-            />
           </>
         )}
-        {workspaceType === "assistant" && (
-          <>
-            <SidebarNavItem
-              icon={<FolderOpen size={15} />}
-              label={t("sidebar.allFiles")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={() => onNavigate("files")}
-            />
-            <SidebarNavItem
-              icon={<Puzzle size={15} />}
-              label={t("sidebar.lifePlugins")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={() => onOpenSettingsTab("officePlugins")}
-            />
-          </>
-        )}
+        <SidebarNavItem
+          icon={<Puzzle size={15} />}
+          label={workspaceType === "coding" ? t("sidebar.devPlugins") : workspaceType === "office" ? t("sidebar.officePlugins") : t("sidebar.lifePlugins")}
+          tooltipDisabled={navTooltipDisabled}
+          onClick={() => onOpenSettingsTab("officePlugins")}
+        />
       </SidebarSection>
 
       {/* ── 管理 (Management) ── */}

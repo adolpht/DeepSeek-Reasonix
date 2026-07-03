@@ -11891,6 +11891,55 @@ a[href] {
   outline-offset: -2px;
 }
 
+.project-tree__topic-actions {
+  --wails-draggable: no-drag;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  background: color-mix(in srgb, var(--sidebar-bg) 80%, transparent);
+  border-radius: 5px;
+  padding: 1px;
+}
+
+.project-tree__topic:hover .project-tree__topic-actions,
+.project-tree__topic--menu-open .project-tree__topic-actions {
+  opacity: 1;
+}
+
+.project-tree__topic-action {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg-faint);
+  padding: 0;
+  cursor: pointer;
+}
+
+.project-tree__topic-action:hover {
+  background: var(--button-bg);
+  color: var(--fg);
+}
+
+.project-tree__topic-action--danger {
+  color: var(--danger);
+}
+
+.project-tree__topic-action--danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
 .project-tree__topic--editing {
   padding-right: 8px;
 }

@@ -166,3 +166,10 @@ bash_timeout_seconds = 120   # foreground safety cap; set 0 for no tool-local ca
 # [[plugins]]
 # name    = "sheet"
 # command = "reasonix-plugin-sheet"
+
+# Personal-agent slides plugin. Provides create_ppt/add_slide/apply_theme/export_pdf
+# tools — enables the generate-ppt skill. Uses python-pptx (MIT License, free).
+# Prerequisite: pip install python-pptx
+# [[plugins]]
+# name    = "slides"
+# command = "reasonix-plugin-slides"

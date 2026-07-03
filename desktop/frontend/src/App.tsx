@@ -64,8 +64,6 @@ import {
   clearLegacyThemePreference,
   getTheme,
   getThemeStyle,
-  getThemeForWorkspaceType,
-  isUnifiedTheme,
   isThemeStyle,
   normalizeThemePreference,
   normalizeThemeStyleForTheme,
@@ -671,10 +669,8 @@ export default function App() {
       if (!activeTabId) return;
       setWsTypeByTab((current) => ({ ...current, [activeTabId]: wt }));
       void app.SetWorkspaceType(wt);
-      // Switch right dock default tab based on mode.
-      if (wt === "coding") setRightDockMode("files");
-      else if (wt === "office") setRightDockMode("preview");
-      else if (wt === "assistant") setNavPage("dailyBrief");
+      // Always show project workspace (files) regardless of mode.
+      setRightDockMode("files");
     },
     [activeTabId],
   );
@@ -702,16 +698,8 @@ export default function App() {
     }
   }, [intentClassified, workspaceType, autoSwitchMode]);
 
-  // Auto-switch theme when workspaceType changes, unless "unified theme" is enabled.
-  useEffect(() => {
-    if (isUnifiedTheme()) return;
-    const { theme: nextTheme, style: nextStyle } = getThemeForWorkspaceType(workspaceType);
-    const currentResolved = getTheme();
-    // Only switch if the resolved theme or style would actually change.
-    if (currentResolved === nextTheme && getThemeStyle(currentResolved) === nextStyle) return;
-    applyTheme(nextTheme, nextStyle);
-    void app.SetDesktopAppearance(nextTheme, nextStyle);
-  }, [workspaceType]);
+  // Theme is no longer auto-switched when workspaceType changes.
+  // The user's theme and color preferences are preserved across mode switches.
 
   useEffect(() => {
     if (!renamingTopicId || activeTab?.topicId === renamingTopicId) return;

@@ -141,6 +141,7 @@ export function ProjectTree({
   const t = useT();
   const [tree, setTree] = useState<ProjectNode[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [manuallyExpanded, setManuallyExpanded] = useState<Set<string>>(new Set());
   const [manuallyCollapsed, setManuallyCollapsed] = useState<Set<string>>(new Set());
   const [creatingProject, setCreatingProject] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -172,17 +173,23 @@ export function ProjectTree({
       const nodes = await app.ListProjectTree();
       const list = asArray(nodes);
       setTree(list);
+      // Don't auto-expand all nodes. Only keep manually expanded ones.
+      // The activeAncestorKeys useEffect will expand the active project.
       setExpanded((prev) => {
-        const next = new Set(prev);
-        for (const node of list) {
-          if (node?.key && !manuallyCollapsed.has(node.key)) next.add(node.key);
+        const validKeys = new Set(list.filter((n) => n?.key).map((n) => n.key!));
+        const next = new Set<string>();
+        for (const key of prev) {
+          if (validKeys.has(key)) next.add(key);
+        }
+        for (const key of manuallyExpanded) {
+          if (validKeys.has(key)) next.add(key);
         }
         return next;
       });
     } catch {
       /* bridge unavailable */
     }
-  }, [manuallyCollapsed]);
+  }, [manuallyExpanded]);
 
   useEffect(() => {
     void refresh();
@@ -206,12 +213,13 @@ export function ProjectTree({
       else next.add(key);
       return next;
     });
-    setManuallyCollapsed((prev) => {
-      const next = new Set(prev);
-      if (willCollapse) next.add(key);
-      else next.delete(key);
-      return next;
-    });
+    if (willCollapse) {
+      setManuallyCollapsed((prev) => { const n = new Set(prev); n.add(key); return n; });
+      setManuallyExpanded((prev) => { const n = new Set(prev); n.delete(key); return n; });
+    } else {
+      setManuallyExpanded((prev) => { const n = new Set(prev); n.add(key); return n; });
+      setManuallyCollapsed((prev) => { const n = new Set(prev); n.delete(key); return n; });
+    }
   };
 
   const handleAddProject = async () => {
@@ -400,19 +408,30 @@ export function ProjectTree({
     return walk(tree, []) ?? [];
   }, [activeScope, activeTopicId, activeWorkspaceRoot, tree]);
 
+  // Auto-expand the active project's ancestors, collapse non-active non-manually-expanded.
   useEffect(() => {
-    if (activeAncestorKeys.length === 0) return;
+    const activeKeys = new Set(activeAncestorKeys);
     setExpanded((prev) => {
       let changed = false;
-      const next = new Set(prev);
-      for (const key of activeAncestorKeys) {
-        if (manuallyCollapsed.has(key) || next.has(key)) continue;
-        next.add(key);
-        changed = true;
+      const next = new Set<string>();
+      for (const key of prev) {
+        // Keep if it's an ancestor of the active topic or manually expanded
+        if (activeKeys.has(key) || manuallyExpanded.has(key)) {
+          next.add(key);
+        } else {
+          changed = true;
+        }
+      }
+      // Ensure active ancestors are expanded (unless manually collapsed)
+      for (const key of activeKeys) {
+        if (!manuallyCollapsed.has(key) && !next.has(key)) {
+          next.add(key);
+          changed = true;
+        }
       }
       return changed ? next : prev;
     });
-  }, [activeAncestorKeys, manuallyCollapsed]);
+  }, [activeAncestorKeys, manuallyExpanded, manuallyCollapsed]);
 
   const renderNode = (node: ProjectNode | null | undefined, depth: number) => {
     if (!node) return null;
@@ -499,6 +518,30 @@ export function ProjectTree({
               <span className="project-tree__topic-label">{label}</span>
             </span>
           </button>
+          <span className="project-tree__topic-actions">
+            <Tooltip label={t("projectTree.renameTopic")}>
+              <button
+                type="button"
+                className="project-tree__topic-action"
+                onClick={(e) => { e.stopPropagation(); startRenameTopic(node, label); }}
+              >
+                <Pencil size={12} />
+              </button>
+            </Tooltip>
+            <Tooltip label={confirmAction?.topicId === topicId && confirmAction.action === "trash" ? t("history.confirmMoveToTrash") : t("history.moveToTrash")}>
+              <button
+                type="button"
+                className={`project-tree__topic-action${confirmAction?.topicId === topicId && confirmAction.action === "trash" ? " project-tree__topic-action--danger" : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (confirmAction?.topicId === topicId && confirmAction.action === "trash") void trashTopic(topicId);
+                  else setConfirmAction({ topicId, action: "trash" });
+                }}
+              >
+                <Archive size={12} />
+              </button>
+            </Tooltip>
+          </span>
           <ContextMenu
             open={topicMenuOpen}
             point={menuPoint}
