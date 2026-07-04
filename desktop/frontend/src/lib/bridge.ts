@@ -195,6 +195,9 @@ export interface AppBindings {
   ListRecipes(): Promise<RecipeView[]>;
   DeleteRecipe(name: string): Promise<void>;
   TriggerEventRecipes(eventType: string, context: Record<string, string>): Promise<string[]>;
+  TriggerEventWorkflows(eventType: string, context: Record<string, string>): Promise<string[]>;
+  MigrateRecipeToWorkflow(name: string): Promise<void>;
+  ReloadWorkflowTriggers(): Promise<void>;
   // Clipboard history bindings
   ReadClipboard(): Promise<string>;
   WriteClipboard(text: string): Promise<void>;
@@ -1664,6 +1667,16 @@ function makeMockApp(): AppBindings {
     async TriggerEventRecipes(_eventType: string, _context: Record<string, string>): Promise<string[]> {
       // Browser mock: no recipes to trigger
       return [];
+    },
+    async TriggerEventWorkflows(_eventType: string, _context: Record<string, string>): Promise<string[]> {
+      // Browser mock: no workflows to trigger
+      return [];
+    },
+    async MigrateRecipeToWorkflow(_name: string) {
+      emit({ kind: "notice", level: "info", text: `recipe migrated to workflow (mock)` });
+    },
+    async ReloadWorkflowTriggers() {
+      // Browser mock: no-op
     },
     // Clipboard history mock methods
     async ReadClipboard(): Promise<string> {

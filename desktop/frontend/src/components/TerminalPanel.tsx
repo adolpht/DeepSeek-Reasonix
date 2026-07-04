@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Plus, Eraser, X, ChevronDown, TerminalSquare } from "lucide-react";
+import { Plus, Eraser, X, ChevronDown, TerminalSquare, PanelRightClose } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalView } from "../lib/types";
 import { app, onTerminalOutput } from "../lib/bridge";
@@ -10,9 +10,10 @@ import { useT } from "../lib/i18n";
 
 interface TerminalPanelProps {
   cwd?: string;
+  onDockClose?: () => void;
 }
 
-export function TerminalPanel({ cwd }: TerminalPanelProps) {
+export function TerminalPanel({ cwd, onDockClose }: TerminalPanelProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -255,6 +256,15 @@ export function TerminalPanel({ cwd }: TerminalPanelProps) {
           >
             <X size={14} />
           </button>
+          {onDockClose && (
+            <button
+              className="terminal-panel__btn"
+              onClick={onDockClose}
+              title={t("common.close")}
+            >
+              <PanelRightClose size={14} />
+            </button>
+          )}
         </div>
       </div>
       <div className="terminal-panel__term" ref={containerRef} />

@@ -17,14 +17,15 @@ import (
 
 // WorkflowNode represents a single step in a workflow DAG.
 type WorkflowNode struct {
-	ID        string `json:"id"`                  // Unique node ID (e.g., "node-1")
-	Label     string `json:"label"`               // User-facing name (e.g., "Analyze Code")
-	Kind      string `json:"kind"`                // "skill" | "prompt" | "tool" | "condition" | "parallel"
-	Config    string `json:"config"`              // JSON config for the node (skill name, prompt template, tool args, condition expr)
-	Model     string `json:"model,omitempty"`      // Override model for this node (empty = inherit)
-	Effort    string `json:"effort,omitempty"`     // Override effort for this node
-	PositionX int    `json:"positionX"`            // Canvas X position
-	PositionY int    `json:"positionY"`            // Canvas Y position
+	ID               string `json:"id"`                       // Unique node ID (e.g., "node-1")
+	Label            string `json:"label"`                    // User-facing name (e.g., "Analyze Code")
+	Kind             string `json:"kind"`                     // "skill" | "prompt" | "tool" | "condition" | "parallel"
+	Config           string `json:"config"`                   // JSON config for the node (skill name, prompt template, tool args, condition expr)
+	Model            string `json:"model,omitempty"`           // Override model for this node (empty = inherit)
+	Effort           string `json:"effort,omitempty"`          // Override effort for this node
+	RequireApproval  bool   `json:"requireApproval,omitempty"` // P3: gate this node behind ApprovalModal before running
+	PositionX        int    `json:"positionX"`                 // Canvas X position
+	PositionY        int    `json:"positionY"`                 // Canvas Y position
 }
 
 // WorkflowEdge represents a directed connection between two nodes.
@@ -35,15 +36,47 @@ type WorkflowEdge struct {
 	Label  string `json:"label,omitempty"`             // Edge label (e.g., "yes"/"no" for condition branches)
 }
 
+// TriggerType defines how a workflow is activated. Mirrors recipe.TriggerType
+// so a single-node workflow can replace a Recipe (Recipe→Workflow migration).
+type TriggerType string
+
+const (
+	// TriggerManual means the workflow runs only when the user clicks Run.
+	TriggerManual TriggerType = "manual"
+	// TriggerCron schedules the workflow via a cron expression.
+	TriggerCron TriggerType = "cron"
+	// TriggerEvent fires the workflow when an external event (e.g. mail_received) matches.
+	TriggerEvent TriggerType = "event"
+)
+
+// TriggerConfig holds configuration for non-manual trigger types.
+// For TriggerCron, CronExpr is the cron expression.
+// For TriggerEvent, EventType is the event name and MatchRules are filtering rules
+// (e.g. {"sender": "boss@company.com", "subject": "urgent"}).
+type TriggerConfig struct {
+	CronExpr   string            `json:"cronExpr,omitempty"`
+	EventType  string            `json:"eventType,omitempty"`
+	MatchRules map[string]string `json:"matchRules,omitempty"`
+}
+
 // Workflow represents a complete agent workflow DAG.
 type Workflow struct {
-	Name        string         `json:"name"`        // Unique identifier (filename-safe)
-	Description string         `json:"description"` // User-facing description
-	Nodes       []WorkflowNode `json:"nodes"`       // DAG nodes
-	Edges       []WorkflowEdge `json:"edges"`       // DAG edges
-	CreatedAt   int64          `json:"createdAt"`   // Unix milliseconds
-	UpdatedAt   int64          `json:"updatedAt"`   // Unix milliseconds
+	Name          string         `json:"name"`          // Unique identifier (filename-safe)
+	Description   string         `json:"description"`   // User-facing description
+	Nodes         []WorkflowNode `json:"nodes"`         // DAG nodes
+	Edges         []WorkflowEdge `json:"edges"`         // DAG edges
+	Trigger       TriggerType    `json:"trigger,omitempty"`       // How this workflow is activated (default "manual")
+	TriggerConfig TriggerConfig  `json:"triggerConfig,omitempty"` // Trigger-specific configuration
+	Version       int            `json:"version,omitempty"`       // P3: schema version for forward-compat migrations (current 1)
+	AllowedSkills []string       `json:"allowedSkills,omitempty"` // P3: when non-empty, skill nodes may only invoke these skills
+	CreatedAt     int64          `json:"createdAt"`     // Unix milliseconds
+	UpdatedAt     int64          `json:"updatedAt"`     // Unix milliseconds
 }
+
+// CurrentWorkflowVersion is the workflow schema version this build understands.
+// Older files (Version 0 / missing) are still loadable; the runtime treats
+// them as Version 1. Bump when a breaking change needs an explicit migration.
+const CurrentWorkflowVersion = 1
 
 // Store manages workflow persistence in ~/.reasonix/workflows/.
 type Store struct {
@@ -177,4 +210,61 @@ func (s *Store) Delete(name string) error {
 		return fmt.Errorf("delete workflow file: %w", err)
 	}
 	return nil
+}
+
+// ListByTrigger returns workflows filtered by trigger type. Used by the cron
+// scheduler bootstrap (to register cron-triggered workflows) and by the event
+// dispatcher (to enumerate event-triggered workflows for matching).
+func (s *Store) ListByTrigger(trigger TriggerType) ([]Workflow, error) {
+	all, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var filtered []Workflow
+	for _, w := range all {
+		if w.Trigger == trigger {
+			filtered = append(filtered, w)
+		}
+	}
+	if filtered == nil {
+		filtered = make([]Workflow, 0)
+	}
+	return filtered, nil
+}
+
+// FindMatchingEventWorkflows returns event-triggered workflows whose EventType
+// matches and whose MatchRules all satisfy the supplied context. MatchRules use
+// substring matching (same semantics as recipe.Store.FindMatchingEventRecipes
+// so a migrated Recipe→Workflow preserves its trigger behaviour). A workflow
+// with no MatchRules matches every event of its EventType.
+func (s *Store) FindMatchingEventWorkflows(eventType string, context map[string]string) ([]Workflow, error) {
+	all, err := s.ListByTrigger(TriggerEvent)
+	if err != nil {
+		return nil, err
+	}
+	var matched []Workflow
+	for _, w := range all {
+		if w.TriggerConfig.EventType != eventType {
+			continue
+		}
+		match := true
+		for key, pattern := range w.TriggerConfig.MatchRules {
+			val, ok := context[key]
+			if !ok {
+				match = false
+				break
+			}
+			if !strings.Contains(val, pattern) {
+				match = false
+				break
+			}
+		}
+		if match {
+			matched = append(matched, w)
+		}
+	}
+	if matched == nil {
+		matched = make([]Workflow, 0)
+	}
+	return matched, nil
 }

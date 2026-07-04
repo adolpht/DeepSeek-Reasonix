@@ -183,6 +183,50 @@ func dingTalkSign(timestamp int64, secret string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
+// sendDingTalkSessionMessage replies via a SessionWebhook URL from Stream mode.
+// Unlike the group robot webhook, SessionWebhook is already authenticated and
+// must NOT be signed with HMAC (signing would corrupt the URL).
+func sendDingTalkSessionMessage(sessionWebhook, content, msgType string) error {
+	req := dingTalkSendReq{MsgType: msgType}
+	switch msgType {
+	case "markdown":
+		req.Markdown = &struct {
+			Text  string `json:"text"`
+			Title string `json:"title"`
+		}{Text: content, Title: "Result"}
+	default:
+		req.Text = &struct {
+			Content string `json:"content"`
+		}{Content: content}
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal dingtalk session request: %w", err)
+	}
+
+	resp, err := http.Post(sessionWebhook, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("send dingtalk session message: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("dingtalk session returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var respObj struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+	}
+	respBody, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(respBody, &respObj); err == nil && respObj.ErrCode != 0 {
+		return fmt.Errorf("dingtalk session error %d: %s", respObj.ErrCode, respObj.ErrMsg)
+	}
+	return nil
+}
+
 // runSendMessage dispatches a message to the specified IM platform.
 func runSendMessage(platform, webhookURL, content, msgType string) (any, error) {
 	switch platform {

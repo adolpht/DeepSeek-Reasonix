@@ -14,11 +14,12 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Search,
-  Columns2,
-  X,
+  TerminalSquare,
+  Calendar,
+  Newspaper,
 } from "lucide-react";
 import { asArray } from "./lib/array";
-import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n, useT, type DictKey } from "./lib/i18n";
+import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n, useT } from "./lib/i18n";
 import { useController, type Item, type LiveStream } from "./lib/useController";
 import { app, onProjectTreeChanged } from "./lib/bridge";
 import { Transcript, type TranscriptHandle } from "./components/Transcript";
@@ -41,10 +42,10 @@ import { CopyButton } from "./components/CopyButton";
 import { RepoWikiPanel } from "./components/RepoWikiPanel";
 import { TemplateLibrary } from "./components/TemplateLibrary";
 import { Sidebar } from "./components/Sidebar";
-import { ModeSwitcher } from "./components/ModeSwitcher";
 import { HomePanel } from "./components/HomePanel";
 import { CalendarPanel } from "./components/CalendarPanel";
 import { SchedulerPanel } from "./components/SchedulerPanel";
+import { ResizableDrawer } from "./components/ResizableDrawer";
 import { SaveRecipeModal } from "./components/SaveRecipeModal";
 import { DailyBriefPanel } from "./components/DailyBriefPanel";
 import { AgentCanvas } from "./components/AgentCanvas";
@@ -94,8 +95,14 @@ const RIGHT_DOCK_TREE_MAX_WIDTH = 560;
 const RIGHT_DOCK_PREVIEW_DEFAULT_WIDTH = 640;
 const RIGHT_DOCK_MAX_WIDTH = 860;
 
-type RightDockMode = "preview" | "files" | "changed" | "context";
+type RightDockMode = "preview" | "files" | "changed" | "context" | "calendar" | "dailyBrief";
 const SHOW_CONTEXT_DOCK = true;
+
+// Fixed-width dock modes (context, calendar, dailyBrief) use a constant
+// panel width and skip width-persistence logic.
+function isFixedWidthDockMode(mode: RightDockMode): boolean {
+  return mode === "context" || mode === "calendar" || mode === "dailyBrief";
+}
 type HistoryScopeFilter = { scope: "global" | "project"; workspaceRoot: string };
 type DesktopPlatform = "darwin" | "windows" | "linux";
 type HistoryViewState =
@@ -405,6 +412,8 @@ export default function App() {
   const [settingsTarget, setSettingsTarget] = useState<SettingsTab | null>(null);
   const [repoWikiOpen, setRepoWikiOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const [traceOpen, setTraceOpen] = useState(false);
   const [histView, setHistView] = useState<HistoryViewState | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(loadSidebarCollapsed);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
@@ -416,8 +425,16 @@ export default function App() {
   const [workspacePanelResizing, setWorkspacePanelResizing] = useState(false);
   const [workspacePanelMaximized, setWorkspacePanelMaximized] = useState(false);
   const [rightDockMode, setRightDockMode] = useState<RightDockMode>("preview");
+  const [terminalDockOpen, setTerminalDockOpen] = useState(false);
+  const [terminalDockHeight, setTerminalDockHeight] = useState(() => {
+    const saved = loadLayoutSize("terminalDockHeight", 220);
+    return Math.min(Math.max(saved, 100), 600);
+  });
   // Navigation state for sidebar-driven views (home, calendar, todos, etc.)
   const [navPage, setNavPage] = useState<string | null>(null);
+  // Workflow editor is rendered as a modal overlay (not a main-pane page) so
+  // it doesn't displace the active conversation while editing flows.
+  const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
   // Progress stepper steps are derived from step_progress events in the controller state.
   const progressSteps: ProgressStep[] = state.steps.map((s) => ({
     id: s.id,
@@ -566,7 +583,7 @@ export default function App() {
   const footerRef = useRef<HTMLElement>(null);
   const [layoutWidth, setLayoutWidth] = useState(0);
   const preferredWorkspacePanelWidth =
-    rightDockMode === "context"
+    isFixedWidthDockMode(rightDockMode)
       ? RIGHT_DOCK_CONTEXT_WIDTH
       : workspacePreviewActive
       ? rightDockPreviewWidth
@@ -675,7 +692,6 @@ export default function App() {
     [activeTabId],
   );
 
-  const [intentSuggestion, setIntentSuggestion] = useState<string | null>(null);
   const [autoSwitchMode, setAutoSwitchMode] = useState(() => {
     try { return window.localStorage.getItem("reasonix.autoSwitchMode") === "true"; } catch { return false; }
   });
@@ -685,18 +701,12 @@ export default function App() {
     try { window.localStorage.setItem("reasonix.autoSwitchMode", autoSwitchMode ? "true" : "false"); } catch { /* ignore */ }
   }, [autoSwitchMode]);
 
+  // Mode switching UI has been removed: simply consume any intent signal so it
+  // doesn't accumulate in controller state. The workspaceType stays at its
+  // default and is no longer user-toggleable from the chrome.
   useEffect(() => {
-    if (!intentClassified) return;
-    if (intentClassified === workspaceType) { clearIntentClassified(); return; }
-    if (autoSwitchMode) {
-      applyWorkspaceType(intentClassified as WorkspaceType);
-      clearIntentClassified();
-    } else {
-      setIntentSuggestion(intentClassified);
-      const timer = setTimeout(() => { setIntentSuggestion(null); clearIntentClassified(); }, 8000);
-      return () => clearTimeout(timer);
-    }
-  }, [intentClassified, workspaceType, autoSwitchMode]);
+    if (intentClassified) clearIntentClassified();
+  }, [intentClassified, clearIntentClassified]);
 
   // Theme is no longer auto-switched when workspaceType changes.
   // The user's theme and color preferences are preserved across mode switches.
@@ -835,11 +845,6 @@ export default function App() {
   const handleCloseAgent = useCallback((agentId: string) => {
     send(`Use the close_agent tool to terminate child agent ${agentId}.`);
   }, [send]);
-
-  // Split view — show transcript + trace side by side. Toggled from the trace
-  // header (or the sidebar). When on, the trace pane replaces the default
-  // single-page routing.
-  const [splitView, setSplitView] = useState(false);
 
   const handleSaveRecipeFromTab = useCallback((_tabId: string) => {
     // Extract skill from current tab's state (active tab only for now).
@@ -1098,7 +1103,7 @@ export default function App() {
 
   const setSavedWorkspacePanelWidth = useCallback(
     (width: number) => {
-      if (rightDockMode === "context") return;
+      if (isFixedWidthDockMode(rightDockMode)) return;
       if (workspacePreviewActive) {
         const next = clampRightDockWidth(width);
         setRightDockPreviewWidth(next);
@@ -1114,7 +1119,7 @@ export default function App() {
 
   const ensureWorkspacePanelWidth = useCallback(
     (width: number) => {
-      if (rightDockMode === "context") return;
+      if (isFixedWidthDockMode(rightDockMode)) return;
       const next = clampRightDockWidth(width);
       setRightDockPreviewWidth(next);
       saveRightDockPreviewWidth(next);
@@ -1133,7 +1138,7 @@ export default function App() {
       const onMove = (moveEvent: PointerEvent) => {
         const delta = moveEvent.clientX - startX;
         nextDockWidth = startDockWidth - delta;
-        if (rightDockMode === "context") return;
+        if (isFixedWidthDockMode(rightDockMode)) return;
         if (workspacePreviewActive) {
           setRightDockPreviewWidth(clampRightDockWidth(nextDockWidth));
         } else {
@@ -1172,6 +1177,35 @@ export default function App() {
       }
     },
     [preferredWorkspacePanelWidth, setSavedWorkspacePanelWidth, workspacePreviewActive],
+  );
+
+  const startTerminalDockResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!terminalDockOpen) return;
+      event.preventDefault();
+      const startY = event.clientY;
+      const startHeight = terminalDockHeight;
+      let nextHeight = startHeight;
+      const onMove = (moveEvent: PointerEvent) => {
+        const delta = startY - moveEvent.clientY;
+        nextHeight = Math.min(Math.max(startHeight + delta, 100), 600);
+        setTerminalDockHeight(nextHeight);
+      };
+      const onDone = () => {
+        saveLayoutSize("terminalDockHeight", nextHeight, (v) => Math.min(Math.max(v, 100), 600));
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onDone);
+        window.removeEventListener("pointercancel", onDone);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onDone);
+      window.addEventListener("pointercancel", onDone);
+    },
+    [terminalDockHeight, terminalDockOpen],
   );
 
   const openWorkspacePanel = useCallback(
@@ -1394,7 +1428,6 @@ export default function App() {
     const nav: Array<[string, string]> = [
       ["home", t("sidebar.home")],
       ["calendar", t("sidebar.assistantSchedule")],
-      ["todos", t("sidebar.assistantTodos")],
       ["dailyBrief", t("sidebar.dailyBrief")],
       ["scheduled", t("sidebar.scheduledTasks")],
       ["terminal", t("sidebar.terminal")],
@@ -1410,6 +1443,13 @@ export default function App() {
         run: () => {
           if (page === "files") openWorkspacePanel("files");
           else if (page === "memory") setSettingsTarget("memory");
+          else if (page === "terminal") {
+            if (!workspacePanelRenderable) openWorkspacePanel("files");
+            setTerminalDockOpen((v) => !v);
+          }
+          else if (page === "scheduled") setSchedulerOpen(true);
+          else if (page === "trace") setTraceOpen(true);
+          else if (page === "calendar" || page === "dailyBrief") openRightDockMode(page);
           else setNavPage(page);
         },
       });
@@ -1606,7 +1646,7 @@ export default function App() {
       ? t("sidebar.expand")
       : t("sidebar.collapse");
   const sidebarNavTooltipDisabled = !sidebarCollapsed;
-  const workspacePanelResetWidth = rightDockMode === "context"
+  const workspacePanelResetWidth = isFixedWidthDockMode(rightDockMode)
     ? RIGHT_DOCK_CONTEXT_WIDTH
     : workspacePreviewActive
     ? RIGHT_DOCK_PREVIEW_DEFAULT_WIDTH
@@ -1648,8 +1688,6 @@ export default function App() {
             {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
           </button>
           <div className="app-chrome__identity" aria-label="Reasonix">
-            <ModeSwitcher value={workspaceType} onChange={applyWorkspaceType} />
-            <span className="app-chrome__separator">/</span>
             <span className="app-chrome__scope">{appChromeScopeLabel(activeTab, state.meta)}</span>
           </div>
           <div className="app-chrome__spacer" />
@@ -1668,7 +1706,6 @@ export default function App() {
         </header>
 
         <Sidebar
-          workspaceType={workspaceType}
           collapsed={sidebarCollapsed}
           navTooltipDisabled={sidebarNavTooltipDisabled}
           onExpand={sidebarExpandBlocked ? undefined : toggleSidebar}
@@ -1678,10 +1715,24 @@ export default function App() {
             // "files" is rendered in the right workspace dock, not the main pane;
             // "memory" lives in the settings centre (MemorySettingsPage) — both
             // reuse existing implementations instead of dead navPage branches.
+            // "terminal" toggles the embedded terminal in the right dock.
             if (page === "files") {
               openWorkspacePanel("files");
             } else if (page === "memory") {
               setSettingsTarget("memory");
+            } else if (page === "terminal") {
+              if (!workspacePanelRenderable) openWorkspacePanel("files");
+              setTerminalDockOpen((v) => !v);
+            } else if (page === "scheduled") {
+              setSchedulerOpen(true);
+            } else if (page === "trace") {
+              setTraceOpen(true);
+            } else if (page === "workflow") {
+              // Workflow editor opens as a modal overlay so the active
+              // conversation stays visible underneath.
+              setWorkflowModalOpen(true);
+            } else if (page === "calendar" || page === "dailyBrief") {
+              openRightDockMode(page);
             } else {
               setNavPage(page);
             }
@@ -1696,9 +1747,8 @@ export default function App() {
           onRenameTopic={renameTopic}
           refreshSignal={projectRevision}
           onAddProject={async () => { await switchFolder(); }}
-          onActivateSkill={(name) => { addWorkspaceTextToComposer(`/skill ${name}`); }}
+          onActivateSkill={(name) => { cancel(); void startNewSession().then(() => addWorkspaceTextToComposer(`/skill ${name}`)); }}
           onOpenTemplates={() => setTemplatesOpen(true)}
-          onOpenSettingsTab={(tab) => setSettingsTarget(tab)}
           onOpenRepoWiki={() => setRepoWikiOpen(true)}
           onOpenAllHistory={openAllHistory}
           onOpenTrash={openTrash}
@@ -1797,19 +1847,6 @@ export default function App() {
             </div>
             <div className="topicbar__spacer" />
             <div className="topicbar__actions">
-              {navPage === "trace" && (
-                <Tooltip label={t("trace.splitViewHint")}>
-                  <button
-                    type="button"
-                    className={`trace-split-toggle${splitView ? " trace-split-toggle--on" : ""}`}
-                    onClick={() => setSplitView((v) => !v)}
-                    aria-pressed={splitView}
-                  >
-                    <Columns2 size={12} />
-                    <span>{t("trace.splitView")}</span>
-                  </button>
-                </Tooltip>
-              )}
               <CopyButton
                 getText={getSessionMarkdown}
                 label={t("topicBar.copyAll")}
@@ -1852,21 +1889,7 @@ export default function App() {
 
           <UpdateBanner />
 
-          {intentSuggestion && (
-            <div className="intent-suggestion">
-              <span className="intent-suggestion__text">
-                {t("intent.suggestSwitch", { mode: t(`workspaceType.${intentSuggestion}` as DictKey) })}
-              </span>
-              <button className="intent-suggestion__action" onClick={() => { applyWorkspaceType(intentSuggestion as WorkspaceType); setIntentSuggestion(null); clearIntentClassified(); }}>
-                {t("intent.switch")}
-              </button>
-              <button className="intent-suggestion__dismiss" onClick={() => { setIntentSuggestion(null); clearIntentClassified(); }}>
-                <X size={14} />
-              </button>
-            </div>
-          )}
-
-          <main className={`main${navPage === "trace" && splitView ? " main--split" : ""}`}>
+          <main className="main">
             {state.meta?.ready === false && !state.meta?.startupErr ? (
               <div className="loading-screen">
                 <div className="loading-screen__spinner" />
@@ -1879,58 +1902,6 @@ export default function App() {
                 onNavigateToSession={(_path) => setNavPage(null)}
                 onSwitchMode={(mode) => applyWorkspaceType(mode)}
               />
-            ) : navPage === "calendar" || navPage === "todos" ? (
-              <CalendarPanel tabId={activeTabId} onNavigate={setNavPage} />
-            ) : navPage === "dailyBrief" ? (
-              <DailyBriefPanel />
-            ) : navPage === "scheduled" ? (
-              <SchedulerPanel tabId={activeTabId} />
-            ) : navPage === "trace" ? (
-              splitView ? (
-                <>
-                  <div className="main--split__pane main--split__pane--transcript">
-                    {progressSteps.length > 0 && (
-                      <ProgressStepper steps={progressSteps} onStepClick={handleStepClick} />
-                    )}
-                    <Transcript
-                      ref={transcriptRef}
-                      items={deferredItems}
-                      live={state.live}
-                      footerHeight={footerHeight}
-                      onPrompt={send}
-                      onRewind={handleMessageAction}
-                      checkpoints={state.checkpoints}
-                      actionPending={state.messageAction != null}
-                      rewindDisabled={state.running || state.messageAction != null || state.approval != null || state.ask != null}
-                      onPreview={handleToolPreview}
-                      workspaceType={workspaceType}
-                    />
-                  </div>
-                  <div className="main--split__pane main--split__pane--trace">
-                    <AgentCanvas
-                      items={deferredItems}
-                      running={state.running}
-                      steps={state.steps}
-                      agents={state.agents}
-                      onRetryTool={handleRetryTool}
-                      onCloseAgent={handleCloseAgent}
-                    />
-                  </div>
-                </>
-              ) : (
-                <AgentCanvas
-                  items={deferredItems}
-                  running={state.running}
-                  steps={state.steps}
-                  agents={state.agents}
-                  onRetryTool={handleRetryTool}
-                  onCloseAgent={handleCloseAgent}
-                />
-              )
-            ) : navPage === "workflow" ? (
-              <WorkflowEditor />
-            ) : navPage === "terminal" ? (
-              <TerminalPanel cwd={state.meta?.cwd} />
             ) : (
               <>
                 {progressSteps.length > 0 && (
@@ -2112,6 +2083,26 @@ export default function App() {
                 <button
                   type="button"
                   role="tab"
+                  aria-selected={rightDockMode === "dailyBrief"}
+                  className={`workbench-dock__tab${rightDockMode === "dailyBrief" ? " workbench-dock__tab--active" : ""}`}
+                  onClick={() => openRightDockMode("dailyBrief")}
+                >
+                  <Newspaper size={13} />
+                  <span className="workbench-dock__tab-label">{t("sidebar.dailyBrief")}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightDockMode === "calendar"}
+                  className={`workbench-dock__tab${rightDockMode === "calendar" ? " workbench-dock__tab--active" : ""}`}
+                  onClick={() => openRightDockMode("calendar")}
+                >
+                  <Calendar size={13} />
+                  <span className="workbench-dock__tab-label">{t("sidebar.assistantSchedule")}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
                   aria-selected={rightDockMode === "files"}
                   className={`workbench-dock__tab${rightDockMode === "files" ? " workbench-dock__tab--active" : ""}`}
                   onClick={() => openRightDockMode("files")}
@@ -2130,6 +2121,14 @@ export default function App() {
                   <span className="workbench-dock__tab-label">{t("workspace.changedTab")}</span>
                 </button>
               </div>
+              <button
+                type="button"
+                className={`workbench-dock__term-toggle${terminalDockOpen ? " is-active" : ""}`}
+                onClick={() => setTerminalDockOpen((v) => !v)}
+                title={t("sidebar.terminal")}
+              >
+                <TerminalSquare size={14} />
+              </button>
             </div>
             <div className="workbench-dock__body">
               {rightDockMode === "preview" ? (
@@ -2150,6 +2149,10 @@ export default function App() {
                   scopeLabel={topicScopeLabel(activeTab)}
                   refreshKey={dockRefreshKey}
                 />
+              ) : rightDockMode === "dailyBrief" ? (
+                <DailyBriefPanel />
+              ) : rightDockMode === "calendar" ? (
+                <CalendarPanel tabId={activeTabId} />
               ) : (
                 <WorkspacePanel
                   open={workspacePanelRenderable}
@@ -2167,6 +2170,22 @@ export default function App() {
                 />
               )}
             </div>
+            {terminalDockOpen && (
+              <>
+                <div
+                  className="workbench-dock__term-resizer"
+                  role="separator"
+                  aria-orientation="horizontal"
+                  onPointerDown={startTerminalDockResize}
+                />
+                <div className="workbench-dock__terminal" style={{ height: terminalDockHeight }}>
+                  <TerminalPanel
+                    cwd={state.meta?.cwd}
+                    onDockClose={() => setTerminalDockOpen(false)}
+                  />
+                </div>
+              </>
+            )}
           </aside>
         )}
       </div>
@@ -2202,6 +2221,32 @@ export default function App() {
           onClose={() => setRepoWikiOpen(false)}
           cwd={state.meta?.cwd}
         />
+      )}
+
+      {schedulerOpen && (
+        <SchedulerPanel onClose={() => setSchedulerOpen(false)} />
+      )}
+
+      {workflowModalOpen && (
+        <div className="wf-modal-overlay" role="dialog" aria-modal="true">
+          <div className="wf-modal-overlay__dialog">
+            <WorkflowEditor onClose={() => setWorkflowModalOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      {traceOpen && (
+        <ResizableDrawer onClose={() => setTraceOpen(false)} subtle wide>
+          <AgentCanvas
+            items={deferredItems}
+            running={state.running}
+            steps={state.steps}
+            agents={state.agents}
+            onRetryTool={handleRetryTool}
+            onCloseAgent={handleCloseAgent}
+            onClose={() => setTraceOpen(false)}
+          />
+        </ResizableDrawer>
       )}
 
       {templatesOpen && (

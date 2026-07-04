@@ -337,6 +337,7 @@ export function AgentCanvas({
   agents = new Map(),
   onRetryTool,
   onCloseAgent,
+  onClose,
 }: {
   items: Item[];
   running: boolean;
@@ -344,6 +345,7 @@ export function AgentCanvas({
   agents?: Map<string, AgentState>;
   onRetryTool?: (toolId: string, toolName: string, args: string) => void;
   onCloseAgent?: (agentId: string) => void;
+  onClose?: () => void;
 }) {
   const t = useT();
   const [selected, setSelected] = useState<AgentNodeType | null>(null);
@@ -457,6 +459,17 @@ export function AgentCanvas({
             <span className="agent-stat__v">{summary.maxDepth}</span>
           </span>
         </div>
+        {onClose && (
+          <button
+            type="button"
+            className="agent-canvas__close"
+            onClick={onClose}
+            aria-label={t("trace.close")}
+            title={t("trace.close")}
+          >
+            <X size={14} />
+          </button>
+        )}
       </header>
 
       {summary.total === 0 ? (

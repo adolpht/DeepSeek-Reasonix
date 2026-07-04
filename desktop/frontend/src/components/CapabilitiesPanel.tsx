@@ -1574,15 +1574,45 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 		color: "blue",
 		title: { zh: "IM 即时通讯", en: "IM Messaging" },
 		desc: {
-			zh: "接收企业微信 / 飞书 / 钉钉的远程指令并回推执行结果。",
-			en: "Receive remote commands from WeCom / Feishu / DingTalk and push results back.",
+			zh: "接收企业微信 / 飞书 / 钉钉的远程指令并回推执行结果。钉钉/飞书支持 Stream 长连接模式,无需公网 IP。",
+			en: "Receive remote commands from WeCom / Feishu / DingTalk and push results back. DingTalk/Feishu support Stream long-connection mode (no public IP needed).",
 		},
 		envVars: [
 			{ key: "IM_BOT_PORT", label: { zh: "HTTP 监听端口", en: "HTTP listen port" }, placeholder: { zh: "9876", en: "9876" } },
+			{
+				key: "IM_BOT_TOKEN",
+				label: { zh: "Webhook 验证 Token", en: "Webhook verification token" },
+				hint: { zh: "可选;填写后需在 IM 平台回调 URL 上带 ?token=<该值>", en: "Optional; IM platform must append ?token=<value> to the callback URL" },
+				secret: true,
+			},
 			{ key: "IM_WECOM_KEY", label: { zh: "企业微信 Webhook Key", en: "WeCom Webhook Key" }, secret: true },
 			{ key: "IM_FEISHU_KEY", label: { zh: "飞书 Webhook Key", en: "Feishu Webhook Key" }, secret: true },
 			{ key: "IM_DINGTALK_KEY", label: { zh: "钉钉 Access Token", en: "DingTalk Access Token" }, secret: true },
 			{ key: "IM_DINGTALK_SECRET", label: { zh: "钉钉签名密钥", en: "DingTalk Sign Secret" }, secret: true },
+			{
+				key: "IM_DINGTALK_APP_KEY",
+				label: { zh: "钉钉企业应用 AppKey (Stream 模式)", en: "DingTalk AppKey (Stream mode)" },
+				hint: { zh: "Stream 长连接模式专用,无需公网 IP;与 Webhook 模式二选一", en: "Stream long-connection mode only, no public IP needed; mutually exclusive with Webhook mode" },
+				secret: true,
+			},
+			{
+				key: "IM_DINGTALK_APP_SECRET",
+				label: { zh: "钉钉企业应用 AppSecret (Stream 模式)", en: "DingTalk AppSecret (Stream mode)" },
+				hint: { zh: "Stream 长连接模式专用,无需公网 IP", en: "Stream long-connection mode only, no public IP needed" },
+				secret: true,
+			},
+			{
+				key: "IM_FEISHU_APP_ID",
+				label: { zh: "飞书企业应用 App ID (Stream 模式)", en: "Feishu App ID (Stream mode)" },
+				hint: { zh: "Stream 长连接模式专用,无需公网 IP;与 Webhook 模式二选一", en: "Stream long-connection mode only, no public IP needed; mutually exclusive with Webhook mode" },
+				secret: true,
+			},
+			{
+				key: "IM_FEISHU_APP_SECRET",
+				label: { zh: "飞书企业应用 App Secret (Stream 模式)", en: "Feishu App Secret (Stream mode)" },
+				hint: { zh: "Stream 长连接模式专用,无需公网 IP", en: "Stream long-connection mode only, no public IP needed" },
+				secret: true,
+			},
 		],
 	},
 	{
@@ -1647,17 +1677,10 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 		color: "pink",
 		title: { zh: "幻灯片", en: "Slides" },
 		desc: {
-			zh: "创建与编辑 pptx,支持主题、图表与 PDF 导出。",
-			en: "Create and edit pptx with themes, charts and PDF export.",
+			zh: "创建与编辑 pptx,支持主题、图表与 PDF 导出。基于 python-pptx(免费开源、无水印),启动时自动安装。",
+			en: "Create and edit pptx with themes, charts and PDF export. Uses python-pptx (free open-source, no watermark), auto-installed on startup.",
 		},
-		envVars: [
-			{
-				key: "UNIDOC_LICENSE_API_KEY",
-				label: { zh: "unidoc 许可证 API Key", en: "unidoc License API Key" },
-				hint: { zh: "可选,缺失时生成的内容会带水印。", en: "Optional; a watermark is added when absent." },
-				secret: true,
-			},
-		],
+		envVars: [],
 	},
 	{
 		id: "search",

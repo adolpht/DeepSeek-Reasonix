@@ -3,6 +3,11 @@
 // Feishu (飞书), and DingTalk (钉钉) platforms for receiving remote commands
 // and pushing results back.
 //
+// Two transport modes:
+//   - Webhook mode (start_bot): local HTTP server, requires public IP or tunnel.
+//   - Stream mode (start_stream): WebSocket long-connection, NO public IP needed
+//     for DingTalk and Feishu. WeCom still requires webhook mode.
+//
 // Wire it up in reasonix.toml:
 //
 //	[[plugins]]
@@ -10,15 +15,21 @@
 //	command = "reasonix-plugin-im"
 //
 // Reasonix then surfaces its tools as mcp__im__start_bot / stop_bot /
-// send_message / list_pending_commands / mark_command_done.
+// start_stream / stop_stream / send_message / list_pending_commands /
+// mark_command_done.
 //
 // Environment variables:
 //
-//	IM_BOT_PORT       - HTTP listen port (default 9876)
-//	IM_WECOM_KEY      - WeCom webhook key
-//	IM_FEISHU_KEY     - Feishu webhook key
-//	IM_DINGTALK_KEY   - DingTalk access token
-//	IM_DINGTALK_SECRET - DingTalk signing secret
+//	IM_BOT_PORT          - HTTP listen port (default 9876, used when start_bot omits port)
+//	IM_BOT_TOKEN         - Verification token for incoming webhooks (used when start_bot omits token)
+//	IM_WECOM_KEY         - WeCom webhook key (also enables wecom platform when start_bot omits platforms)
+//	IM_FEISHU_KEY        - Feishu webhook key (also enables feishu platform when start_bot omits platforms)
+//	IM_DINGTALK_KEY      - DingTalk access token (also enables dingtalk platform when start_bot omits platforms)
+//	IM_DINGTALK_SECRET   - DingTalk signing secret
+//	IM_DINGTALK_APP_KEY  - DingTalk enterprise app AppKey (for Stream mode)
+//	IM_DINGTALK_APP_SECRET - DingTalk enterprise app AppSecret (for Stream mode)
+//	IM_FEISHU_APP_ID     - Feishu enterprise app App ID (for Stream mode)
+//	IM_FEISHU_APP_SECRET - Feishu enterprise app App Secret (for Stream mode)
 //
 // Protocol: newline-delimited JSON-RPC 2.0 on stdin/stdout. Logs go to stderr;
 // stdout is reserved for JSON-RPC.
@@ -30,6 +41,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 )
 
 // version is overridable via -ldflags "-X main.version=...".
@@ -144,6 +156,8 @@ type toolDef struct {
 var tools = []toolDef{
 	startBotTool,
 	stopBotTool,
+	startStreamTool,
+	stopStreamTool,
 	sendMessageTool,
 	listPendingCommandsTool,
 	markCommandDoneTool,
@@ -205,17 +219,51 @@ var startBotTool = toolDef{
 	schema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"port":      map[string]any{"type": "integer", "description": "HTTP listen port", "default": 9876},
-			"platforms": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"wecom", "feishu", "dingtalk"}}, "description": "Active platforms", "default": []string{"wecom"}},
-			"token":     map[string]any{"type": "string", "description": "Verification token for incoming webhooks"},
+			"port":      map[string]any{"type": "integer", "description": "HTTP listen port (falls back to IM_BOT_PORT env, default 9876)", "default": 9876},
+			"platforms": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"wecom", "feishu", "dingtalk"}}, "description": "Active platforms; auto-detected from IM_*_KEY env when omitted", "default": []string{"wecom"}},
+			"token":     map[string]any{"type": "string", "description": "Verification token for incoming webhooks (falls back to IM_BOT_TOKEN env)"},
 		},
 	},
 	run: func(args map[string]any) (any, error) {
-		port := argIntDefault(args, "port", 9876)
-		platforms := argStringSliceDefault(args, "platforms", []string{"wecom"})
-		token := argStringDefault(args, "token", "")
+		port := argIntDefault(args, "port", envInt("IM_BOT_PORT", 9876))
+		platforms := resolvePlatforms(args)
+		token := argStringDefault(args, "token", envString("IM_BOT_TOKEN", ""))
 		return runStartBot(port, platforms, token)
 	},
+}
+
+// resolvePlatforms returns the explicit `platforms` arg when provided;
+// otherwise it auto-detects from IM_WECOM_KEY / IM_FEISHU_KEY /
+// IM_DINGTALK_KEY env vars, so users only need to set the keys for the
+// platforms they actually use. Falls back to ["wecom"] when no signal.
+func resolvePlatforms(args map[string]any) []string {
+	if v, ok := args["platforms"]; ok && v != nil {
+		if arr, ok := v.([]any); ok && len(arr) > 0 {
+			out := make([]string, 0, len(arr))
+			for _, item := range arr {
+				if s, ok := item.(string); ok && s != "" {
+					out = append(out, s)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+	}
+	var detected []string
+	if os.Getenv("IM_WECOM_KEY") != "" {
+		detected = append(detected, "wecom")
+	}
+	if os.Getenv("IM_FEISHU_KEY") != "" {
+		detected = append(detected, "feishu")
+	}
+	if os.Getenv("IM_DINGTALK_KEY") != "" {
+		detected = append(detected, "dingtalk")
+	}
+	if len(detected) > 0 {
+		return detected
+	}
+	return []string{"wecom"}
 }
 
 var stopBotTool = toolDef{
@@ -229,6 +277,133 @@ var stopBotTool = toolDef{
 	run: func(args map[string]any) (any, error) {
 		return runStopBot()
 	},
+}
+
+var startStreamTool = toolDef{
+	name:        "start_stream",
+	description: "Start long-connection (WebSocket) mode for DingTalk/Feishu — NO public IP needed. The bot connects outbound to the platform gateway. WeCom is NOT supported (use start_bot for WeCom). Platforms auto-detected from IM_DINGTALK_APP_KEY / IM_FEISHU_APP_ID env when omitted.",
+	readOnly:    false,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"platforms": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string", "enum": []string{"dingtalk", "feishu"}},
+				"description": "Platforms to start in stream mode; auto-detected from IM_DINGTALK_APP_KEY / IM_FEISHU_APP_ID env when omitted",
+				"default":     []string{"dingtalk"},
+			},
+			"dingtalk_app_key":    map[string]any{"type": "string", "description": "DingTalk AppKey (falls back to IM_DINGTALK_APP_KEY env)"},
+			"dingtalk_app_secret": map[string]any{"type": "string", "description": "DingTalk AppSecret (falls back to IM_DINGTALK_APP_SECRET env)"},
+			"feishu_app_id":       map[string]any{"type": "string", "description": "Feishu App ID (falls back to IM_FEISHU_APP_ID env)"},
+			"feishu_app_secret":   map[string]any{"type": "string", "description": "Feishu App Secret (falls back to IM_FEISHU_APP_SECRET env)"},
+		},
+	},
+	run: func(args map[string]any) (any, error) {
+		platforms := resolveStreamPlatforms(args)
+		var results []string
+		for _, p := range platforms {
+			switch p {
+			case "dingtalk":
+				appKey := argStringDefault(args, "dingtalk_app_key", envString("IM_DINGTALK_APP_KEY", ""))
+				appSecret := argStringDefault(args, "dingtalk_app_secret", envString("IM_DINGTALK_APP_SECRET", ""))
+				r, err := runStartDingTalkStream(appKey, appSecret)
+				if err != nil {
+					results = append(results, fmt.Sprintf("dingtalk: ERROR: %v", err))
+				} else {
+					results = append(results, fmt.Sprintf("dingtalk: %v", r))
+				}
+			case "feishu":
+				appID := argStringDefault(args, "feishu_app_id", envString("IM_FEISHU_APP_ID", ""))
+				appSecret := argStringDefault(args, "feishu_app_secret", envString("IM_FEISHU_APP_SECRET", ""))
+				r, err := runStartFeishuStream(appID, appSecret)
+				if err != nil {
+					results = append(results, fmt.Sprintf("feishu: ERROR: %v", err))
+				} else {
+					results = append(results, fmt.Sprintf("feishu: %v", r))
+				}
+			}
+		}
+		return strings.Join(results, "\n"), nil
+	},
+}
+
+var stopStreamTool = toolDef{
+	name:        "stop_stream",
+	description: "Stop long-connection (Stream) mode for DingTalk/Feishu. Stops all running stream platforms when platforms omitted.",
+	readOnly:    false,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"platforms": map[string]any{
+				"type":        "array",
+				"items":       map[string]any{"type": "string", "enum": []string{"dingtalk", "feishu"}},
+				"description": "Platforms to stop; defaults to all running",
+			},
+		},
+	},
+	run: func(args map[string]any) (any, error) {
+		wantAll := true
+		var want map[string]bool
+		if v, ok := args["platforms"]; ok && v != nil {
+			if arr, ok := v.([]any); ok && len(arr) > 0 {
+				wantAll = false
+				want = make(map[string]bool)
+				for _, item := range arr {
+					if s, ok := item.(string); ok {
+						want[s] = true
+					}
+				}
+			}
+		}
+		var results []string
+		if wantAll || want["dingtalk"] {
+			r, err := runStopDingTalkStream()
+			if err != nil {
+				results = append(results, fmt.Sprintf("dingtalk: ERROR: %v", err))
+			} else {
+				results = append(results, fmt.Sprintf("dingtalk: %v", r))
+			}
+		}
+		if wantAll || want["feishu"] {
+			r, err := runStopFeishuStream()
+			if err != nil {
+				results = append(results, fmt.Sprintf("feishu: ERROR: %v", err))
+			} else {
+				results = append(results, fmt.Sprintf("feishu: %v", r))
+			}
+		}
+		return strings.Join(results, "\n"), nil
+	},
+}
+
+// resolveStreamPlatforms returns the explicit `platforms` arg when provided;
+// otherwise auto-detects from IM_DINGTALK_APP_KEY / IM_FEISHU_APP_ID env vars.
+// Falls back to ["dingtalk"] when no signal.
+func resolveStreamPlatforms(args map[string]any) []string {
+	if v, ok := args["platforms"]; ok && v != nil {
+		if arr, ok := v.([]any); ok && len(arr) > 0 {
+			out := make([]string, 0, len(arr))
+			for _, item := range arr {
+				if s, ok := item.(string); ok && s != "" {
+					out = append(out, s)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+	}
+	var detected []string
+	if os.Getenv("IM_DINGTALK_APP_KEY") != "" {
+		detected = append(detected, "dingtalk")
+	}
+	if os.Getenv("IM_FEISHU_APP_ID") != "" {
+		detected = append(detected, "feishu")
+	}
+	if len(detected) > 0 {
+		return detected
+	}
+	return []string{"dingtalk"}
 }
 
 var sendMessageTool = toolDef{

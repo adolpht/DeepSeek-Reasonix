@@ -42,9 +42,9 @@ import (
 	"reasonix/internal/memory"
 	"reasonix/internal/plugin"
 	"reasonix/internal/provider"
+	"reasonix/internal/recipe"
 	"reasonix/internal/scheduler"
 	"reasonix/internal/skill"
-	"reasonix/internal/recipe"
 	"reasonix/internal/workflow"
 )
 
@@ -80,13 +80,13 @@ type App struct {
 	trayReady bool
 	tray      *desktopTray
 
-	mediaTokens *mediaTokenStore
-	dataStore   *datastore.Store
-	sched       *scheduler.Scheduler
-	recipeStore   *recipe.Store
-	workflowStore *workflow.Store
+	mediaTokens      *mediaTokenStore
+	dataStore        *datastore.Store
+	sched            *scheduler.Scheduler
+	recipeStore      *recipe.Store
+	workflowStore    *workflow.Store
 	clipboardHistory *ClipboardHistory
-	terminals      *terminalManager
+	terminals        *terminalManager
 }
 
 // mediaTokenEntry holds metadata for a workspace media file served via temporary URL.
@@ -383,6 +383,10 @@ func (a *App) startup(ctx context.Context) {
 	// Start the cron scheduler in the background.
 	if a.sched != nil {
 		go a.sched.Start()
+		// Register cron-triggered workflows with the scheduler so they fire
+		// alongside Recipe cron tasks. Runs after sched.Start() so the cron
+		// engine is ready; Register is safe to call post-Start.
+		go a.registerWorkflowCronTriggers()
 	}
 
 	// Start clipboard monitoring in the background.
@@ -730,9 +734,74 @@ func (a *App) SubmitDisplayToTab(tabID, display, input string) {
 // task triggers. It submits the skill as a turn to the active workspace (or the
 // first available workspace if none is active). The return value is a summary
 // string recorded as the execution result.
+//
+// The params string is a JSON object that may carry two reserved keys:
+//   - "_workspace": project root path; the task targets the tab whose
+//     WorkspaceRoot matches this value (falls back to active/first tab).
+//   - "_prompt": custom prompt text; when set it replaces the default
+//     "/<skill> <params>" input entirely.
+//
+// Any remaining keys are passed through as the skill parameters.
 func (a *App) executeScheduledTask(name, skill, params string) string {
+	// Workflow cron trigger: name carries the "wf:" prefix. Route to
+	// RunWorkflow instead of the recipe "/<skill> <params>" path. The
+	// params string (if any) becomes the workflow input.
+	if strings.HasPrefix(name, "wf:") {
+		wfName := strings.TrimPrefix(name, "wf:")
+		if err := a.RunWorkflow(wfName, params); err != nil {
+			return fmt.Sprintf("workflow %q trigger failed: %v", wfName, err)
+		}
+		return "workflow triggered"
+	}
+
+	// Parse reserved keys from the parameters JSON.
+	workspace := ""
+	prompt := ""
+	restParams := params
+	if params != "" {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(params), &obj); err == nil {
+			if w, ok := obj["_workspace"]; ok {
+				var ws string
+				if json.Unmarshal(w, &ws) == nil {
+					workspace = strings.TrimSpace(ws)
+				}
+			}
+			if p, ok := obj["_prompt"]; ok {
+				var ps string
+				if json.Unmarshal(p, &ps) == nil {
+					prompt = ps
+				}
+			}
+			// Re-encode remaining keys (excluding reserved ones).
+			rest := make(map[string]json.RawMessage, len(obj))
+			for k, v := range obj {
+				if k != "_workspace" && k != "_prompt" {
+					rest[k] = v
+				}
+			}
+			if len(rest) > 0 {
+				if b, err := json.Marshal(rest); err == nil {
+					restParams = string(b)
+				}
+			} else {
+				restParams = ""
+			}
+		}
+	}
+
 	a.mu.RLock()
 	ctrl := a.activeCtrlLocked()
+	// If a specific workspace is requested, prefer a tab whose WorkspaceRoot matches.
+	if workspace != "" {
+		target := normalizeProjectRoot(workspace)
+		for _, tab := range a.tabs {
+			if tab.Scope == "project" && normalizeProjectRoot(tab.WorkspaceRoot) == target && tab.Ctrl != nil {
+				ctrl = tab.Ctrl
+				break
+			}
+		}
+	}
 	if ctrl == nil && len(a.tabs) > 0 {
 		// Pick the first tab if no active one.
 		for _, tab := range a.tabs {
@@ -746,10 +815,13 @@ func (a *App) executeScheduledTask(name, skill, params string) string {
 		return "no workspace available"
 	}
 
-	// Build the input: /<skill> <params>
-	input := "/" + skill
-	if params != "" {
-		input = input + " " + params
+	// Build the input: custom prompt takes precedence; otherwise /<skill> <params>.
+	input := prompt
+	if input == "" {
+		input = "/" + skill
+		if restParams != "" {
+			input = input + " " + restParams
+		}
 	}
 	display := "[Scheduled: " + name + "]"
 	ctrl.SubmitDisplay(display, input)
@@ -4114,16 +4186,16 @@ func parseScope(s string) memory.Scope {
 // RecipeView is the JSON-serializable recipe structure sent to the frontend.
 // It mirrors internal/recipe.Recipe but with trigger config expanded for UI consumption.
 type RecipeView struct {
-	Name          string            `json:"name"`
-	Description   string            `json:"description"`
-	Skill         string            `json:"skill"`
-	Params        string            `json:"params"`
-	Trigger       string            `json:"trigger"`
-	CronExpr      string            `json:"cronExpr,omitempty"`
-	EventType     string            `json:"eventType,omitempty"`
-	MatchRules    map[string]string `json:"matchRules,omitempty"`
-	CreatedAt     int64             `json:"createdAt"`
-	UpdatedAt     int64             `json:"updatedAt"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Skill       string            `json:"skill"`
+	Params      string            `json:"params"`
+	Trigger     string            `json:"trigger"`
+	CronExpr    string            `json:"cronExpr,omitempty"`
+	EventType   string            `json:"eventType,omitempty"`
+	MatchRules  map[string]string `json:"matchRules,omitempty"`
+	CreatedAt   int64             `json:"createdAt"`
+	UpdatedAt   int64             `json:"updatedAt"`
 }
 
 // SaveRecipe persists a new or updated recipe. The name must be unique and filename-safe.
@@ -4234,6 +4306,154 @@ func (a *App) TriggerEventRecipes(eventType string, context map[string]string) (
 		triggered = append(triggered, r.Name)
 	}
 	return triggered, nil
+}
+
+// TriggerEventWorkflows is the workflow analogue of TriggerEventRecipes: it
+// finds event-triggered workflows whose EventType and MatchRules satisfy the
+// supplied context and runs each via RunWorkflow. The context map is JSON-
+// encoded and passed as the workflow input so ${input} substitution in prompt
+// nodes can access event fields. Returns the names of triggered workflows.
+//
+// Mirrors recipe.Store.FindMatchingEventRecipes semantics (substring match on
+// each rule value) so a migrated Recipe→Workflow preserves its trigger
+// behaviour. Safe to call when no workflow store is initialised (returns nil).
+func (a *App) TriggerEventWorkflows(eventType string, context map[string]string) ([]string, error) {
+	if a.workflowStore == nil {
+		return nil, nil
+	}
+	matched, err := a.workflowStore.FindMatchingEventWorkflows(eventType, context)
+	if err != nil || len(matched) == 0 {
+		return nil, err
+	}
+	var triggered []string
+	for _, w := range matched {
+		// Encode the context as the workflow input so prompt nodes can use
+		// ${input} to read event fields. Keep it compact — match rules are
+		// already satisfied, the workflow just needs the payload.
+		input := ""
+		if len(context) > 0 {
+			if b, err := json.Marshal(context); err == nil {
+				input = string(b)
+			}
+		}
+		if err := a.RunWorkflow(w.Name, input); err != nil {
+			fmt.Fprintf(os.Stderr, "trigger event workflow %q: %v\n", w.Name, err)
+			continue
+		}
+		triggered = append(triggered, w.Name)
+	}
+	return triggered, nil
+}
+
+// registerWorkflowCronTriggers loads all cron-triggered workflows from the
+// store and registers each with the existing scheduler. The scheduler calls
+// executeScheduledTask on each tick; that function recognises the "wf:" name
+// prefix and routes to RunWorkflow instead of submitting a skill command.
+//
+// Called once during startup, after sched.Start(). Re-running it (e.g. after
+// a workflow is saved with a trigger change) re-registers — Register replaces
+// any existing entry with the same name.
+func (a *App) registerWorkflowCronTriggers() {
+	if a.workflowStore == nil || a.sched == nil {
+		return
+	}
+	wfs, err := a.workflowStore.ListByTrigger(workflow.TriggerCron)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: load cron workflows: %v\n", err)
+		return
+	}
+	for _, w := range wfs {
+		cronExpr := strings.TrimSpace(w.TriggerConfig.CronExpr)
+		if cronExpr == "" {
+			continue
+		}
+		// Prefix with "wf:" so executeScheduledTask can route to RunWorkflow
+		// instead of the recipe "/<skill> <params>" path.
+		name := "wf:" + w.Name
+		if err := a.sched.Register(name, cronExpr, "", ""); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: register cron workflow %q (%s): %v\n", w.Name, cronExpr, err)
+		}
+	}
+}
+
+// ReloadWorkflowTriggers re-registers all cron-triggered workflows with the
+// scheduler. Call this after a workflow is saved or deleted so the cron
+// schedule stays in sync. Exposed via the Wails binding so the frontend can
+// invoke it from the WorkflowEditor after a save. Register replaces existing
+// entries with the same name, so re-saving a workflow updates its schedule
+// in place; deleted workflows are pruned on the next full restart.
+func (a *App) ReloadWorkflowTriggers() error {
+	if a.workflowStore == nil || a.sched == nil {
+		return nil
+	}
+	a.registerWorkflowCronTriggers()
+	return nil
+}
+
+// MigrateRecipeToWorkflow converts an existing Recipe into a single-node skill
+// Workflow and persists it. The resulting Workflow carries the Recipe's trigger
+// configuration (cron / event) so the migration is lossless: a one-skill Recipe
+// becomes a one-skill-node Workflow that runs identically.
+//
+// The original Recipe is NOT deleted — the caller can remove it after verifying
+// the migrated Workflow runs correctly. If a Workflow with the same name already
+// exists it is overwritten.
+func (a *App) MigrateRecipeToWorkflow(recipeName string) error {
+	if a.recipeStore == nil {
+		return fmt.Errorf("recipe store not initialized")
+	}
+	if a.workflowStore == nil {
+		return fmt.Errorf("workflow store not initialized")
+	}
+	r, err := a.recipeStore.Load(recipeName)
+	if err != nil {
+		return fmt.Errorf("load recipe %q: %w", recipeName, err)
+	}
+
+	// Build a single skill node that mirrors the Recipe's /<skill> <params>
+	// invocation. The node config uses the JSON form so it round-trips through
+	// the WorkflowEditor skill picker cleanly. Use json.Marshal (not fmt.Sprintf
+	// %q) so non-ASCII / control chars are escaped per the JSON spec.
+	type skillCfg struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments,omitempty"`
+	}
+	cfg := skillCfg{Name: r.Skill}
+	if strings.TrimSpace(r.Params) != "" && r.Params != "{}" {
+		cfg.Arguments = r.Params
+	}
+	cfgData, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal skill config: %w", err)
+	}
+	skillConfig := string(cfgData)
+
+	wf := workflow.Workflow{
+		Name:        r.Name,
+		Description: r.Description,
+		Nodes: []workflow.WorkflowNode{{
+			ID:     "node-1",
+			Label:  r.Skill,
+			Kind:   "skill",
+			Config: skillConfig,
+		}},
+		Edges:   []workflow.WorkflowEdge{},
+		Trigger: workflow.TriggerType(r.Trigger),
+		TriggerConfig: workflow.TriggerConfig{
+			CronExpr:   r.TriggerConfig.CronExpr,
+			EventType:  r.TriggerConfig.EventType,
+			MatchRules: r.TriggerConfig.MatchRules,
+		},
+		CreatedAt: r.CreatedAt,
+		UpdatedAt: 0, // Save will stamp it
+	}
+	if wf.Trigger == "" {
+		wf.Trigger = workflow.TriggerManual
+	}
+	if err := a.workflowStore.Save(wf); err != nil {
+		return fmt.Errorf("save migrated workflow: %w", err)
+	}
+	return nil
 }
 
 // ListClipboardHistory returns recent clipboard entries.
@@ -5052,24 +5272,31 @@ func notificationViewFromModel(n datastore.Notification) NotificationView {
 
 // WorkflowView is the wire format for workflow objects sent to the frontend.
 type WorkflowView struct {
-	Name        string              `json:"name"`
-	Description string              `json:"description"`
-	Nodes       []WorkflowNodeView  `json:"nodes"`
-	Edges       []WorkflowEdgeView  `json:"edges"`
-	CreatedAt   int64               `json:"createdAt"`
-	UpdatedAt   int64               `json:"updatedAt"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Nodes         []WorkflowNodeView `json:"nodes"`
+	Edges         []WorkflowEdgeView `json:"edges"`
+	Trigger       string             `json:"trigger,omitempty"`
+	CronExpr      string             `json:"cronExpr,omitempty"`
+	EventType     string             `json:"eventType,omitempty"`
+	MatchRules    map[string]string  `json:"matchRules,omitempty"`
+	Version       int                `json:"version,omitempty"`
+	AllowedSkills []string           `json:"allowedSkills,omitempty"`
+	CreatedAt     int64              `json:"createdAt"`
+	UpdatedAt     int64              `json:"updatedAt"`
 }
 
 // WorkflowNodeView is the wire format for workflow nodes sent to the frontend.
 type WorkflowNodeView struct {
-	ID        string `json:"id"`
-	Label     string `json:"label"`
-	Kind      string `json:"kind"`
-	Config    string `json:"config"`
-	Model     string `json:"model,omitempty"`
-	Effort    string `json:"effort,omitempty"`
-	PositionX int    `json:"positionX"`
-	PositionY int    `json:"positionY"`
+	ID              string `json:"id"`
+	Label           string `json:"label"`
+	Kind            string `json:"kind"`
+	Config          string `json:"config"`
+	Model           string `json:"model,omitempty"`
+	Effort          string `json:"effort,omitempty"`
+	RequireApproval bool   `json:"requireApproval,omitempty"`
+	PositionX       int    `json:"positionX"`
+	PositionY       int    `json:"positionY"`
 }
 
 // WorkflowEdgeView is the wire format for workflow edges sent to the frontend.
@@ -5088,14 +5315,15 @@ func (a *App) SaveWorkflow(w WorkflowView) error {
 	nodes := make([]workflow.WorkflowNode, len(w.Nodes))
 	for i, n := range w.Nodes {
 		nodes[i] = workflow.WorkflowNode{
-			ID:        n.ID,
-			Label:     n.Label,
-			Kind:      n.Kind,
-			Config:    n.Config,
-			Model:     n.Model,
-			Effort:    n.Effort,
-			PositionX: n.PositionX,
-			PositionY: n.PositionY,
+			ID:              n.ID,
+			Label:           n.Label,
+			Kind:            n.Kind,
+			Config:          n.Config,
+			Model:           n.Model,
+			Effort:          n.Effort,
+			RequireApproval: n.RequireApproval,
+			PositionX:       n.PositionX,
+			PositionY:       n.PositionY,
 		}
 	}
 	edges := make([]workflow.WorkflowEdge, len(w.Edges))
@@ -5112,8 +5340,16 @@ func (a *App) SaveWorkflow(w WorkflowView) error {
 		Description: w.Description,
 		Nodes:       nodes,
 		Edges:       edges,
-		CreatedAt:   w.CreatedAt,
-		UpdatedAt:   w.UpdatedAt,
+		Trigger:     workflow.TriggerType(w.Trigger),
+		TriggerConfig: workflow.TriggerConfig{
+			CronExpr:   w.CronExpr,
+			EventType:  w.EventType,
+			MatchRules: w.MatchRules,
+		},
+		Version:       workflow.CurrentWorkflowVersion,
+		AllowedSkills: w.AllowedSkills,
+		CreatedAt:     w.CreatedAt,
+		UpdatedAt:     w.UpdatedAt,
 	}
 	return a.workflowStore.Save(wf)
 }
@@ -5154,9 +5390,19 @@ func (a *App) DeleteWorkflow(name string) error {
 	return a.workflowStore.Delete(name)
 }
 
-// RunWorkflow creates a new tab and submits the workflow as a structured prompt.
-// It builds a composite prompt from the DAG nodes and edges, then submits it
-// for sequential execution.
+// RunWorkflow creates a new tab and executes the workflow DAG in topological
+// order. Each node becomes one turn submitted to the controller:
+//   - skill  → "/<skill_name> <args>" (routes to run_skill, same path Recipes use)
+//   - prompt → the config text (with ${input} substituted from the workflow input)
+//   - tool   → a natural-language request to use the described tool
+//
+// Per-node Model/Effort overrides are applied between turns via SetModelForTab.
+// condition and parallel nodes are not yet evaluated (P2) — they are skipped
+// with a Notice so the rest of the graph still runs.
+//
+// Execution happens in a background goroutine so the UI stays responsive; the
+// caller receives nil as soon as the tab is created. Step-level status flows
+// to the transcript as Notice events.
 func (a *App) RunWorkflow(name string, input string) error {
 	if a.workflowStore == nil {
 		return fmt.Errorf("workflow store not initialized")
@@ -5166,50 +5412,429 @@ func (a *App) RunWorkflow(name string, input string) error {
 		return err
 	}
 
-	// Build a structured prompt describing the workflow steps.
-	var sb strings.Builder
-	sb.WriteString("Execute the following workflow: ")
-	sb.WriteString(wf.Name)
-	if wf.Description != "" {
-		sb.WriteString(" — ")
-		sb.WriteString(wf.Description)
+	// Validate the graph and produce an execution order.
+	order, err := workflow.TopoSort(wf)
+	if err != nil {
+		return fmt.Errorf("workflow %q: %w", name, err)
 	}
-	sb.WriteString("\n\nSteps:\n")
-	for i, node := range wf.Nodes {
-		sb.WriteString(fmt.Sprintf("%d. [%s] %s", i+1, node.Kind, node.Label))
-		if node.Config != "" {
-			sb.WriteString(fmt.Sprintf(" (config: %s)", node.Config))
-		}
-		if node.Model != "" {
-			sb.WriteString(fmt.Sprintf(" (model: %s)", node.Model))
-		}
-		if node.Effort != "" {
-			sb.WriteString(fmt.Sprintf(" (effort: %s)", node.Effort))
-		}
-		sb.WriteString("\n")
+	if len(order) == 0 {
+		return fmt.Errorf("workflow %q has no nodes", name)
 	}
-	if len(wf.Edges) > 0 {
-		sb.WriteString("\nConnections:\n")
-		for _, edge := range wf.Edges {
-			desc := fmt.Sprintf("  %s → %s", edge.Source, edge.Target)
-			if edge.Label != "" {
-				desc += fmt.Sprintf(" (%s)", edge.Label)
-			}
-			sb.WriteString(desc + "\n")
-		}
-	}
-	if input != "" {
-		sb.WriteString("\nInput: " + input + "\n")
-	}
-	sb.WriteString("\nPlease execute each step in order, following the connections described above.")
 
+	// Create a fresh tab for this run so each execution has its own transcript.
 	tabTitle := fmt.Sprintf("Workflow: %s", wf.Name)
 	topic, topicErr := a.CreateTopic("global", "", tabTitle)
 	if topicErr != nil {
 		return fmt.Errorf("create tab for workflow: %w", topicErr)
 	}
-	a.SubmitDisplayToTab(topic.ID, "Workflow: "+wf.Name, sb.String())
+
+	go a.executeWorkflowSteps(topic.ID, wf, order, input)
 	return nil
+}
+
+// executeWorkflowSteps walks the workflow DAG in topological order, executing
+// each reachable node. It runs on its own goroutine launched by RunWorkflow.
+//
+// P2/P3 graph-traversal semantics:
+//   - reachable[nodeID] starts true only for root nodes (in-degree 0). A node
+//     runs only when at least one of its predecessors marked it reachable.
+//   - skill/prompt/tool nodes submit a turn, wait for idle, capture the last
+//     assistant reply into outputs[nodeID], and mark ALL successors reachable.
+//   - condition nodes evaluate their config expression (with and/or/not/parens);
+//     only successors on the matching branch (edge label yes/true or no/false)
+//     become reachable.
+//   - parallel nodes spawn one independent sub-agent tab per branch head and
+//     run them concurrently. Each branch head's output is captured into
+//     outputs; branch heads are marked executed so the main loop skips them;
+//     their successors are marked reachable so downstream nodes continue in
+//     the main tab. Multi-node branches resume sequentially in the main tab
+//     after the fan-out completes (the branch head's output is already in
+//     outputs, so ${ref} substitution still works).
+//   - executed[nodeID] tracks nodes already run by the parallel handler so
+//     the main loop doesn't re-run them.
+//
+// ${nodeId.output} and ${input} references in node configs are substituted
+// from outputs / the workflow input before the turn is submitted.
+//
+// P3 projection: every executed node emits a StepProgress event (in_progress
+// → completed) so the AgentCanvas graph renders workflow progress live.
+func (a *App) executeWorkflowSteps(tabID string, wf workflow.Workflow, order []workflow.WorkflowNode, input string) {
+	ctx := a.ctx
+	outputs := make(map[string]string, len(order))
+	reachable := make(map[string]bool, len(order))
+	executed := make(map[string]bool, len(order))
+
+	// Build adjacency list and in-degree from edges. order is already
+	// topologically sorted (validated by TopoSort in RunWorkflow).
+	adjacency := make(map[string][]workflow.WorkflowEdge, len(order))
+	indegree := make(map[string]int, len(order))
+	for _, n := range order {
+		indegree[n.ID] = 0
+	}
+	for _, e := range wf.Edges {
+		adjacency[e.Source] = append(adjacency[e.Source], e)
+		indegree[e.Target]++
+	}
+	// Seed reachable with root nodes (in-degree 0).
+	for _, n := range order {
+		if indegree[n.ID] == 0 {
+			reachable[n.ID] = true
+		}
+	}
+
+	executedCount := 0
+	total := len(order)
+	for _, node := range order {
+		select {
+		case <-ctx.Done():
+			a.workflowNotice(tabID, "⏹ workflow %q aborted: %v", wf.Name, ctx.Err())
+			return
+		default:
+		}
+
+		if executed[node.ID] {
+			// Already run by the parallel handler — skip without re-emitting
+			// step events (the handler already did).
+			continue
+		}
+		if !reachable[node.ID] {
+			// This node sits on a branch that no condition selected. Skip
+			// it silently — no Notice, no StepProgress — so the transcript
+			// isn't cluttered with pruned nodes.
+			continue
+		}
+
+		switch node.Kind {
+		case "condition":
+			a.runConditionNode(ctx, tabID, node, outputs, input, adjacency, reachable)
+			executedCount++
+		case "parallel":
+			a.runParallelNode(ctx, tabID, node, order, outputs, input, adjacency, reachable, executed, wf.AllowedSkills)
+			executedCount++
+		default:
+			// skill / prompt / tool
+			if a.runExecutableNode(ctx, tabID, node, outputs, input, adjacency, reachable, wf.AllowedSkills) {
+				executedCount++
+			}
+		}
+	}
+
+	a.workflowNotice(tabID, "✅ workflow %q finished — %d/%d nodes executed", wf.Name, executedCount, total)
+}
+
+// runConditionNode evaluates the node's expression, stores "true"/"false" as
+// the node's output, and marks only the matching branch's successors reachable.
+func (a *App) runConditionNode(ctx context.Context, tabID string, node workflow.WorkflowNode,
+	outputs map[string]string, input string, adjacency map[string][]workflow.WorkflowEdge, reachable map[string]bool) {
+	ctrl := a.ctrlByTabID(tabID)
+	if ctrl != nil {
+		ctrl.EmitWorkflowStep(node.ID, node.Label, "in_progress")
+	}
+	result, err := workflow.EvaluateCondition(node.Config, outputs, input)
+	if err != nil {
+		a.workflowNotice(tabID, "❌ condition %q failed: %v", node.Label, err)
+		if ctrl != nil {
+			ctrl.EmitWorkflowStep(node.ID, node.Label, "completed")
+		}
+		// On error treat as false so a single-branch graph still terminates.
+		result = false
+	}
+	outputs[node.ID] = strconv.FormatBool(result)
+	a.workflowNotice(tabID, "🔀 condition %q → %v", node.Label, result)
+	// Mark reachable only for successors on the selected branch.
+	for _, e := range adjacency[node.ID] {
+		if workflow.BranchLabelFor(e.Label, result) {
+			reachable[e.Target] = true
+		}
+	}
+	if ctrl != nil {
+		ctrl.EmitWorkflowStep(node.ID, node.Label, "completed")
+	}
+}
+
+// runParallelNode spawns one independent sub-agent tab per branch head and runs
+// them concurrently. Each branch head's output is captured into outputs; branch
+// heads are marked in `executed` so the main loop skips them; their successors
+// are marked reachable so downstream nodes continue in the main tab.
+//
+// Multi-node branches resume sequentially in the main tab after the fan-out
+// completes — the branch head's output is already in `outputs`, so ${ref}
+// substitution in subsequent nodes still works. This gives true concurrency
+// for the fan-out (the independent first step of each branch), which is the
+// common parallel pattern; deeply nested multi-step branches can be expressed
+// as nested sub-workflows when needed.
+//
+// Each goroutine creates its own tab via CreateTopic (a tab IS an independent
+// agent session — the desktop equivalent of spawn_agent). The main tab's
+// controller emits StepProgress for the parallel node itself; each branch's
+// StepProgress is emitted by its own sub-tab's controller.
+func (a *App) runParallelNode(ctx context.Context, tabID string, node workflow.WorkflowNode,
+	order []workflow.WorkflowNode, outputs map[string]string, input string,
+	adjacency map[string][]workflow.WorkflowEdge, reachable map[string]bool,
+	executed map[string]bool, allowedSkills []string) {
+	ctrl := a.ctrlByTabID(tabID)
+	if ctrl != nil {
+		ctrl.EmitWorkflowStep(node.ID, node.Label, "in_progress")
+	}
+
+	branches := adjacency[node.ID]
+	if len(branches) == 0 {
+		a.workflowNotice(tabID, "⋮⋮ parallel %q — no branches", node.Label)
+		if ctrl != nil {
+			ctrl.EmitWorkflowStep(node.ID, node.Label, "completed")
+		}
+		return
+	}
+	a.workflowNotice(tabID, "⋮⋮ parallel %q — fanning out to %d branches (true concurrency)", node.Label, len(branches))
+
+	// Index order by ID so goroutines can look up their branch head node.
+	byID := make(map[string]*workflow.WorkflowNode, len(order))
+	for i := range order {
+		byID[order[i].ID] = &order[i]
+	}
+
+	type branchResult struct {
+		branchID string
+		output   string
+		err      error
+	}
+	results := make([]branchResult, len(branches))
+
+	var wg sync.WaitGroup
+	for i, e := range branches {
+		wg.Add(1)
+		go func(idx int, edge workflow.WorkflowEdge) {
+			defer wg.Done()
+			br := branchResult{branchID: edge.Target}
+
+			branchNode, ok := byID[edge.Target]
+			if !ok {
+				br.err = fmt.Errorf("branch head %q not found in order", edge.Target)
+				results[idx] = br
+				return
+			}
+
+			// P3 permission whitelist for skill branch heads.
+			if branchNode.Kind == "skill" {
+				if skillName, ok := workflow.SkillNameFromConfig(branchNode.Config); ok {
+					if !workflow.IsSkillAllowed(skillName, allowedSkills) {
+						br.err = fmt.Errorf("skill %q not in workflow whitelist", skillName)
+						results[idx] = br
+						return
+					}
+				}
+			}
+
+			// Build the branch head's input using the workflow-level outputs
+			// captured so far (snapshot, not the live map — concurrent writers
+			// must not race).
+			stepInput, supported := workflow.BuildNodeInputWithRefs(*branchNode, input, outputs)
+			if !supported {
+				br.err = fmt.Errorf("branch %q: %s", branchNode.Label, stepInput)
+				results[idx] = br
+				return
+			}
+
+			// Create an independent sub-agent tab for this branch.
+			subTabTitle := fmt.Sprintf("%s / %s", node.Label, branchNode.Label)
+			topic, topicErr := a.CreateTopic("global", "", subTabTitle)
+			if topicErr != nil {
+				br.err = fmt.Errorf("create sub-tab for branch %q: %w", branchNode.Label, topicErr)
+				results[idx] = br
+				return
+			}
+
+			// Per-node model override on the sub-tab.
+			if m := strings.TrimSpace(branchNode.Model); m != "" {
+				if err := a.SetModelForTab(topic.ID, m); err != nil {
+					a.workflowNotice(tabID, "⚠️ branch %q: model switch to %q failed (%v) — continuing with current model",
+						branchNode.Label, m, err)
+				}
+			}
+
+			subCtrl := a.ctrlByTabID(topic.ID)
+			if subCtrl != nil {
+				subCtrl.EmitWorkflowStep(branchNode.ID, branchNode.Label, "in_progress")
+			}
+
+			// P3 approval gate for side-effecting branch heads.
+			if branchNode.RequireApproval && subCtrl != nil {
+				subject := branchNode.Label
+				if stepInput != "" {
+					preview := stepInput
+					if len(preview) > 120 {
+						preview = preview[:120] + "…"
+					}
+					subject = fmt.Sprintf("%s — %s", branchNode.Label, preview)
+				}
+				allowed, err := subCtrl.RequestApproval(ctx, "workflow_parallel_"+branchNode.Kind, subject)
+				if err != nil || !allowed {
+					if err != nil {
+						br.err = fmt.Errorf("approval error: %w", err)
+					} else {
+						br.err = fmt.Errorf("user denied approval")
+					}
+					results[idx] = br
+					if subCtrl != nil {
+						subCtrl.EmitWorkflowStep(branchNode.ID, branchNode.Label, "completed")
+					}
+					return
+				}
+			}
+
+			display := fmt.Sprintf("▶ [parallel:%s] %s", branchNode.Kind, branchNode.Label)
+			a.SubmitDisplayToTab(topic.ID, display, stepInput)
+			a.waitTabIdle(ctx, topic.ID)
+
+			if sc := a.ctrlByTabID(topic.ID); sc != nil {
+				br.output = sc.LastAssistantText()
+				sc.EmitWorkflowStep(branchNode.ID, branchNode.Label, "completed")
+			}
+			results[idx] = br
+		}(i, e)
+	}
+	wg.Wait()
+
+	// Merge branch outputs back into the workflow-level outputs map and
+	// mark branch heads executed so the main loop skips them. Downstream
+	// successors of each branch head become reachable.
+	for i := range results {
+		r := results[i]
+		if r.err != nil {
+			a.workflowNotice(tabID, "⚠️ branch %d (%q) failed: %v", i, r.branchID, r.err)
+			// Still mark the branch head executed + successors reachable so
+			// the workflow continues (with an empty output for this branch).
+		} else {
+			outputs[r.branchID] = r.output
+			a.workflowNotice(tabID, "✓ branch %q completed (%d chars)", r.branchID, len(r.output))
+		}
+		executed[r.branchID] = true
+		for _, e := range adjacency[r.branchID] {
+			reachable[e.Target] = true
+		}
+	}
+
+	if ctrl != nil {
+		ctrl.EmitWorkflowStep(node.ID, node.Label, "completed")
+	}
+}
+
+// runExecutableNode handles skill/prompt/tool nodes: apply the per-node model
+// override, substitute ${...} refs, submit the turn, wait for idle, capture
+// the assistant reply into outputs, and mark all successors reachable.
+// Returns true when the node actually ran (false when it was unsupported,
+// blocked by the whitelist, or denied by the user).
+//
+// P3 controls run before the turn is submitted:
+//   - AllowedSkills: when non-empty, skill nodes whose skill name isn't listed
+//     are refused (Notice + skip).
+//   - RequireApproval: the node is gated behind ApprovalModal; a deny skips it.
+func (a *App) runExecutableNode(ctx context.Context, tabID string, node workflow.WorkflowNode,
+	outputs map[string]string, input string, adjacency map[string][]workflow.WorkflowEdge,
+	reachable map[string]bool, allowedSkills []string) bool {
+	ctrl := a.ctrlByTabID(tabID)
+
+	// P3 permission whitelist: skill nodes are checked against AllowedSkills.
+	if node.Kind == "skill" {
+		if skillName, ok := workflow.SkillNameFromConfig(node.Config); ok {
+			if !workflow.IsSkillAllowed(skillName, allowedSkills) {
+				a.workflowNotice(tabID, "⛔ %q skipped: skill %q not in workflow whitelist", node.Label, skillName)
+				return false
+			}
+		}
+	}
+
+	// Per-node model override. SetModelForTab requires the controller to be
+	// idle, which holds here: we wait after every executable node.
+	if m := strings.TrimSpace(node.Model); m != "" {
+		if err := a.SetModelForTab(tabID, m); err != nil {
+			a.workflowNotice(tabID, "⚠️ %q: model switch to %q failed (%v) — continuing with current model",
+				node.Label, m, err)
+		}
+	}
+
+	stepInput, supported := workflow.BuildNodeInputWithRefs(node, input, outputs)
+	if !supported {
+		a.workflowNotice(tabID, "⏭️ %q skipped: %s", node.Label, stepInput)
+		return false
+	}
+
+	// P3 approval gate: side-effecting nodes flagged RequireApproval prompt
+	// the user before running. A deny skips the node (and its branch, since
+	// we return without marking successors reachable).
+	if node.RequireApproval && ctrl != nil {
+		subject := node.Label
+		if stepInput != "" {
+			// Truncate long inputs so the modal stays readable.
+			preview := stepInput
+			if len(preview) > 120 {
+				preview = preview[:120] + "…"
+			}
+			subject = fmt.Sprintf("%s — %s", node.Label, preview)
+		}
+		allowed, err := ctrl.RequestApproval(ctx, "workflow_"+node.Kind, subject)
+		if err != nil {
+			a.workflowNotice(tabID, "⛔ %q skipped: approval error %v", node.Label, err)
+			return false
+		}
+		if !allowed {
+			a.workflowNotice(tabID, "⛔ %q skipped: user denied approval", node.Label)
+			return false
+		}
+	}
+
+	if ctrl != nil {
+		ctrl.EmitWorkflowStep(node.ID, node.Label, "in_progress")
+	}
+	display := fmt.Sprintf("▶ [%s] %s", node.Kind, node.Label)
+	a.SubmitDisplayToTab(tabID, display, stepInput)
+
+	// Wait for the turn to finish so the next node can switch models or
+	// read this node's output.
+	a.waitTabIdle(ctx, tabID)
+
+	// Capture the model's reply as this node's output for ${nodeID.output}.
+	if ctrl = a.ctrlByTabID(tabID); ctrl != nil {
+		outputs[node.ID] = ctrl.LastAssistantText()
+		ctrl.EmitWorkflowStep(node.ID, node.Label, "completed")
+	}
+
+	// Mark all successors reachable (non-condition nodes don't branch).
+	for _, e := range adjacency[node.ID] {
+		reachable[e.Target] = true
+	}
+	return true
+}
+
+// waitTabIdle blocks until the tab's controller reports it is no longer running
+// a turn, or until ctx is cancelled. Polling interval is 200ms, which is well
+// below typical agent-step latency but light enough not to waste CPU.
+func (a *App) waitTabIdle(ctx context.Context, tabID string) {
+	const poll = 200 * time.Millisecond
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ctrl := a.ctrlByTabID(tabID)
+			if ctrl == nil || !ctrl.Running() {
+				return
+			}
+		}
+	}
+}
+
+// workflowNotice surfaces a status line in the tab's transcript as a Notice
+// event. Silently no-ops if the tab or controller is gone (e.g. user closed
+// the tab mid-workflow).
+func (a *App) workflowNotice(tabID, format string, args ...any) {
+	ctrl := a.ctrlByTabID(tabID)
+	if ctrl == nil {
+		return
+	}
+	ctrl.Notice(fmt.Sprintf(format, args...))
 }
 
 // workflowViewFromModel converts an internal workflow.Workflow to a WorkflowView.
@@ -5217,14 +5842,15 @@ func workflowViewFromModel(wf workflow.Workflow) WorkflowView {
 	nodes := make([]WorkflowNodeView, len(wf.Nodes))
 	for i, n := range wf.Nodes {
 		nodes[i] = WorkflowNodeView{
-			ID:        n.ID,
-			Label:     n.Label,
-			Kind:      n.Kind,
-			Config:    n.Config,
-			Model:     n.Model,
-			Effort:    n.Effort,
-			PositionX: n.PositionX,
-			PositionY: n.PositionY,
+			ID:              n.ID,
+			Label:           n.Label,
+			Kind:            n.Kind,
+			Config:          n.Config,
+			Model:           n.Model,
+			Effort:          n.Effort,
+			RequireApproval: n.RequireApproval,
+			PositionX:       n.PositionX,
+			PositionY:       n.PositionY,
 		}
 	}
 	edges := make([]WorkflowEdgeView, len(wf.Edges))
@@ -5237,11 +5863,17 @@ func workflowViewFromModel(wf workflow.Workflow) WorkflowView {
 		}
 	}
 	return WorkflowView{
-		Name:        wf.Name,
-		Description: wf.Description,
-		Nodes:       nodes,
-		Edges:       edges,
-		CreatedAt:   wf.CreatedAt,
-		UpdatedAt:   wf.UpdatedAt,
+		Name:          wf.Name,
+		Description:   wf.Description,
+		Nodes:         nodes,
+		Edges:         edges,
+		Trigger:       string(wf.Trigger),
+		CronExpr:      wf.TriggerConfig.CronExpr,
+		EventType:     wf.TriggerConfig.EventType,
+		MatchRules:    wf.TriggerConfig.MatchRules,
+		Version:       wf.Version,
+		AllowedSkills: wf.AllowedSkills,
+		CreatedAt:     wf.CreatedAt,
+		UpdatedAt:     wf.UpdatedAt,
 	}
 }

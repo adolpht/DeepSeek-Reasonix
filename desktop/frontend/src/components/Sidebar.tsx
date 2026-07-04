@@ -9,18 +9,12 @@ import {
   Home,
   ChevronDown,
   ChevronRight,
-  FolderOpen,
-  Puzzle,
   Clock,
   Brain,
-  Calendar,
-  ListChecks,
   Workflow,
   GitBranch,
   PanelLeftOpen,
-  Newspaper,
   SquareTerminal,
-  Palette,
 } from "lucide-react";
 import type { WorkspaceType } from "../lib/types";
 import { useT } from "../lib/i18n";
@@ -113,7 +107,8 @@ function SidebarNavItem({
 
 // ── Props ──────────────────────────────────────────────────────
 export interface SidebarProps {
-  workspaceType: WorkspaceType;
+  /** Kept for callers' compatibility; no longer gates which items appear. */
+  workspaceType?: WorkspaceType;
   collapsed: boolean;
   /** Whether nav-item tooltips should be suppressed (shown only when sidebar is collapsed) */
   navTooltipDisabled: boolean;
@@ -144,9 +139,6 @@ export interface SidebarProps {
   onActivateSkill: (name: string) => void;
   onOpenTemplates: () => void;
 
-  // Settings tab navigation (for plugin management)
-  onOpenSettingsTab: (tab: "mcp" | "skills" | "officePlugins") => void;
-
   // Bottom nav
   onOpenRepoWiki: () => void;
   onOpenAllHistory: () => void;
@@ -156,7 +148,6 @@ export interface SidebarProps {
 
 // ── Component ──────────────────────────────────────────────────
 export function Sidebar({
-  workspaceType,
   collapsed,
   navTooltipDisabled,
   onExpand,
@@ -175,7 +166,6 @@ export function Sidebar({
   onAddProject,
   onActivateSkill,
   onOpenTemplates,
-  onOpenSettingsTab,
   onOpenRepoWiki,
   onOpenAllHistory,
   onOpenTrash,
@@ -183,7 +173,9 @@ export function Sidebar({
 }: SidebarProps) {
   const t = useT();
 
-  // Render collapsed mini toolbar
+  // Render collapsed mini toolbar.
+  // Mode-specific items are no longer gated — every capability is reachable
+  // in collapsed form too.
   if (collapsed) {
     return (
       <aside className="sidebar sidebar--collapsed" aria-label={t("sidebar.navigation")}>
@@ -198,39 +190,16 @@ export function Sidebar({
               <Home size={16} />
             </button>
           </Tooltip>
-          <Tooltip label={t("sidebar.fileManagement")} side="right">
-            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("files"); }}>
-              <FolderOpen size={16} />
+          <Tooltip label={t("officePanel.productDesign")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onActivateSkill("product-design"); }}>
+              <SquarePen size={16} />
             </button>
           </Tooltip>
-          {workspaceType === "office" && (
-            <>
-              <Tooltip label={t("officePanel.productDesign")} side="right">
-                <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onActivateSkill("product-design"); }}>
-                  <Palette size={16} />
-                </button>
-              </Tooltip>
-              <Tooltip label={t("sidebar.templates")} side="right">
-                <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onOpenTemplates(); }}>
-                  <FileText size={16} />
-                </button>
-              </Tooltip>
-            </>
-          )}
-          {workspaceType === "assistant" && (
-            <>
-              <Tooltip label={t("sidebar.dailyBrief")} side="right">
-                <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("dailyBrief"); }}>
-                  <Newspaper size={16} />
-                </button>
-              </Tooltip>
-              <Tooltip label={t("sidebar.assistantTodos")} side="right">
-                <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("todos"); }}>
-                  <ListChecks size={16} />
-                </button>
-              </Tooltip>
-            </>
-          )}
+          <Tooltip label={t("sidebar.templates")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onOpenTemplates(); }}>
+              <FileText size={16} />
+            </button>
+          </Tooltip>
           <Tooltip label={t("sidebar.trace")} side="right">
             <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("trace"); }}>
               <Workflow size={16} />
@@ -263,7 +232,7 @@ export function Sidebar({
 
   return (
     <aside className="sidebar" aria-label={t("sidebar.navigation")}>
-      {/* ── New conversation ── */}
+      {/* ── Top: New conversation + Home (fixed) ── */}
       <Tooltip label={t("topbar.newSession")} fill>
         <button
           className="sidebar__new"
@@ -277,8 +246,7 @@ export function Sidebar({
         </button>
       </Tooltip>
 
-      {/* ── 首页 (Home) ── */}
-      <SidebarSection title={t("sidebar.home")} storageKey="home">
+      <div className="sidebar__topnav">
         <SidebarNavItem
           icon={<Home size={15} />}
           label={t("sidebar.home")}
@@ -286,148 +254,105 @@ export function Sidebar({
           onClick={() => onNavigate("home")}
           active={activePage === "home"}
         />
-      </SidebarSection>
+      </div>
 
-      {/* ── 工作台 (Workbench) — dynamic by workspaceType ── */}
-      <SidebarSection title={t("sidebar.workbench")} storageKey="workbench">
-        <ProjectTree
-          activeScope={activeScope}
-          activeWorkspaceRoot={activeWorkspaceRoot}
-          activeTopicId={activeTopicId}
-          onOpenTopic={onOpenTopic}
-          onOpenProjectHistory={onOpenProjectHistory}
-          onTopicsChanged={onTopicsChanged}
-          onRenameTopic={onRenameTopic}
-          refreshSignal={refreshSignal}
-          onAddProject={onAddProject}
-        />
-        {workspaceType === "office" && (
-          <>
-            <OfficePanel
-              onActivateSkill={onActivateSkill}
-              onOpenTemplates={onOpenTemplates}
-            />
-          </>
-        )}
-        {workspaceType === "assistant" && (
-          <div className="sidebar__placeholder">
-            <SidebarNavItem
-              icon={<Newspaper size={15} />}
-              label={t("sidebar.dailyBrief")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={() => onNavigate("dailyBrief")}
-              active={activePage === "dailyBrief"}
-            />
-            <SidebarNavItem
-              icon={<Calendar size={15} />}
-              label={t("sidebar.assistantSchedule")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={() => onNavigate("calendar")}
-              active={activePage === "calendar"}
-            />
-            <SidebarNavItem
-              icon={<ListChecks size={15} />}
-              label={t("sidebar.assistantTodos")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={() => onNavigate("todos")}
-              active={activePage === "todos"}
-            />
-          </div>
-        )}
-      </SidebarSection>
+      {/* ── Scrollable middle: categorized capabilities ── */}
+      <div className="sidebar__scroll">
+        {/* ── 会话 (Conversations) ── */}
+        <SidebarSection title={t("sidebar.conversations")} storageKey="conversations">
+          <ProjectTree
+            activeScope={activeScope}
+            activeWorkspaceRoot={activeWorkspaceRoot}
+            activeTopicId={activeTopicId}
+            onOpenTopic={onOpenTopic}
+            onOpenProjectHistory={onOpenProjectHistory}
+            onTopicsChanged={onTopicsChanged}
+            onRenameTopic={onRenameTopic}
+            refreshSignal={refreshSignal}
+            onAddProject={onAddProject}
+          />
+        </SidebarSection>
 
-      {/* ── 资源 (Resources) — dynamic by workspaceType ── */}
-      <SidebarSection title={t("sidebar.resources")} storageKey="resources">
-        <SidebarNavItem
-          icon={<FolderOpen size={15} />}
-          label={t("sidebar.fileManagement")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => onNavigate("files")}
-        />
-        {workspaceType === "office" && (
-          <>
-            <SidebarNavItem
-              icon={<FileText size={15} />}
-              label={t("sidebar.templates")}
-              tooltipDisabled={navTooltipDisabled}
-              onClick={onOpenTemplates}
-            />
-          </>
-        )}
-        <SidebarNavItem
-          icon={<Puzzle size={15} />}
-          label={workspaceType === "coding" ? t("sidebar.devPlugins") : workspaceType === "office" ? t("sidebar.officePlugins") : t("sidebar.lifePlugins")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => onOpenSettingsTab("officePlugins")}
-        />
-      </SidebarSection>
+        {/* ── 办公能力 (Office capabilities) — always visible ── */}
+        <SidebarSection title={t("officePanel.title")} storageKey="office">
+          <OfficePanel onActivateSkill={onActivateSkill} />
+        </SidebarSection>
 
-      {/* ── 管理 (Management) ── */}
-      <SidebarSection title={t("sidebar.management")} storageKey="management">
-        {/* 子分组1：任务管理 */}
-        <SidebarNavItem
-          icon={<Clock size={15} />}
-          label={t("sidebar.scheduledTasks")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => onNavigate("scheduled")}
-          active={activePage === "scheduled"}
-        />
-        <SidebarNavItem
-          icon={<SquareTerminal size={15} />}
-          label={t("sidebar.terminal")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => onNavigate("terminal")}
-          active={activePage === "terminal"}
-        />
-        <SidebarNavItem
-          icon={<Workflow size={15} />}
-          label={t("sidebar.trace")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => onNavigate("trace")}
-          active={activePage === "trace"}
-        />
-        <SidebarNavItem
-          icon={<GitBranch size={15} />}
-          label={t("sidebar.workflow")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => onNavigate("workflow")}
-          active={activePage === "workflow"}
-        />
-        <div className="sidebar__subgroup-divider" />
-        {/* 子分组2：记忆与历史 */}
-        <SidebarNavItem
-          icon={<Brain size={15} />}
-          label={t("sidebar.memory")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => onNavigate("memory")}
-        />
-        <SidebarNavItem
-          icon={<BookOpen size={15} />}
-          label={t("sidebar.repoWiki")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={onOpenRepoWiki}
-        />
-        <SidebarNavItem
-          icon={<History size={15} />}
-          label={t("sidebar.allHistory")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => void onOpenAllHistory()}
-        />
-        <SidebarNavItem
-          icon={<Trash2 size={15} />}
-          label={t("sidebar.trash")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => void onOpenTrash()}
-        />
-        <div className="sidebar__subgroup-divider" />
-        {/* 子分组3：系统 */}
-        <SidebarNavItem
-          icon={<SettingsIcon size={15} />}
-          label={t("topbar.settings")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={onOpenSettings}
-        />
-      </SidebarSection>
+        {/* ── 管理 (Management) ── */}
+        <SidebarSection title={t("sidebar.management")} storageKey="management">
+          <SidebarNavItem
+            icon={<Clock size={15} />}
+            label={t("sidebar.scheduledTasks")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => onNavigate("scheduled")}
+            active={activePage === "scheduled"}
+          />
+          <SidebarNavItem
+            icon={<SquareTerminal size={15} />}
+            label={t("sidebar.terminal")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => onNavigate("terminal")}
+            active={activePage === "terminal"}
+          />
+          <SidebarNavItem
+            icon={<Workflow size={15} />}
+            label={t("sidebar.trace")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => onNavigate("trace")}
+            active={activePage === "trace"}
+          />
+          <SidebarNavItem
+            icon={<GitBranch size={15} />}
+            label={t("sidebar.workflow")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => onNavigate("workflow")}
+            active={activePage === "workflow"}
+          />
+          <SidebarNavItem
+            icon={<BookOpen size={15} />}
+            label={t("sidebar.repoWiki")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={onOpenRepoWiki}
+          />
+        </SidebarSection>
+      </div>
+
+      {/* ── Bottom: 配置 (Config) — fixed ── */}
+      <div className="sidebar__bottom">
+        <SidebarSection title={t("sidebar.config")} storageKey="config">
+          <SidebarNavItem
+            icon={<Brain size={15} />}
+            label={t("sidebar.memory")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => onNavigate("memory")}
+          />
+          <SidebarNavItem
+            icon={<History size={15} />}
+            label={t("sidebar.allHistory")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => void onOpenAllHistory()}
+          />
+          <SidebarNavItem
+            icon={<Trash2 size={15} />}
+            label={t("sidebar.trash")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => void onOpenTrash()}
+          />
+          <SidebarNavItem
+            icon={<FileText size={15} />}
+            label={t("sidebar.templates")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={onOpenTemplates}
+          />
+          <div className="sidebar__subgroup-divider" />
+          <SidebarNavItem
+            icon={<SettingsIcon size={15} />}
+            label={t("topbar.settings")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={onOpenSettings}
+          />
+        </SidebarSection>
+      </div>
     </aside>
   );
 }

@@ -247,12 +247,24 @@ func (s *tabEventSink) maybeTriggerEventRecipes(e event.Event) {
 
 	triggered, err := s.app.TriggerEventRecipes(eventType, context)
 	if err != nil || len(triggered) == 0 {
-		return
+		// No recipes matched — fall through to workflows, which may still match.
+		triggered = nil
 	}
 	// Send system notification for each triggered recipe.
 	for _, name := range triggered {
 		if s.app.tray != nil {
 			s.app.tray.Notify("事件触发 Recipe", "Recipe \""+name+"\" 已自动执行")
+		}
+	}
+
+	// Also fire matching event-triggered workflows (Recipe→Workflow migration
+	// path: a workflow with Trigger=event and matching EventType/MatchRules).
+	wfTriggered, wfErr := s.app.TriggerEventWorkflows(eventType, context)
+	if wfErr == nil {
+		for _, name := range wfTriggered {
+			if s.app.tray != nil {
+				s.app.tray.Notify("事件触发 Workflow", "Workflow \""+name+"\" 已自动执行")
+			}
 		}
 	}
 }

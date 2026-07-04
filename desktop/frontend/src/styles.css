@@ -717,6 +717,48 @@ a[href] {
   background: var(--border-soft, var(--border));
 }
 
+/* ── Sidebar layout: fixed top + scrollable middle + fixed bottom ── */
+.sidebar__topnav {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 4px;
+}
+.sidebar__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 2px;
+  /* Thin scrollbar styled to match the sidebar chrome */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.sidebar__scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar__scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar__scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.sidebar__scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-faint);
+}
+.sidebar__bottom {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 6px;
+  margin-top: 4px;
+  background: var(--sidebar-bg);
+}
+
 /* ── Office Panel (sidebar) ─────────────────────────────────── */
 .office-panel {
   display: flex;
@@ -799,6 +841,7 @@ a[href] {
   gap: 0;
   padding: 6px 2px;
   font-size: var(--text-sm);
+  overflow-y: auto;
 }
 .calendar-panel__header {
   display: flex;
@@ -12219,12 +12262,89 @@ a[href] {
 
 .workbench-dock__body > .context-panel,
 .workbench-dock__body > .preview-panel,
-.workbench-dock__body > .workspace-panel {
+.workbench-dock__body > .workspace-panel,
+.workbench-dock__body > .calendar-panel,
+.workbench-dock__body > .daily-brief {
   height: 100%;
 }
 
 .workbench-dock__body > .workspace-panel {
   border-left: none;
+}
+
+.workbench-dock__term-toggle {
+  --wails-draggable: no-drag;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  margin-left: auto;
+  transition: background 0.12s, color 0.12s;
+}
+
+.workbench-dock__term-toggle:hover {
+  background: var(--button-bg);
+  color: var(--fg);
+}
+
+.workbench-dock__term-toggle.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.workbench-dock__term-resizer {
+  --wails-draggable: no-drag;
+  flex: 0 0 auto;
+  height: 5px;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+  z-index: var(--z-local-raised);
+}
+
+.workbench-dock__term-resizer::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-soft);
+  transition: background 0.12s;
+}
+
+.workbench-dock__term-resizer:hover::after {
+  background: var(--accent);
+}
+
+.workbench-dock__terminal {
+  --wails-draggable: no-drag;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border-soft);
+  overflow: hidden;
+}
+
+.workbench-dock__terminal .terminal-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.workbench-dock__terminal .terminal-panel__term {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .layout--workspace-maximized .context-inspector,
@@ -13719,6 +13839,7 @@ a[href] {
   display: flex;
   flex-direction: column;
   height: 100%;
+  flex: 1;
   min-height: 0;
   background: var(--bg);
 }
@@ -13747,6 +13868,26 @@ a[href] {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.agent-canvas__close {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-faint);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.agent-canvas__close:hover {
+  background: var(--bg-soft);
+  color: var(--fg);
+  border-color: var(--border-strong, var(--border));
 }
 .agent-stat {
   display: inline-flex;
@@ -14256,9 +14397,88 @@ a[href] {
 /* ── Workflow Editor ──────────────────────────────────────── */
 .wf-editor {
   display: flex;
+  flex-direction: column;
   height: 100%;
   min-height: 0;
   background: var(--bg, #0d1117);
+}
+
+/* When hosted in the modal overlay, the editor fills the dialog. */
+.wf-editor__body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* ── Modal overlay ────────────────────────────────────────── */
+/* The workflow editor opens as a centred overlay so the active conversation
+   stays mounted underneath. Clicking the backdrop does NOT close the modal
+   (avoids losing unsaved graph edits) — only the ✕ button closes it. */
+.wf-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: rgba(1, 4, 9, 0.65);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  animation: wf-overlay-in 0.15s ease-out;
+}
+@keyframes wf-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.wf-modal-overlay__dialog {
+  width: min(1280px, 100%);
+  height: min(820px, 100%);
+  background: var(--bg, #0d1117);
+  border: 1px solid var(--border, #30363d);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: wf-dialog-in 0.18s ease-out;
+}
+@keyframes wf-dialog-in {
+  from { transform: translateY(8px) scale(0.99); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+.wf-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border, #21262d);
+  background: var(--panel-bg, #161b22);
+  flex-shrink: 0;
+}
+.wf-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #e6edf3);
+}
+.wf-modal__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.wf-modal__close:hover {
+  background: var(--hover-bg, rgba(177, 186, 196, 0.12));
+  color: var(--text, #e6edf3);
 }
 
 /* ── Sidebar ──────────────────────────────────────────────── */
@@ -14429,6 +14649,53 @@ a[href] {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+}
+
+/* ── Node detail: approval checkbox ──────────────────────── */
+.wf-detail__field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+.wf-detail__field--check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent, #2f81f7);
+}
+.wf-detail__field--check .wf-detail__k {
+  font-weight: 400;
+  color: var(--fg, #c9d1d9);
+}
+
+/* ── Trigger bar (workflow-level activation config) ──────── */
+.wf-trigger-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-elev, #161b22);
+  border-bottom: 1px solid var(--border, #30363d);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.wf-trigger-bar__label {
+  color: var(--fg-faint, #8b949e);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wf-trigger-bar__select {
+  min-width: 180px;
+}
+.wf-trigger-bar__input {
+  flex: 1;
+  min-width: 220px;
+}
+.wf-trigger-bar__rules {
+  flex: 1 1 100%;
+  min-height: 28px;
+  resize: vertical;
 }
 
 /* ── Error bar ────────────────────────────────────────────── */

@@ -2,10 +2,49 @@ import { useCallback, useEffect, useState } from "react";
 import { Clock, Pause, Pencil, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useT } from "../lib/i18n";
 import { app } from "../lib/bridge";
-import type { RecipeView, ScheduledTaskView } from "../lib/types";
+import type { RecipeView, ScheduledTaskView, WorkspaceView } from "../lib/types";
+import { ResizableDrawer } from "./ResizableDrawer";
+import { Tooltip } from "./Tooltip";
+
+// Reserved keys stored inside the parameters JSON to hold workspace and prompt
+// without requiring schema changes to the backend datastore model.
+const PK_WORKSPACE = "_workspace";
+const PK_PROMPT = "_prompt";
+
+/** Extract the reserved workspace/prompt keys from a parameters JSON string. */
+function splitReservedParams(parameters: string): { workspace: string; prompt: string; rest: string } {
+  let obj: Record<string, unknown> = {};
+  try {
+    obj = parameters ? JSON.parse(parameters) : {};
+  } catch {
+    obj = {};
+  }
+  const workspace = typeof obj[PK_WORKSPACE] === "string" ? (obj[PK_WORKSPACE] as string) : "";
+  const prompt = typeof obj[PK_PROMPT] === "string" ? (obj[PK_PROMPT] as string) : "";
+  const restObj: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k !== PK_WORKSPACE && k !== PK_PROMPT) restObj[k] = v;
+  }
+  return { workspace, prompt, rest: JSON.stringify(restObj) };
+}
+
+/** Merge workspace/prompt back into a parameters JSON string. */
+function mergeReservedParams(rest: string, workspace: string, prompt: string): string {
+  let obj: Record<string, unknown> = {};
+  try {
+    obj = rest ? JSON.parse(rest) : {};
+  } catch {
+    obj = {};
+  }
+  if (workspace) obj[PK_WORKSPACE] = workspace;
+  else delete obj[PK_WORKSPACE];
+  if (prompt) obj[PK_PROMPT] = prompt;
+  else delete obj[PK_PROMPT];
+  return JSON.stringify(obj);
+}
 
 interface SchedulerPanelProps {
-  tabId?: string;
+  onClose: () => void;
 }
 
 // Cron human-readable descriptions for common patterns.
@@ -47,13 +86,15 @@ interface FormData {
   name: string;
   cron: string;
   skill: string;
+  workspace: string;
+  prompt: string;
   parameters: string;
   enabled: boolean;
 }
 
-const EMPTY_FORM: FormData = { name: "", cron: "0 * * * *", skill: "", parameters: "{}", enabled: true };
+const EMPTY_FORM: FormData = { name: "", cron: "0 * * * *", skill: "", workspace: "", prompt: "", parameters: "{}", enabled: true };
 
-export function SchedulerPanel(_props: SchedulerPanelProps) {
+export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
   const t = useT();
   const [tasks, setTasks] = useState<ScheduledTaskView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +103,7 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
   const [form, setForm] = useState<FormData>({ ...EMPTY_FORM });
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [recipes, setRecipes] = useState<RecipeView[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -82,10 +124,20 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
     }
   }, []);
 
+  const refreshWorkspaces = useCallback(async () => {
+    try {
+      const list = await app.ListWorkspaces();
+      setWorkspaces(list);
+    } catch {
+      // Workspaces are optional; ignore errors
+    }
+  }, []);
+
   useEffect(() => {
     refresh();
     refreshRecipes();
-  }, [refresh, refreshRecipes]);
+    refreshWorkspaces();
+  }, [refresh, refreshRecipes, refreshWorkspaces]);
 
   // Open the form for a new task.
   const handleAdd = () => {
@@ -97,11 +149,14 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
   // Open the form for editing an existing task.
   const handleEdit = (task: ScheduledTaskView) => {
     setEditing(task.id);
+    const { workspace, prompt, rest } = splitReservedParams(task.parameters);
     setForm({
       name: task.name,
       cron: task.cron,
       skill: task.skill,
-      parameters: task.parameters,
+      workspace,
+      prompt,
+      parameters: rest,
       enabled: task.enabled,
     });
     setShowForm(true);
@@ -110,10 +165,11 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
   // Submit the form (create or update).
   const handleSubmit = async () => {
     if (!form.name.trim() || !form.cron.trim() || !form.skill.trim()) return;
+    const mergedParams = mergeReservedParams(form.parameters, form.workspace.trim(), form.prompt.trim());
     if (editing) {
-      await app.UpdateScheduledTask(editing, form.name, form.cron, form.skill, form.parameters, form.enabled);
+      await app.UpdateScheduledTask(editing, form.name, form.cron, form.skill, mergedParams, form.enabled);
     } else {
-      await app.CreateScheduledTask(form.name, form.cron, form.skill, form.parameters);
+      await app.CreateScheduledTask(form.name, form.cron, form.skill, mergedParams);
     }
     setShowForm(false);
     setEditing(null);
@@ -140,24 +196,30 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
   };
 
   return (
-    <div className="scheduler-panel">
-      {/* Header */}
-      <div className="scheduler-panel__header">
-        <div className="scheduler-panel__title-row">
-          <Clock size={15} className="scheduler-panel__icon" />
-          <span className="scheduler-panel__title">{t("scheduler.title")}</span>
+    <ResizableDrawer onClose={onClose} subtle>
+      <header className="drawer__head">
+        <div>
+          <div className="drawer__title">{t("scheduler.title")}</div>
         </div>
-        <div className="scheduler-panel__actions">
-          <button className="scheduler-panel__btn scheduler-panel__btn--icon" onClick={refresh} title={t("scheduler.refresh")}>
-            <RefreshCw size={14} />
-          </button>
-          <button className="scheduler-panel__btn scheduler-panel__btn--primary" onClick={handleAdd}>
-            <Plus size={14} />
-            {t("scheduler.addTask")}
-          </button>
+        <div className="drawer__head-actions">
+          <Tooltip label={t("scheduler.refresh")}>
+            <button className="chip chip--icon" onClick={() => void refresh()} disabled={loading} aria-label={t("scheduler.refresh")}>
+              <RefreshCw size={14} className={loading ? "spin" : ""} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t("scheduler.addTask")}>
+            <button className="chip chip--icon chip--primary" onClick={handleAdd} aria-label={t("scheduler.addTask")}>
+              <Plus size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t("common.close")}>
+            <button className="chip" onClick={onClose}>✕</button>
+          </Tooltip>
         </div>
-      </div>
+      </header>
 
+      <div className="drawer__body">
+        <div className="scheduler-panel">
       {/* Task list */}
       <div className="scheduler-panel__list">
         {loading && tasks.length === 0 && (
@@ -296,6 +358,33 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
             </label>
 
             <label className="scheduler-panel__label">
+              {t("scheduler.workspace")}
+              <select
+                className="scheduler-panel__input"
+                value={form.workspace}
+                onChange={(e) => setForm((f) => ({ ...f, workspace: e.target.value }))}
+              >
+                <option value="">{t("scheduler.workspaceDefault")}</option>
+                {workspaces.map((w) => (
+                  <option key={w.path} value={w.path}>
+                    {w.name} — {w.path}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="scheduler-panel__label">
+              {t("scheduler.prompt")}
+              <textarea
+                className="scheduler-panel__textarea"
+                value={form.prompt}
+                onChange={(e) => setForm((f) => ({ ...f, prompt: e.target.value }))}
+                placeholder={t("scheduler.promptPlaceholder")}
+                rows={3}
+              />
+            </label>
+
+            <label className="scheduler-panel__label">
               {t("scheduler.parameters")}
               <textarea
                 className="scheduler-panel__textarea"
@@ -332,6 +421,8 @@ export function SchedulerPanel(_props: SchedulerPanelProps) {
           </div>
         </div>
       )}
-    </div>
+        </div>
+      </div>
+    </ResizableDrawer>
   );
 }

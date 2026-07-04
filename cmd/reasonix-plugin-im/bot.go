@@ -150,22 +150,28 @@ func runStartBot(port int, platforms []string, token string) (any, error) {
 		Handler: mux,
 	}
 
-	// Listen on the specified port
+	// Listen on the specified port (0 = auto-assign)
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, fmt.Errorf("listen on port %d: %w", port, err)
 	}
 
+	// Resolve actual bound port (handles port=0 auto-assignment)
+	actualPort := port
+	if tcpAddr, ok := ln.Addr().(*net.TCPAddr); ok {
+		actualPort = tcpAddr.Port
+	}
+
 	runningBot = &botServer{
 		server:    srv,
-		port:      port,
+		port:      actualPort,
 		token:     token,
 		platforms: platforms,
 	}
 
 	// Start serving in a goroutine
 	go func() {
-		log.Printf("bot server listening on :%d, platforms: %v", port, platforms)
+		log.Printf("bot server listening on :%d, platforms: %v", actualPort, platforms)
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("bot server error: %v", err)
 		}
@@ -174,7 +180,7 @@ func runStartBot(port int, platforms []string, token string) (any, error) {
 		botMu.Unlock()
 	}()
 
-	return fmt.Sprintf("IM bot started on port %d, platforms: %v", port, platforms), nil
+	return fmt.Sprintf("IM bot started on port %d, platforms: %v", actualPort, platforms), nil
 }
 
 // runStopBot stops the local HTTP bot server.
@@ -217,27 +223,45 @@ func runMarkCommandDone(commandID, result string) (any, error) {
 	}
 
 	// Push result back to the originating platform
-	if cmd.WebhookURL != "" {
-		if err := pushResult(cmd.Platform, cmd.WebhookURL, result); err != nil {
-			return nil, fmt.Errorf("command marked done but failed to push result: %w", err)
-		}
-		return fmt.Sprintf("command %s marked done, result pushed to %s", commandID, cmd.Platform), nil
+	if err := pushResult(cmd, result); err != nil {
+		return nil, fmt.Errorf("command marked done but failed to push result: %w", err)
 	}
-
-	return fmt.Sprintf("command %s marked done (no webhook URL to push result)", commandID), nil
+	return fmt.Sprintf("command %s marked done, result pushed to %s", commandID, cmd.Platform), nil
 }
 
 // pushResult sends the execution result back to the originating IM platform.
-func pushResult(platform, webhookURL, result string) error {
-	switch platform {
+// For webhook mode: posts to the group robot webhook URL (cmd.WebhookURL).
+// For stream mode: uses SessionWebhook (DingTalk) or REST API reply (Feishu).
+func pushResult(cmd *pendingCommand, result string) error {
+	replyMode := ""
+	if cmd.Extra != nil {
+		replyMode = cmd.Extra["reply_mode"]
+	}
+	switch cmd.Platform {
 	case "wecom":
-		return sendWeComMessage(webhookURL, result, "text")
+		if cmd.WebhookURL == "" {
+			return fmt.Errorf("no webhook URL for WeCom")
+		}
+		return sendWeComMessage(cmd.WebhookURL, result, "text")
 	case "feishu":
-		return sendFeishuMessage(webhookURL, result, "text")
+		if replyMode == "stream" {
+			return replyFeishuStream(cmd.Extra["message_id"], result)
+		}
+		if cmd.WebhookURL == "" {
+			return fmt.Errorf("no webhook URL for Feishu")
+		}
+		return sendFeishuMessage(cmd.WebhookURL, result, "text")
 	case "dingtalk":
-		return sendDingTalkMessage(webhookURL, result, "text")
+		if replyMode == "stream" {
+			// SessionWebhook URL is stored in cmd.WebhookURL
+			return sendDingTalkSessionMessage(cmd.WebhookURL, result, "text")
+		}
+		if cmd.WebhookURL == "" {
+			return fmt.Errorf("no webhook URL for DingTalk")
+		}
+		return sendDingTalkMessage(cmd.WebhookURL, result, "text")
 	default:
-		return fmt.Errorf("unsupported platform: %s", platform)
+		return fmt.Errorf("unsupported platform: %s", cmd.Platform)
 	}
 }
 

@@ -1,4 +1,4 @@
-import { FileText, ClipboardList, FileSignature, Table, BarChart3, BookOpen, Palette } from "lucide-react";
+import { FileText, ClipboardList, FileSignature, Table, BarChart3, Palette } from "lucide-react";
 import { useT } from "../lib/i18n";
 
 // Office capability card definition — compact sidebar variant.
@@ -15,26 +15,19 @@ const CARDS: OfficeCard[] = [
   { key: "contractDraft",  icon: <FileSignature size={15} />, color: "purple" },
   { key: "sheetClean",     icon: <Table size={15} />,          color: "orange" },
   { key: "sheetAnalysis",  icon: <BarChart3 size={15} />,      color: "teal"   },
-  { key: "templates",      icon: <BookOpen size={15} />,       color: "pink"   },
 ];
 
 // OfficePanel renders a compact list of office-capability cards inside the
 // sidebar. Each item uses the same visual language as sidebar__navitem so it
-// feels native. Only visible when workspaceType === "office".
+// feels native.
 export function OfficePanel({
   onActivateSkill,
-  onOpenTemplates,
 }: {
   onActivateSkill: (skillName: string) => void;
-  onOpenTemplates: () => void;
 }) {
   const t = useT();
 
   const handleClick = (card: OfficeCard) => {
-    if (card.key === "templates") {
-      onOpenTemplates();
-      return;
-    }
     const skillNames: Record<string, string> = {
       productDesign: "product-design",
       weeklyReport: "weekly-report",

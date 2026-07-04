@@ -529,6 +529,18 @@ func lastAssistantText(msgs []provider.Message) string {
 	return ""
 }
 
+// LastAssistantText returns the content of the most recent assistant message
+// in the session history (skipping tool-call-only turns). It is the exported
+// counterpart of lastAssistantText, exposed so the workflow runtime can capture
+// each node's output (the model's reply to that node's prompt) and pass it to
+// downstream nodes via ${nodeId.output} references.
+//
+// Returns "" when there is no assistant message yet (e.g. the node's turn
+// produced only tool calls, or the turn was aborted).
+func (c *Controller) LastAssistantText() string {
+	return lastAssistantText(c.History())
+}
+
 // maybeAutoLearn scans the user message for preference declarations if enabled.
 // When AutoLearnConfirm is true, it emits an AutoLearn event for user approval.
 func (c *Controller) maybeAutoLearn(userMessage string) {
@@ -863,6 +875,59 @@ func (c *Controller) runRefTurn(input, display string) {
 // notice emits an informational Notice event.
 func (c *Controller) notice(text string) {
 	c.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: text})
+}
+
+// Notice emits an informational Notice event to the session's event stream.
+// It is the exported counterpart of notice, exposed so external orchestrators
+// (e.g. the workflow runtime in desktop/app.go) can surface step-level status
+// messages — "model switch failed", "skipped unsupported node", "workflow
+// completed" — in the same transcript the user is already watching.
+func (c *Controller) Notice(text string) {
+	c.notice(text)
+}
+
+// EmitWorkflowStep emits a StepProgress event for a workflow node so the
+// AgentCanvas graph picks it up as a step node. The id is namespaced with
+// "wf-" to avoid collisions with plan-mode steps (which use "step-" + hash).
+// status is one of "pending" | "in_progress" | "completed".
+//
+// This is the P3 projection layer: as the workflow runtime executes each node,
+// it calls EmitWorkflowStep before/after the turn, and the AgentCanvas renders
+// the node alongside (or instead of) the plan-mode step chain.
+func (c *Controller) EmitWorkflowStep(nodeID, label, status string) {
+	if c.sink == nil {
+		return
+	}
+	id := nodeID
+	if !strings.HasPrefix(id, "wf-") {
+		id = "wf-" + id
+	}
+	c.sink.Emit(event.Event{
+		Kind: event.StepProgress,
+		Step: &event.Step{
+			ID:        id,
+			Label:     label,
+			Status:    status,
+			TurnIndex: c.Turn(),
+		},
+	})
+}
+
+// RequestApproval asks the user to approve an operation before it runs. It is
+// the exported counterpart of requestApproval, exposed so the workflow runtime
+// can gate side-effecting nodes (skill/tool nodes flagged RequireApproval)
+// behind the same ApprovalModal the agent uses for tool calls.
+//
+// tool is a short category label shown in the modal (e.g. "workflow_skill"),
+// subject is a human-readable description of what the node will do. Returns
+// (allowed, err): when allowed is false the caller skips the node.
+//
+// Session grants and bypass/autoApprove flags apply, so a YOLO session or a
+// previously-granted "workflow_skill" approval skips subsequent prompts — the
+// same behaviour as agent tool approvals.
+func (c *Controller) RequestApproval(ctx context.Context, tool, subject string) (bool, error) {
+	allowed, _, err := c.requestApproval(ctx, tool, subject)
+	return allowed, err
 }
 
 // Run executes a turn synchronously, returning the agent's error. Used by the

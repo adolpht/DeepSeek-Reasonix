@@ -23,6 +23,8 @@ import {
   useNodesState,
   useEdgesState,
   ReactFlowProvider,
+  type OnNodesChange,
+  type OnEdgesChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
@@ -38,7 +40,10 @@ import {
   Layers,
   ChevronRight,
   FolderOpen,
+  ArrowRightLeft,
 } from "lucide-react";
+import { useT, type DictKey } from "../lib/i18n";
+import { X } from "lucide-react";
 // ── Types ────────────────────────────────────────────────────
 
 interface WorkflowNodeView {
@@ -48,9 +53,24 @@ interface WorkflowNodeView {
   config: string;
   model?: string;
   effort?: string;
+  requireApproval?: boolean;
   positionX: number;
   positionY: number;
 }
+
+// WorkflowEditorNodeData is the data payload carried by a react-flow node.
+// Mirrors WorkflowNodeView minus the id/position (those live on the Node
+// wrapper). requireApproval is included so the detail panel's checkbox
+// round-trips through the canvas state.
+type WorkflowEditorNodeData = {
+  label: string;
+  kind: string;
+  config: string;
+  model?: string;
+  effort?: string;
+  requireApproval?: boolean;
+  [key: string]: unknown;
+};
 
 interface WorkflowEdgeView {
   id: string;
@@ -59,36 +79,66 @@ interface WorkflowEdgeView {
   label?: string;
 }
 
+type WorkflowTrigger = "manual" | "cron" | "event";
+
 interface WorkflowView {
   name: string;
   description: string;
   nodes: WorkflowNodeView[];
   edges: WorkflowEdgeView[];
+  trigger?: WorkflowTrigger;
+  cronExpr?: string;
+  eventType?: string;
+  matchRules?: Record<string, string>;
+  version?: number;
+  allowedSkills?: string[];
   createdAt: number;
   updatedAt: number;
 }
 
-// Node data type following the @xyflow/react v12 Node<T, U> pattern.
-type WorkflowEditorNodeData = {
-  label: string;
-  kind: string;
-  config: string;
-  model?: string;
-  effort?: string;
-  [key: string]: unknown;
-};
+// SkillInfo mirrors desktop SkillView (the subset we need for the picker).
+interface SkillInfo {
+  name: string;
+  description: string;
+  scope: string;
+  runAs: string;
+  enabled: boolean;
+}
+
+// ModelOption mirrors desktop ModelInfo.
+interface ModelOption {
+  ref: string;
+  provider: string;
+  model: string;
+  current: boolean;
+}
+
+// CapabilitiesView is the subset of App.Capabilities() we use (skills list).
+interface CapabilitiesView {
+  skills: SkillInfo[];
+}
+
+// RecipeView mirrors desktop RecipeView for the migration flow.
+interface RecipeView {
+  name: string;
+  description: string;
+  skill: string;
+  params: string;
+  trigger: string;
+}
+
 type WorkflowEditorNodeType = Node<WorkflowEditorNodeData, "wfNode">;
 
 // ── Kind metadata ────────────────────────────────────────────
 
 type NodeKind = "skill" | "prompt" | "tool" | "condition" | "parallel";
 
-const KIND_META: Record<NodeKind, { icon: typeof Sparkles; color: string; label: string }> = {
-  skill: { icon: Sparkles, color: "#bc8cff", label: "Skill" },
-  prompt: { icon: MessageSquare, color: "#58a6ff", label: "Prompt" },
-  tool: { icon: Wrench, color: "#3fb950", label: "Tool" },
-  condition: { icon: GitBranch, color: "#d9a441", label: "Condition" },
-  parallel: { icon: Layers, color: "#f78166", label: "Parallel" },
+const KIND_META: Record<NodeKind, { icon: typeof Sparkles; color: string; label: string; labelKey: DictKey }> = {
+  skill: { icon: Sparkles, color: "#bc8cff", label: "Skill", labelKey: "wf.kind.skill" },
+  prompt: { icon: MessageSquare, color: "#58a6ff", label: "Prompt", labelKey: "wf.kind.prompt" },
+  tool: { icon: Wrench, color: "#3fb950", label: "Tool", labelKey: "wf.kind.tool" },
+  condition: { icon: GitBranch, color: "#d9a441", label: "Condition", labelKey: "wf.kind.condition" },
+  parallel: { icon: Layers, color: "#f78166", label: "Parallel", labelKey: "wf.kind.parallel" },
 };
 
 // ── Wails bindings ───────────────────────────────────────────
@@ -111,6 +161,24 @@ const wails = {
   async runWorkflow(name: string, input?: string): Promise<void> {
     await (window as any).go.main.App.RunWorkflow(name, input ?? "");
   },
+  async capabilities(): Promise<CapabilitiesView> {
+    const result = await (window as any).go.main.App.Capabilities();
+    return result ?? { skills: [] };
+  },
+  async models(): Promise<ModelOption[]> {
+    const result = await (window as any).go.main.App.Models();
+    return result ?? [];
+  },
+  async listRecipes(): Promise<RecipeView[]> {
+    const result = await (window as any).go.main.App.ListRecipes();
+    return result ?? [];
+  },
+  async migrateRecipeToWorkflow(name: string): Promise<void> {
+    await (window as any).go.main.App.MigrateRecipeToWorkflow(name);
+  },
+  async reloadWorkflowTriggers(): Promise<void> {
+    await (window as any).go.main.App.ReloadWorkflowTriggers();
+  },
 };
 
 // ── Converters ───────────────────────────────────────────────
@@ -126,6 +194,7 @@ function viewToNodes(views: WorkflowNodeView[]): WorkflowEditorNodeType[] {
       config: v.config,
       model: v.model,
       effort: v.effort,
+      requireApproval: v.requireApproval ?? false,
     },
   }));
 }
@@ -147,8 +216,14 @@ function nodesToView(nodes: WorkflowEditorNodeType[]): WorkflowNodeView[] {
     config: (n.data.config as string) ?? "",
     model: n.data.model as string | undefined,
     effort: n.data.effort as string | undefined,
-    positionX: n.position.x,
-    positionY: n.position.y,
+    requireApproval: (n.data.requireApproval as boolean) ?? false,
+    // Round to int — Go's WorkflowNodeView.PositionX/Y are int fields, and
+    // encoding/json refuses to unmarshal a fractional number into an int
+    // (errors with "cannot unmarshal number 234.567 into Go struct field
+    // of type int"). ReactFlow positions are floats; rounding loses at
+    // most half a pixel, which is imperceptible on the canvas.
+    positionX: Math.round(n.position.x),
+    positionY: Math.round(n.position.y),
   }));
 }
 
@@ -164,6 +239,7 @@ function edgesToView(edges: Edge[]): WorkflowEdgeView[] {
 // ── Custom node component ────────────────────────────────────
 
 const WfNode = memo(function WfNode({ data, selected }: NodeProps<WorkflowEditorNodeType>) {
+  const t = useT();
   const kind = (data.kind as NodeKind) ?? "prompt";
   const meta = KIND_META[kind] ?? KIND_META.prompt;
   const Icon = meta.icon;
@@ -177,9 +253,9 @@ const WfNode = memo(function WfNode({ data, selected }: NodeProps<WorkflowEditor
         <span className="wf-node__icon" style={{ color: meta.color }}>
           <Icon size={14} />
         </span>
-        <span className="wf-node__label">{data.label || meta.label}</span>
+        <span className="wf-node__label">{data.label || t(meta.labelKey)}</span>
       </div>
-      <div className="wf-node__kind">{meta.label}</div>
+      <div className="wf-node__kind">{t(meta.labelKey)}</div>
       <Handle type="source" position={Position.Bottom} className="wf-node__handle" />
     </div>
   );
@@ -200,22 +276,84 @@ function nextId(): string {
   return `n_${Date.now()}_${++idCounter}`;
 }
 
+// parseSkillConfig extracts {name, arguments} from a skill node's config.
+// Accepts JSON ({"name":"x","arguments":"y"}) or plain text ("x arg1 arg2"
+// or "/x arg1 arg2"); the first token is the skill name, the rest is args.
+function parseSkillConfig(config: string): { name: string; arguments: string } {
+  if (!config) return { name: "", arguments: "" };
+  try {
+    const p = JSON.parse(config);
+    if (p && typeof p.name === "string") {
+      return { name: p.name, arguments: typeof p.arguments === "string" ? p.arguments : "" };
+    }
+  } catch {
+    // not JSON — fall through to plain-text parsing
+  }
+  const trimmed = config.trim().replace(/^\//, "");
+  const spaceIdx = trimmed.indexOf(" ");
+  if (spaceIdx < 0) return { name: trimmed, arguments: "" };
+  return { name: trimmed.slice(0, spaceIdx), arguments: trimmed.slice(spaceIdx + 1) };
+}
+
+// buildSkillConfig composes a skill node's config JSON from name + arguments.
+// Empty name + empty arguments yields an empty string (so the node shows as
+// "unconfigured" rather than "{}").
+function buildSkillConfig(name: string, args: string): string {
+  const trimmedName = name.trim();
+  const trimmedArgs = args.trim();
+  if (!trimmedName && !trimmedArgs) return "";
+  if (!trimmedArgs) return JSON.stringify({ name: trimmedName });
+  return JSON.stringify({ name: trimmedName, arguments: trimmedArgs });
+}
+
+// matchRulesToText serializes a match-rules map to the "key=value\n" form used
+// by the trigger bar's textarea. Keys/values containing "=" are preserved as-is
+// (split on the first "=" only when parsing back).
+function matchRulesToText(rules?: Record<string, string>): string {
+  if (!rules) return "";
+  return Object.entries(rules)
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+}
+
+// matchRulesFromText parses the textarea's "key=value\n…" text back into a
+// map. Blank lines and lines without "=" are ignored. Returns undefined when
+// the map is empty so the saved JSON omits the field (matches Recipe shape).
+function matchRulesFromText(text: string): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq < 0) continue;
+    const k = trimmed.slice(0, eq).trim();
+    const v = trimmed.slice(eq + 1).trim();
+    if (k) out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 // ── Node detail panel ────────────────────────────────────────
 
 function NodeDetailPanel({
   node,
   onUpdate,
   onClose,
+  skills,
+  models,
 }: {
   node: WorkflowEditorNodeType;
   onUpdate: (id: string, data: Partial<WorkflowEditorNodeData>) => void;
   onClose: () => void;
+  skills: SkillInfo[];
+  models: ModelOption[];
 }) {
+  const t = useT();
   const kind = (node.data.kind as NodeKind) ?? "prompt";
   const meta = KIND_META[kind] ?? KIND_META.prompt;
   const Icon = meta.icon;
 
-  const handleChange = (field: string, value: string) => {
+  const handleChange = (field: string, value: unknown) => {
     onUpdate(node.id, { [field]: value });
   };
 
@@ -224,13 +362,13 @@ function NodeDetailPanel({
       <header className="wf-detail__head">
         <div className="wf-detail__title">
           <Icon size={14} style={{ color: meta.color }} />
-          <span>{node.data.label || meta.label}</span>
+          <span>{node.data.label || t(meta.labelKey)}</span>
         </div>
         <button className="wf-detail__close" onClick={onClose}>✕</button>
       </header>
       <div className="wf-detail__body">
         <label className="wf-detail__field">
-          <span className="wf-detail__k">Label</span>
+          <span className="wf-detail__k">{t("wf.label")}</span>
           <input
             className="wf-detail__input"
             value={node.data.label as string}
@@ -239,52 +377,116 @@ function NodeDetailPanel({
         </label>
 
         <label className="wf-detail__field">
-          <span className="wf-detail__k">Kind</span>
+          <span className="wf-detail__k">{t("wf.kindLabel")}</span>
           <select
             className="wf-detail__select"
             value={node.data.kind as string}
             onChange={(e) => handleChange("kind", e.target.value)}
           >
             {Object.entries(KIND_META).map(([k, m]) => (
-              <option key={k} value={k}>{m.label}</option>
+              <option key={k} value={k}>{t(m.labelKey)}</option>
+            ))}
+          </select>
+        </label>
+
+        {kind === "skill" ? (
+          <>
+            <label className="wf-detail__field">
+              <span className="wf-detail__k">{t("wf.skill")}</span>
+              <select
+                className="wf-detail__select"
+                value={parseSkillConfig((node.data.config as string) ?? "").name}
+                onChange={(e) => {
+                  const prev = parseSkillConfig((node.data.config as string) ?? "");
+                  handleChange("config", buildSkillConfig(e.target.value, prev.arguments));
+                  // Auto-fill label if the user hasn't customized it.
+                  const currentLabel = (node.data.label as string) ?? "";
+                  if (!currentLabel || currentLabel === KIND_META.skill.label || prev.name === currentLabel) {
+                    handleChange("label", e.target.value);
+                  }
+                }}
+              >
+                <option value="">{t("wf.selectSkill")}</option>
+                {skills.map((s) => (
+                  <option key={s.name} value={s.name}>
+                    {s.name}{s.runAs === "subagent" ? " [subagent]" : ""}{s.enabled === false ? " (disabled)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="wf-detail__field">
+              <span className="wf-detail__k">{t("wf.arguments")}</span>
+              <textarea
+                className="wf-detail__textarea"
+                value={parseSkillConfig((node.data.config as string) ?? "").arguments}
+                onChange={(e) => {
+                  const prev = parseSkillConfig((node.data.config as string) ?? "");
+                  handleChange("config", buildSkillConfig(prev.name, e.target.value));
+                }}
+                rows={3}
+                placeholder={t("wf.argumentsPlaceholder")}
+              />
+            </label>
+          </>
+        ) : (
+          <label className="wf-detail__field">
+            <span className="wf-detail__k">{t("wf.config")}</span>
+            <textarea
+              className="wf-detail__textarea"
+              value={node.data.config as string}
+              onChange={(e) => handleChange("config", e.target.value)}
+              rows={4}
+              placeholder={
+                kind === "prompt"
+                  ? t("wf.configPrompt")
+                  : kind === "tool"
+                    ? t("wf.configTool")
+                    : t("wf.configDefault")
+              }
+            />
+          </label>
+        )}
+
+        <label className="wf-detail__field">
+          <span className="wf-detail__k">{t("wf.model")}</span>
+          <select
+            className="wf-detail__select"
+            value={(node.data.model as string) ?? ""}
+            onChange={(e) => handleChange("model", e.target.value)}
+          >
+            <option value="">{t("wf.modelInherit")}</option>
+            {models.map((m) => (
+              <option key={m.ref} value={m.ref}>
+                {m.ref}{m.current ? ` ${t("wf.modelActive")}` : ""}
+              </option>
             ))}
           </select>
         </label>
 
         <label className="wf-detail__field">
-          <span className="wf-detail__k">Config</span>
-          <textarea
-            className="wf-detail__textarea"
-            value={node.data.config as string}
-            onChange={(e) => handleChange("config", e.target.value)}
-            rows={4}
-            placeholder="JSON or text config…"
-          />
-        </label>
-
-        <label className="wf-detail__field">
-          <span className="wf-detail__k">Model</span>
-          <input
-            className="wf-detail__input"
-            value={(node.data.model as string) ?? ""}
-            onChange={(e) => handleChange("model", e.target.value)}
-            placeholder="e.g. deepseek-reasoner"
-          />
-        </label>
-
-        <label className="wf-detail__field">
-          <span className="wf-detail__k">Effort</span>
+          <span className="wf-detail__k">{t("wf.effort")}</span>
           <select
             className="wf-detail__select"
             value={(node.data.effort as string) ?? ""}
             onChange={(e) => handleChange("effort", e.target.value)}
           >
-            <option value="">Default</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
+            <option value="">{t("wf.effortDefault")}</option>
+            <option value="low">{t("wf.effortLow")}</option>
+            <option value="medium">{t("wf.effortMedium")}</option>
+            <option value="high">{t("wf.effortHigh")}</option>
           </select>
         </label>
+
+        {kind !== "condition" && kind !== "parallel" && (
+          <label className="wf-detail__field wf-detail__field--check">
+            <input
+              type="checkbox"
+              checked={(node.data.requireApproval as boolean) ?? false}
+              onChange={(e) => handleChange("requireApproval", e.target.checked)}
+            />
+            <span className="wf-detail__k">{t("wf.requireApproval")}</span>
+          </label>
+        )}
       </div>
     </aside>
   );
@@ -292,42 +494,68 @@ function NodeDetailPanel({
 
 // ── Main component ───────────────────────────────────────────
 
-export function WorkflowEditor() {
+export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
+  const t = useT();
   const [workflows, setWorkflows] = useState<WorkflowView[]>([]);
   const [currentWorkflow, setCurrentWorkflow] = useState<WorkflowView | null>(null);
   const [selectedNode, setSelectedNode] = useState<WorkflowEditorNodeType | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Available skills + models loaded once for the node detail panel's pickers.
+  // Both come from the active tab's configuration, so they stay valid across
+  // workflow switches.
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [models, setModels] = useState<ModelOption[]>([]);
+  // Raw text for the allowed-skills input. We keep a separate string state so
+  // the user can type "a, b," (trailing comma) without the controlled value
+  // snapping back to "a, b" on each keystroke — the normalised list is still
+  // written to currentWorkflow.allowedSkills on every change, this just keeps
+  // the textbox text stable between keystrokes.
+  const [allowedSkillsText, setAllowedSkillsText] = useState("");
 
-  // Ref to hold the latest graph state from the canvas.
-  const graphStateRef = useRef<{ nodes: WorkflowEditorNodeType[]; edges: Edge[] }>({
-    nodes: [],
-    edges: [],
-  });
+  // Canvas state lives in the main component (not inside the canvas child) so
+  // that handleAddNode / handleNodeDataUpdate can mutate it directly without
+  // round-tripping through currentWorkflow and a useEffect reset. This is what
+  // keeps user-drawn edges, node deletions, and dragged positions from being
+  // clobbered when a property edit updates currentWorkflow.
+  const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowEditorNodeType>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  // Load workflow list on mount.
+  // Track the currently-loaded workflow name so the sync effect only fires
+  // when the user switches to a *different* workflow (or creates a new one).
+  // Property edits / node additions change currentWorkflow's contents but NOT
+  // its name, so they must not trigger a canvas reset.
+  const loadedWorkflowName = useRef<string | null>(null);
+
+  // Load workflow list + capabilities (skills, models) on mount.
   useEffect(() => {
     (async () => {
       try {
-        const list = await wails.listWorkflows();
+        const [list, caps, modelList] = await Promise.all([
+          wails.listWorkflows(),
+          wails.capabilities(),
+          wails.models(),
+        ]);
         setWorkflows(list ?? []);
+        setSkills(caps?.skills ?? []);
+        setModels(modelList ?? []);
       } catch (e: any) {
-        setError(e?.message ?? "Failed to load workflows");
+        setError(e?.message ?? t("wf.errLoad"));
       }
     })();
-  }, []);
+  }, [t]);
 
   const refreshList = useCallback(async () => {
     try {
       const list = await wails.listWorkflows();
       setWorkflows(list ?? []);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to refresh workflow list");
+      setError(e?.message ?? t("wf.errRefresh"));
     }
-  }, []);
+  }, [t]);
 
   const handleNewWorkflow = useCallback(() => {
-    const name = `Workflow ${Date.now()}`;
+    const name = t("wf.defaultName", { ts: Date.now() });
     const wf: WorkflowView = {
       name,
       description: "",
@@ -338,7 +566,7 @@ export function WorkflowEditor() {
     };
     setCurrentWorkflow(wf);
     setSelectedNode(null);
-  }, []);
+  }, [t]);
 
   const handleSelectWorkflow = useCallback(
     async (name: string) => {
@@ -350,21 +578,20 @@ export function WorkflowEditor() {
           setSelectedNode(null);
         }
       } catch (e: any) {
-        setError(e?.message ?? "Failed to load workflow");
+        setError(e?.message ?? t("wf.errLoadOne"));
       }
     },
-    [],
+    [t],
   );
 
   const handleSave = useCallback(async () => {
     if (!currentWorkflow) return;
 
-    const { nodes: latestNodes, edges: latestEdges } = graphStateRef.current;
-
+    // Read directly from the lifted canvas state — no ref round-trip needed.
     const wf: WorkflowView = {
       ...currentWorkflow,
-      nodes: nodesToView(latestNodes),
-      edges: edgesToView(latestEdges),
+      nodes: nodesToView(nodes),
+      edges: edgesToView(edges),
       updatedAt: Date.now(),
     };
 
@@ -372,11 +599,14 @@ export function WorkflowEditor() {
       await wails.saveWorkflow(wf);
       setCurrentWorkflow(wf);
       await refreshList();
+      // Refresh cron schedules so a trigger change takes effect immediately.
+      // Safe to fire-and-forget; ReloadWorkflowTriggers is best-effort.
+      void wails.reloadWorkflowTriggers();
       setError(null);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to save workflow");
+      setError(e?.message ?? t("wf.errSave"));
     }
-  }, [currentWorkflow, refreshList]);
+  }, [currentWorkflow, refreshList, t, nodes, edges]);
 
   const handleDelete = useCallback(async () => {
     if (!currentWorkflow) return;
@@ -384,89 +614,227 @@ export function WorkflowEditor() {
       await wails.deleteWorkflow(currentWorkflow.name);
       setCurrentWorkflow(null);
       setSelectedNode(null);
+      setNodes([]);
+      setEdges([]);
+      loadedWorkflowName.current = null;
       await refreshList();
+      // Prune the deleted workflow's cron entry on next restart.
+      void wails.reloadWorkflowTriggers();
       setError(null);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to delete workflow");
+      setError(e?.message ?? t("wf.errDelete"));
     }
-  }, [currentWorkflow, refreshList]);
+  }, [currentWorkflow, refreshList, t, setNodes, setEdges]);
 
   const handleRun = useCallback(async () => {
     if (!currentWorkflow) return;
     try {
-      await wails.runWorkflow(currentWorkflow.name);
+      // Auto-save before running so the backend loads the latest canvas
+      // state. Without this, RunWorkflow reads the on-disk file which may
+      // be stale (or missing for a newly-created unsaved workflow, causing
+      // a confusing "not found" error).
+      const wf: WorkflowView = {
+        ...currentWorkflow,
+        nodes: nodesToView(nodes),
+        edges: edgesToView(edges),
+        updatedAt: Date.now(),
+      };
+      await wails.saveWorkflow(wf);
+      setCurrentWorkflow(wf);
+      await wails.runWorkflow(wf.name);
+      setError(null);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to run workflow");
+      setError(e?.message ?? t("wf.errRun"));
     }
-  }, [currentWorkflow]);
+  }, [currentWorkflow, t, nodes, edges]);
+
+  // handleTriggerChange updates the workflow-level trigger fields. An empty
+  // trigger value is normalized to "manual" so the saved file always carries
+  // an explicit trigger type (mirrors the backend default).
+  const handleTriggerChange = useCallback(
+    (patch: Partial<Pick<WorkflowView, "trigger" | "cronExpr" | "eventType" | "matchRules">>) => {
+      setCurrentWorkflow((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          trigger: patch.trigger ?? prev.trigger ?? "manual",
+          cronExpr: patch.cronExpr ?? (patch.trigger === "cron" ? prev.cronExpr : ""),
+          eventType: patch.eventType ?? (patch.trigger === "event" ? prev.eventType : ""),
+          matchRules: patch.matchRules ?? (patch.trigger === "event" ? prev.matchRules : undefined),
+        };
+      });
+    },
+    [],
+  );
+
+  // handleMigrateRecipes converts every existing Recipe into a single-node
+  // skill Workflow. Each migrated Workflow keeps the Recipe's trigger config
+  // (cron / event), so automation continues to work after the migration.
+  // The original Recipes are left in place; the user deletes them manually
+  // after verifying the Workflows run correctly.
+  const handleMigrateRecipes = useCallback(async () => {
+    try {
+      const recipes = await wails.listRecipes();
+      if (!recipes || recipes.length === 0) {
+        setError(t("wf.errNoRecipes"));
+        return;
+      }
+      let ok = 0;
+      let fail = 0;
+      for (const r of recipes) {
+        try {
+          await wails.migrateRecipeToWorkflow(r.name);
+          ok++;
+        } catch {
+          fail++;
+        }
+      }
+      await refreshList();
+      // Re-register cron triggers so migrated scheduled workflows take
+      // effect immediately (otherwise they'd only activate on next restart).
+      void wails.reloadWorkflowTriggers();
+      if (fail === 0) {
+        setError(t("wf.migratedOk", { ok }));
+      } else {
+        setError(t("wf.migratedPartial", { ok, fail }));
+      }
+    } catch (e: any) {
+      setError(e?.message ?? t("wf.errMigrate"));
+    }
+  }, [refreshList, t]);
 
   const handleAddNode = useCallback(
     (kind: NodeKind) => {
       if (!currentWorkflow) return;
       // We add the node by updating the current workflow's nodes.
       // The canvas will pick up the change via the useEffect sync.
+      // Label starts empty so the canvas shows the localized kind name as a
+      // fallback and the auto-fill logic can detect "not customised".
       const id = nextId();
-      const meta = KIND_META[kind];
       const newNode: WorkflowNodeView = {
         id,
-        label: meta.label,
+        label: "",
         kind,
         config: "",
-        positionX: 100 + Math.random() * 300,
-        positionY: 100 + Math.random() * 200,
+        // Integer positions — Go's wire struct uses int fields, and fractional
+        // values would fail JSON deserialization on save.
+        positionX: Math.round(100 + Math.random() * 300),
+        positionY: Math.round(100 + Math.random() * 200),
       };
-      setCurrentWorkflow((prev) => {
-        if (!prev) return prev;
-        return { ...prev, nodes: [...(prev.nodes ?? []), newNode] };
-      });
+      // Add directly to the canvas state. We do NOT also push into
+      // currentWorkflow.nodes — the canvas is the single source of truth
+      // between saves, and handleSave reads from the canvas state. Keeping
+      // currentWorkflow in sync would require a matching update and risk
+      // re-triggering the sync effect; instead currentWorkflow stays as the
+      // last-loaded/last-saved snapshot and is only rewritten on Save.
+      setNodes((prev) => [
+        ...prev,
+        {
+          id,
+          type: "wfNode",
+          position: { x: newNode.positionX, y: newNode.positionY },
+          data: {
+            label: newNode.label,
+            kind: newNode.kind,
+            config: newNode.config,
+          },
+        } as WorkflowEditorNodeType,
+      ]);
     },
-    [currentWorkflow],
+    [setNodes],
   );
 
   const handleNodeDataUpdate = useCallback(
     (nodeId: string, data: Partial<WorkflowEditorNodeData>) => {
-      // Update the node data in the current workflow so the canvas re-renders.
-      setCurrentWorkflow((prev) => {
-        if (!prev) return prev;
-        const newNodes = (prev.nodes ?? []).map((n) => {
+      // Update the canvas node directly so the change is visible immediately
+      // without round-tripping through currentWorkflow + useEffect (which
+      // would clobber user-drawn edges, deletions, and dragged positions).
+      setNodes((prev) =>
+        prev.map((n) => {
           if (n.id !== nodeId) return n;
+          const nd = n.data as WorkflowEditorNodeData;
           return {
             ...n,
-            label: typeof data.label === "string" ? data.label : n.label,
-            kind: typeof data.kind === "string" ? (data.kind as WorkflowNodeView["kind"]) : n.kind,
-            config: typeof data.config === "string" ? data.config : n.config,
-            model: data.model !== undefined ? data.model : n.model,
-            effort: data.effort !== undefined ? data.effort : n.effort,
+            data: {
+              ...nd,
+              label: typeof data.label === "string" ? data.label : nd.label,
+              kind: typeof data.kind === "string" ? data.kind : nd.kind,
+              config: typeof data.config === "string" ? data.config : nd.config,
+              model: data.model !== undefined ? data.model : nd.model,
+              effort: data.effort !== undefined ? data.effort : nd.effort,
+              requireApproval:
+                typeof data.requireApproval === "boolean" ? data.requireApproval : nd.requireApproval,
+            },
           };
-        });
-        return { ...prev, nodes: newNodes };
-      });
-      // Also update the selected node reference so the panel stays in sync.
+        }),
+      );
+      // Keep the selected-node panel in sync with the updated data.
       setSelectedNode((prev) => {
         if (!prev) return prev;
         return { ...prev, data: { ...prev.data, ...data } };
       });
     },
-    [],
+    [setNodes],
   );
 
   const kindEntries = useMemo(() => Object.entries(KIND_META) as [NodeKind, typeof KIND_META[NodeKind]][], []);
 
+  // Sync workflow → canvas ONLY when switching to a different workflow.
+  // This is the single place that resets the canvas from currentWorkflow.
+  // Property edits, node additions, edge draws, and node deletions all mutate
+  // the canvas state directly (via setNodes/setEdges) and must NOT trigger a
+  // reset — that's why we key on the workflow NAME, not the currentWorkflow
+  // object identity (which changes on every property edit).
+  useEffect(() => {
+    const newName = currentWorkflow?.name ?? null;
+    if (newName === loadedWorkflowName.current) return;
+    loadedWorkflowName.current = newName;
+    if (currentWorkflow) {
+      setNodes(viewToNodes(currentWorkflow.nodes));
+      setEdges(viewToEdges(currentWorkflow.edges));
+      setAllowedSkillsText((currentWorkflow.allowedSkills ?? []).join(", "));
+    } else {
+      setNodes([]);
+      setEdges([]);
+      setAllowedSkillsText("");
+    }
+  }, [currentWorkflow, setNodes, setEdges]);
+
   return (
     <div className="wf-editor">
+      {/* Modal header bar — title + close button. Only rendered when the
+          editor is hosted in a modal (onClose provided). */}
+      {onClose && (
+        <header className="wf-modal__header">
+          <div className="wf-modal__title">
+            <WorkflowIcon size={15} />
+            <span>{t("wf.title")}</span>
+          </div>
+          <button
+            className="wf-modal__close"
+            onClick={onClose}
+            title={t("wf.closeTitle")}
+            aria-label={t("wf.close")}
+          >
+            <X size={16} />
+          </button>
+        </header>
+      )}
+
+      <div className="wf-editor__body">
       {/* Left sidebar: workflow list */}
       <aside className={`wf-sidebar${sidebarCollapsed ? " wf-sidebar--collapsed" : ""}`}>
         <div className="wf-sidebar__header">
           {!sidebarCollapsed && (
             <span className="wf-sidebar__title">
               <WorkflowIcon size={14} />
-              Workflows
+              {t("wf.workflows")}
             </span>
           )}
           <button
             className="wf-sidebar__toggle"
             onClick={() => setSidebarCollapsed((c) => !c)}
-            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? t("wf.expandSidebar") : t("wf.collapseSidebar")}
           >
             <ChevronRight
               size={14}
@@ -478,9 +846,13 @@ export function WorkflowEditor() {
         {!sidebarCollapsed && (
           <>
             <div className="wf-sidebar__actions">
-              <button className="wf-btn wf-btn--primary" onClick={handleNewWorkflow} title="New Workflow">
+              <button className="wf-btn wf-btn--primary" onClick={handleNewWorkflow} title={t("wf.newTitle")}>
                 <Plus size={13} />
-                New
+                {t("wf.new")}
+              </button>
+              <button className="wf-btn wf-btn--ghost" onClick={handleMigrateRecipes} title={t("wf.migrateTitle")}>
+                <ArrowRightLeft size={13} />
+                {t("wf.migrate")}
               </button>
             </div>
 
@@ -496,7 +868,7 @@ export function WorkflowEditor() {
                 </li>
               ))}
               {workflows.length === 0 && (
-                <li className="wf-sidebar__empty">No workflows yet</li>
+                <li className="wf-sidebar__empty">{t("wf.empty")}</li>
               )}
             </ul>
           </>
@@ -509,7 +881,7 @@ export function WorkflowEditor() {
         <header className="wf-toolbar">
           <div className="wf-toolbar__left">
             <span className="wf-toolbar__name">
-              {currentWorkflow?.name ?? "No workflow selected"}
+              {currentWorkflow?.name ?? t("wf.noneSelected")}
             </span>
           </div>
           <div className="wf-toolbar__center">
@@ -522,10 +894,10 @@ export function WorkflowEditor() {
                       key={kind}
                       className="wf-btn wf-btn--ghost"
                       onClick={() => handleAddNode(kind)}
-                      title={`Add ${meta.label} node`}
+                      title={t("wf.addNode", { label: t(meta.labelKey) })}
                     >
                       <Icon size={13} />
-                      {meta.label}
+                      {t(meta.labelKey)}
                     </button>
                   );
                 })}
@@ -535,21 +907,81 @@ export function WorkflowEditor() {
           <div className="wf-toolbar__right">
             {currentWorkflow && (
               <>
-                <button className="wf-btn wf-btn--ghost" onClick={handleSave} title="Save workflow">
+                <button className="wf-btn wf-btn--ghost" onClick={handleSave} title={t("wf.saveTitle")}>
                   <Save size={13} />
-                  Save
+                  {t("wf.save")}
                 </button>
-                <button className="wf-btn wf-btn--ghost" onClick={handleRun} title="Run workflow">
+                <button className="wf-btn wf-btn--ghost" onClick={handleRun} title={t("wf.runTitle")}>
                   <Play size={13} />
-                  Run
+                  {t("wf.run")}
                 </button>
-                <button className="wf-btn wf-btn--danger" onClick={handleDelete} title="Delete workflow">
+                <button className="wf-btn wf-btn--danger" onClick={handleDelete} title={t("wf.deleteTitle")}>
                   <Trash2 size={13} />
                 </button>
               </>
             )}
           </div>
         </header>
+
+        {/* Trigger bar — workflow-level activation config (mirrors Recipe) */}
+        {currentWorkflow && (
+          <div className="wf-trigger-bar">
+            <span className="wf-trigger-bar__label">{t("wf.trigger")}</span>
+            <select
+              className="wf-detail__select wf-trigger-bar__select"
+              value={currentWorkflow.trigger ?? "manual"}
+              onChange={(e) => handleTriggerChange({ trigger: e.target.value as WorkflowTrigger })}
+            >
+              <option value="manual">{t("wf.triggerManual")}</option>
+              <option value="cron">{t("wf.triggerCron")}</option>
+              <option value="event">{t("wf.triggerEvent")}</option>
+            </select>
+            {(currentWorkflow.trigger ?? "manual") === "cron" && (
+              <input
+                className="wf-detail__input wf-trigger-bar__input"
+                value={currentWorkflow.cronExpr ?? ""}
+                onChange={(e) => handleTriggerChange({ cronExpr: e.target.value })}
+                placeholder={t("wf.cronPlaceholder")}
+              />
+            )}
+            {(currentWorkflow.trigger ?? "manual") === "event" && (
+              <>
+                <input
+                  className="wf-detail__input wf-trigger-bar__input"
+                  value={currentWorkflow.eventType ?? ""}
+                  onChange={(e) => handleTriggerChange({ eventType: e.target.value })}
+                  placeholder={t("wf.eventTypePlaceholder")}
+                />
+                <textarea
+                  className="wf-detail__textarea wf-trigger-bar__rules"
+                  value={matchRulesToText(currentWorkflow.matchRules)}
+                  onChange={(e) => handleTriggerChange({ matchRules: matchRulesFromText(e.target.value) })}
+                  rows={1}
+                  placeholder={t("wf.matchRulesPlaceholder")}
+                />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Allowed-skills bar — P3 permission whitelist.
+            Empty = unrestricted; non-empty = only listed skills may run. */}
+        {currentWorkflow && (
+          <div className="wf-trigger-bar">
+            <span className="wf-trigger-bar__label">{t("wf.allowedSkills")}</span>
+            <input
+              className="wf-detail__input wf-trigger-bar__input"
+              value={allowedSkillsText}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setAllowedSkillsText(raw);
+                const list = raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+                setCurrentWorkflow((prev) => (prev ? { ...prev, allowedSkills: list } : prev));
+              }}
+              placeholder={t("wf.allowedSkillsPlaceholder")}
+            />
+          </div>
+        )}
 
         {/* Error bar */}
         {error && (
@@ -564,15 +996,18 @@ export function WorkflowEditor() {
           {!currentWorkflow ? (
             <div className="wf-canvas__empty">
               <WorkflowIcon size={32} />
-              <p>Create or select a workflow to get started</p>
+              <p>{t("wf.canvasEmpty")}</p>
             </div>
           ) : (
             <div className="wf-canvas__flow">
               <ReactFlowProvider>
                 <WorkflowCanvasWithRef
-                  currentWorkflow={currentWorkflow}
+                  nodes={nodes}
+                  edges={edges}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
+                  setEdges={setEdges}
                   onNodeSelect={setSelectedNode}
-                  graphStateRef={graphStateRef}
                 />
               </ReactFlowProvider>
               {selectedNode && (
@@ -580,46 +1015,41 @@ export function WorkflowEditor() {
                   node={selectedNode}
                   onUpdate={handleNodeDataUpdate}
                   onClose={() => setSelectedNode(null)}
+                  skills={skills}
+                  models={models}
                 />
               )}
             </div>
           )}
         </div>
       </div>
+      </div>
     </div>
   );
 }
 
-// ── Canvas wrapper that exposes graph state via ref ───────────
+// ── Canvas wrapper ───────────────────────────────────────────
+// A thin presentational wrapper around ReactFlow. All graph state
+// (nodes/edges) is owned by the parent WorkflowEditor and passed in as
+// props, so the parent can mutate it directly from handleAddNode /
+// handleNodeDataUpdate without a useEffect round-trip. This component only
+// wires up ReactFlow's interaction callbacks (onConnect, onNodeClick).
 
 function WorkflowCanvasWithRef({
-  currentWorkflow,
+  nodes,
+  edges,
+  onNodesChange,
+  onEdgesChange,
+  setEdges,
   onNodeSelect,
-  graphStateRef,
 }: {
-  currentWorkflow: WorkflowView | null;
+  nodes: WorkflowEditorNodeType[];
+  edges: Edge[];
+  onNodesChange: OnNodesChange<WorkflowEditorNodeType>;
+  onEdgesChange: OnEdgesChange;
+  setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
   onNodeSelect: (node: WorkflowEditorNodeType | null) => void;
-  graphStateRef: React.MutableRefObject<{ nodes: WorkflowEditorNodeType[]; edges: Edge[] }>;
 }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowEditorNodeType>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-
-  // Sync workflow → react-flow.
-  useEffect(() => {
-    if (currentWorkflow) {
-      setNodes(viewToNodes(currentWorkflow.nodes));
-      setEdges(viewToEdges(currentWorkflow.edges));
-    } else {
-      setNodes([]);
-      setEdges([]);
-    }
-  }, [currentWorkflow, setNodes, setEdges]);
-
-  // Keep ref in sync so save can read it.
-  useEffect(() => {
-    graphStateRef.current = { nodes, edges };
-  }, [nodes, edges, graphStateRef]);
-
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
       const edge: Edge = {

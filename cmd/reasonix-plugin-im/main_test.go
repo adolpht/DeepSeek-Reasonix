@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -519,14 +520,14 @@ func TestMCPProtocolEndToEnd(t *testing.T) {
 		t.Fatalf("tools/list error: %v", resp["error"])
 	}
 	toolList := resp["result"].(map[string]any)["tools"].([]any)
-	if len(toolList) != 5 {
-		t.Fatalf("expected 5 tools, got %d", len(toolList))
+	if len(toolList) != 7 {
+		t.Fatalf("expected 7 tools, got %d", len(toolList))
 	}
 	names := map[string]bool{}
 	for _, tt := range toolList {
 		names[tt.(map[string]any)["name"].(string)] = true
 	}
-	for _, want := range []string{"start_bot", "stop_bot", "send_message", "list_pending_commands", "mark_command_done"} {
+	for _, want := range []string{"start_bot", "stop_bot", "start_stream", "stop_stream", "send_message", "list_pending_commands", "mark_command_done"} {
 		if !names[want] {
 			t.Errorf("tool %q missing from tools/list", want)
 		}
