@@ -43,6 +43,7 @@ import (
 	"reasonix/internal/plugin"
 	"reasonix/internal/provider"
 	"reasonix/internal/recipe"
+	"reasonix/internal/registry"
 	"reasonix/internal/scheduler"
 	"reasonix/internal/skill"
 	"reasonix/internal/workflow"
@@ -2408,6 +2409,216 @@ func (a *App) SetSkillEnabled(name string, enabled bool) error {
 	return a.applyConfigChange(func(c *config.Config) error {
 		return c.SetSkillEnabled(name, enabled)
 	})
+}
+
+// --- Skill Registry ---
+
+// RegistryEntryView is one skill available in the registry marketplace.
+type RegistryEntryView struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Source      string   `json:"source"`
+	RunAs       string   `json:"runAs"`
+	Tags        []string `json:"tags"`
+	Author      string   `json:"author"`
+	Version     string   `json:"version"`
+	Installed   bool     `json:"installed"`
+}
+
+// RegistrySourceView is one registry source (official or user-added).
+type RegistrySourceView struct {
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Trusted     bool   `json:"trusted"`
+}
+
+// BrowseSkills fetches available skills from all registry sources.
+func (a *App) BrowseSkills() []RegistryEntryView {
+	reg := a.newRegistry()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	entries, err := reg.ListEntries(ctx)
+	if err != nil || len(entries) == 0 {
+		return []RegistryEntryView{}
+	}
+
+	// Mark installed
+	installed := a.installedSkillNames()
+	out := make([]RegistryEntryView, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, RegistryEntryView{
+			Name:        e.Name,
+			Description: e.Description,
+			Source:      e.Source,
+			RunAs:       e.RunAs,
+			Tags:        e.Tags,
+			Author:      e.Author,
+			Version:     e.Version,
+			Installed:   installed[e.Name],
+		})
+	}
+	return out
+}
+
+// SearchRegistrySkills searches the registry for skills matching the query.
+func (a *App) SearchRegistrySkills(query string) []RegistryEntryView {
+	reg := a.newRegistry()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	entries, err := reg.SearchEntries(ctx, query)
+	if err != nil || len(entries) == 0 {
+		return []RegistryEntryView{}
+	}
+
+	installed := a.installedSkillNames()
+	out := make([]RegistryEntryView, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, RegistryEntryView{
+			Name:        e.Name,
+			Description: e.Description,
+			Source:      e.Source,
+			RunAs:       e.RunAs,
+			Tags:        e.Tags,
+			Author:      e.Author,
+			Version:     e.Version,
+			Installed:   installed[e.Name],
+		})
+	}
+	return out
+}
+
+// InstallSkillFromRegistry installs a skill from the registry by name.
+func (a *App) InstallSkillFromRegistry(name string, global bool) error {
+	reg := a.newRegistry()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	entry, err := reg.GetEntry(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	home, _ := os.UserHomeDir()
+	installDir := filepath.Join(home, ".reasonix", "skills")
+	if !global {
+		wsRoot := a.activeWorkspaceRoot()
+		if wsRoot != "" {
+			installDir = filepath.Join(wsRoot, ".reasonix", "skills")
+		}
+	}
+
+	if _, err := reg.InstallSkill(ctx, *entry, installDir); err != nil {
+		return err
+	}
+
+	return a.rebuild()
+}
+
+// UninstallSkill removes an installed skill by name.
+func (a *App) UninstallSkill(name string) error {
+	a.mu.RLock()
+	tab := a.activeTabLocked()
+	a.mu.RUnlock()
+	if tab == nil || tab.Ctrl == nil {
+		return fmt.Errorf("no active session")
+	}
+
+	// Find the skill
+	var sk *skill.Skill
+	for _, s := range tab.Ctrl.AllSkills() {
+		if s.Name == name {
+			sk = &s
+			break
+		}
+	}
+	if sk == nil {
+		return fmt.Errorf("skill %q not found", name)
+	}
+	if sk.Path == "(builtin)" {
+		return fmt.Errorf("cannot uninstall built-in skill %q", name)
+	}
+
+	if err := os.RemoveAll(sk.Path); err != nil {
+		return err
+	}
+
+	return a.rebuild()
+}
+
+// RegistrySources returns all configured registry sources (built-in + user-added).
+func (a *App) RegistrySources() []RegistrySourceView {
+	reg := a.newRegistry()
+	sources := reg.Sources()
+	out := make([]RegistrySourceView, 0, len(sources))
+	for _, s := range sources {
+		out = append(out, RegistrySourceView{
+			Name:        s.Name,
+			URL:         s.URL,
+			Type:        s.Type,
+			Description: s.Description,
+			Trusted:     s.Trusted,
+		})
+	}
+	return out
+}
+
+// AddRegistrySource adds a user-configured registry source.
+func (a *App) AddRegistrySource(name, url, srcType, description string, trusted bool) error {
+	return a.applyConfigChange(func(c *config.Config) error {
+		return c.AddRegistrySource(config.RegistrySourceConfig{
+			Name:        name,
+			URL:         url,
+			Type:        srcType,
+			Description: description,
+			Trusted:     trusted,
+		})
+	})
+}
+
+// RemoveRegistrySource removes a user-added registry source by name.
+func (a *App) RemoveRegistrySource(name string) error {
+	return a.applyConfigOnly(func(c *config.Config) error {
+		_, err := c.RemoveRegistrySource(name)
+		return err
+	})
+}
+
+func (a *App) newRegistry() *registry.Registry {
+	home, _ := os.UserHomeDir()
+	var userSources []registry.Source
+	if cfg, err := config.Load(); err == nil {
+		for _, s := range cfg.RegistrySources() {
+			userSources = append(userSources, registry.Source{
+				Name:        s.Name,
+				URL:         s.URL,
+				Type:        s.Type,
+				Description: s.Description,
+				Trusted:     s.Trusted,
+			})
+		}
+	}
+	return registry.New(registry.Options{
+		HomeDir:  home,
+		Sources:  userSources,
+		CacheTTL: time.Hour,
+	})
+}
+
+func (a *App) installedSkillNames() map[string]bool {
+	out := map[string]bool{}
+	a.mu.RLock()
+	tab := a.activeTabLocked()
+	a.mu.RUnlock()
+	if tab != nil && tab.Ctrl != nil {
+		for _, s := range tab.Ctrl.AllSkills() {
+			out[s.Name] = true
+		}
+	}
+	return out
 }
 
 func normalizeSkillPath(path string) string {

@@ -315,6 +315,18 @@ export const zh: Record<DictKey, string> = {
   "caps.showDiagnostics": "查看隐藏路径 {count}",
   "caps.hideDiagnostics": "隐藏诊断路径",
 
+  // Skill Marketplace
+  "caps.marketplace": "技能市场",
+  "caps.searchRegistry": "搜索技能市场…",
+  "caps.search": "搜索",
+  "caps.official": "官方",
+  "caps.installed": "已安装",
+  "caps.installing": "安装中…",
+  "caps.install": "安装",
+  "caps.installGlobal": "全局安装",
+  "caps.installGlobalHint": "全局安装，所有项目可用",
+  "caps.noRegistryEntries": "市场暂无可用技能。请检查网络连接，或在 reasonix.toml 中添加自定义源。",
+
   // 仓库 Wiki 面板
   "repoWiki.title": "仓库 Wiki",
   "repoWiki.summary": "生成项目文档",

@@ -54,6 +54,7 @@ type Config struct {
 	Network          NetworkConfig          `toml:"network"`
 	Plugins          []PluginEntry          `toml:"plugins"`
 	Skills           SkillsConfig           `toml:"skills"`
+	Registry         RegistryConfig         `toml:"registry"`
 	Codegraph        CodegraphConfig        `toml:"codegraph"`
 	Statusline       StatuslineConfig       `toml:"statusline"`
 	LSP              LSPConfig              `toml:"lsp"`
@@ -471,6 +472,40 @@ func (c *Config) SkillMaxDepth() int {
 		return maxDepth
 	}
 	return c.Skills.MaxDepth
+}
+
+// RegistryConfig configures the skill registry / marketplace. Sources lists
+// additional user-added registry sources beyond the built-in ones. Each entry
+// is a JSON object with name, url, type, and description fields. CacheTTL
+// controls how long cached index data is considered fresh (default 1h).
+type RegistryConfig struct {
+	Sources  []RegistrySourceConfig `toml:"sources"`
+	CacheTTL string                 `toml:"cache_ttl"` // e.g. "30m", "1h", "24h"
+}
+
+// RegistrySourceConfig describes a user-added registry source.
+type RegistrySourceConfig struct {
+	Name        string `toml:"name"`
+	URL         string `toml:"url"`
+	Type        string `toml:"type"`        // "index", "git", or "local"
+	Description string `toml:"description"`
+	Trusted     bool   `toml:"trusted"`
+}
+
+// RegistrySources returns the configured registry sources.
+func (c *Config) RegistrySources() []RegistrySourceConfig {
+	if c == nil {
+		return nil
+	}
+	return c.Registry.Sources
+}
+
+// RegistryCacheTTL returns the configured cache TTL duration string.
+func (c *Config) RegistryCacheTTL() string {
+	if c == nil || c.Registry.CacheTTL == "" {
+		return "1h"
+	}
+	return c.Registry.CacheTTL
 }
 
 // DisabledSkillNames returns valid disabled skill identifiers, preserving the

@@ -456,6 +456,23 @@ export interface CapabilitiesView {
   skills: SkillView[];
   skillRoots: SkillRootView[];
 }
+export interface RegistryEntryView {
+  name: string;
+  description: string;
+  source: string;
+  runAs: string;
+  tags: string[];
+  author: string;
+  version: string;
+  installed: boolean;
+}
+export interface RegistrySourceView {
+  name: string;
+  url: string;
+  type: string;
+  description: string;
+  trusted: boolean;
+}
 export interface MCPServerInput {
   name: string;
   transport: string; // stdio | http | sse

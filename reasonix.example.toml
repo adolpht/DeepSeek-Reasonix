@@ -130,6 +130,18 @@ bash_timeout_seconds = 120   # foreground safety cap; set 0 for no tool-local ca
 # excluded_paths = ["~/.agents/skills"]         # hide convention roots without deleting folders
 # disabled_skills = ["review"]                  # hide from prompt, slash invocation, and skill tools
 
+# Skill Registry — discover and install community skills from curated sources.
+# Built-in sources: "Reasonix Official", "Awesome Claude Skills", "Awesome Agent Skills".
+# Manage with /skills browse, /skills install <name>, /skills uninstall <name>, /skills sources.
+# [registry]
+# cache_ttl = "1h"                              # how long to trust cached index data (default 1h)
+# [[registry.sources]]                          # add a custom registry source
+# name        = "My Team Skills"
+# url         = "https://raw.githubusercontent.com/myorg/skills/main/index.json"
+# type        = "index"                          # "index" (JSON), "git" (repo), or "local" (dir)
+# description = "Internal team skill collection"
+# trusted     = false
+
 # Hooks run shell commands around the loop (PreToolUse / PostToolUse /
 # UserPromptSubmit / Stop). They are NOT configured here — put them in
 # settings.json: ~/.reasonix/settings.json (global, always on) and

@@ -314,6 +314,18 @@ export const en = {
   "caps.showDiagnostics": "View {count} hidden paths",
   "caps.hideDiagnostics": "Hide diagnostic paths",
 
+  // Skill Marketplace
+  "caps.marketplace": "Marketplace",
+  "caps.searchRegistry": "Search marketplace…",
+  "caps.search": "Search",
+  "caps.official": "Official",
+  "caps.installed": "Installed",
+  "caps.installing": "Installing…",
+  "caps.install": "Install",
+  "caps.installGlobal": "Global",
+  "caps.installGlobalHint": "Install globally for all projects",
+  "caps.noRegistryEntries": "No skills found in the marketplace. Check your network connection or add custom sources in reasonix.toml.",
+
   // repo wiki panel
   "repoWiki.title": "Repo Wiki",
   "repoWiki.summary": "Generate project documentation",

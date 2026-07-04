@@ -1,15 +1,19 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"reasonix/internal/config"
 	"reasonix/internal/hook"
+	"reasonix/internal/registry"
 	"reasonix/internal/skill"
 )
 
@@ -47,12 +51,29 @@ func (m *chatTUI) runSkillSubcommand(input string) {
 		m.skillNew(args[2], global)
 	case "paths":
 		m.skillPaths()
+	case "browse", "market", "shop":
+		m.skillBrowse()
+	case "install":
+		if len(args) < 3 {
+			m.notice("usage: /skills install <name> [--global]")
+			return
+		}
+		global := containsArg(args[3:], "--global")
+		m.skillInstallFromRegistry(args[2], global)
+	case "uninstall", "remove":
+		if len(args) < 3 {
+			m.notice("usage: /skills uninstall <name>")
+			return
+		}
+		m.skillUninstall(args[2])
+	case "sources", "registries":
+		m.skillSources()
 	default:
 		hint := ""
 		if _, ok := m.ctrl.RunSkill("/" + args[1]); ok {
 			hint = " (to run it, type /" + args[1] + ")"
 		}
-		m.notice("unknown /skills subcommand " + args[1] + hint + " — try: /skills, /skills manage, /skills show <name>, /skills enable <name>, /skills disable <name>, /skills new <name>, /skills paths")
+		m.notice("unknown /skills subcommand " + args[1] + hint + " — try: /skills, /skills manage, /skills show <name>, /skills enable <name>, /skills disable <name>, /skills new <name>, /skills browse, /skills install <name>, /skills uninstall <name>, /skills sources, /skills paths")
 	}
 }
 
@@ -270,4 +291,125 @@ func containsArg(args []string, flag string) bool {
 		}
 	}
 	return false
+}
+
+// --- Registry commands ---
+
+func (m *chatTUI) newRegistry() *registry.Registry {
+	home, _ := os.UserHomeDir()
+	var userSources []registry.Source
+	if cfg, err := config.Load(); err == nil {
+		for _, s := range cfg.RegistrySources() {
+			userSources = append(userSources, registry.Source{
+				Name:        s.Name,
+				URL:         s.URL,
+				Type:        s.Type,
+				Description: s.Description,
+				Trusted:     s.Trusted,
+			})
+		}
+	}
+	return registry.New(registry.Options{
+		HomeDir:  home,
+		Sources:  userSources,
+		CacheTTL: time.Hour,
+	})
+}
+
+func (m *chatTUI) skillBrowse() {
+	reg := m.newRegistry()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	entries, err := reg.ListEntries(ctx)
+	if err != nil || len(entries) == 0 {
+		m.notice("skill browse: no entries found. Check your network connection or try again later.")
+		return
+	}
+
+	// Mark installed skills
+	installed := m.installedSkillNames()
+	for i := range entries {
+		entries[i].Installed = installed[entries[i].Name]
+	}
+
+	m.commitLine(renderRegistryEntries(m.width, entries))
+}
+
+func (m *chatTUI) skillInstallFromRegistry(name string, global bool) {
+	reg := m.newRegistry()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	entry, err := reg.GetEntry(ctx, name)
+	if err != nil {
+		m.notice("skill install: " + err.Error())
+		return
+	}
+
+	// Determine install directory
+	home, _ := os.UserHomeDir()
+	installDir := filepath.Join(home, ".reasonix", "skills")
+	if !global {
+		cwd, _ := os.Getwd()
+		projectDir := filepath.Join(cwd, ".reasonix", "skills")
+		if _, err := os.Stat(filepath.Dir(cwd)); err == nil {
+			installDir = projectDir
+		}
+	}
+
+	path, err := reg.InstallSkill(ctx, *entry, installDir)
+	if err != nil {
+		m.notice("skill install: " + err.Error())
+		return
+	}
+
+	m.notice(fmt.Sprintf("installed skill %q to %s — refreshing session", name, path))
+	m.scheduleSkillSessionRefresh("skill install", "")
+}
+
+func (m *chatTUI) skillUninstall(name string) {
+	st := m.skillStore()
+	sk, ok := st.Read(name)
+	if !ok {
+		m.notice("skill uninstall: skill " + name + " not found")
+		return
+	}
+
+	path := sk.Path
+	if path == "(builtin)" {
+		m.notice("skill uninstall: cannot uninstall built-in skill " + name)
+		return
+	}
+
+	// Remove the skill file/directory
+	if err := os.RemoveAll(path); err != nil {
+		m.notice("skill uninstall: " + err.Error())
+		return
+	}
+
+	m.notice(fmt.Sprintf("uninstalled skill %q — refreshing session", name))
+	m.scheduleSkillSessionRefresh("skill uninstall", "")
+}
+
+func (m *chatTUI) skillSources() {
+	reg := m.newRegistry()
+	sources := reg.Sources()
+	if len(sources) == 0 {
+		m.notice("no registry sources configured")
+		return
+	}
+	m.commitLine(renderRegistrySources(m.width, sources))
+}
+
+func (m *chatTUI) installedSkillNames() map[string]bool {
+	out := map[string]bool{}
+	skills := m.skills
+	if m.ctrl != nil {
+		skills = m.ctrl.AllSkills()
+	}
+	for _, s := range skills {
+		out[s.Name] = true
+	}
+	return out
 }

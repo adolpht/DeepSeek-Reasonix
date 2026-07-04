@@ -3,7 +3,7 @@ import { MessageSquare, Mail, Calendar, FileText, Table, Presentation, Search } 
 import { asArray } from "../lib/array";
 import { app, openExternal } from "../lib/bridge";
 import { useI18n, useT, type Locale } from "../lib/i18n";
-import type { CapabilitiesView, MCPServerInput, ServerView, SkillRootSkillView, SkillRootView, SkillView } from "../lib/types";
+import type { CapabilitiesView, MCPServerInput, RegistryEntryView, RegistrySourceView, ServerView, SkillRootSkillView, SkillRootView, SkillView } from "../lib/types";
 import { InlineConfirmButton } from "./InlineConfirmButton";
 import { ResizableDrawer } from "./ResizableDrawer";
 import { Tooltip } from "./Tooltip";
@@ -1442,11 +1442,37 @@ export function SkillsSettingsPage() {
 	const [err, setErr] = useState<string | null>(null);
 	const [skillQuery, setSkillQuery] = useState("");
 	const [expandedSkills, setExpandedSkills] = useState<Set<string>>(() => new Set());
+	const [skillTab, setSkillTab] = useState<"installed" | "marketplace">("installed");
+	const [registryEntries, setRegistryEntries] = useState<RegistryEntryView[]>([]);
+	const [registrySources, setRegistrySources] = useState<RegistrySourceView[]>([]);
+	const [registryLoading, setRegistryLoading] = useState(false);
+	const [registryQuery, setRegistryQuery] = useState("");
+	const [installing, setInstalling] = useState<string | null>(null);
 
 	const reload = useCallback(async () => {
 		setView(normalizeCapabilitiesView(await app.Capabilities().catch(() => ({ servers: [], skills: [], skillRoots: [] }))));
 	}, []);
 	useEffect(() => { void reload(); }, [reload]);
+
+	const loadRegistry = useCallback(async () => {
+		setRegistryLoading(true);
+		try {
+			const [entries, sources] = await Promise.all([
+				app.BrowseSkills().catch(() => []),
+				app.RegistrySources().catch(() => []),
+			]);
+			setRegistryEntries(entries);
+			setRegistrySources(sources);
+		} finally {
+			setRegistryLoading(false);
+		}
+	}, []);
+
+	useEffect(() => {
+		if (skillTab === "marketplace" && registryEntries.length === 0 && !registryLoading) {
+			void loadRegistry();
+		}
+	}, [skillTab, registryEntries.length, registryLoading, loadRegistry]);
 
 	const mutate = async (fn: () => Promise<unknown>) => {
 		setBusy(true);
@@ -1461,6 +1487,32 @@ export function SkillsSettingsPage() {
 			return false;
 		} finally {
 			setBusy(false);
+		}
+	};
+
+	const handleInstall = async (name: string, global: boolean) => {
+		setInstalling(name);
+		setErr(null);
+		try {
+			await app.InstallSkillFromRegistry(name, global);
+			await reload();
+			await loadRegistry();
+		} catch (e) {
+			setErr(String((e as Error)?.message ?? e));
+		} finally {
+			setInstalling(null);
+		}
+	};
+
+	const handleSearchRegistry = async () => {
+		const q = registryQuery.trim();
+		if (!q) { void loadRegistry(); return; }
+		setRegistryLoading(true);
+		try {
+			const entries = await app.SearchRegistrySkills(q).catch(() => []);
+			setRegistryEntries(entries);
+		} finally {
+			setRegistryLoading(false);
 		}
 	};
 
@@ -1488,49 +1540,154 @@ export function SkillsSettingsPage() {
 	return (
 		<section className="mem-section">
 			{err && <div className="banner banner--error">{err}</div>}
-			<div className="cap-search">
-				<input
-					className="mem-input"
-					type="search"
-					placeholder={t("caps.searchSkills")}
-					value={skillQuery}
-					onChange={(e) => setSkillQuery(e.target.value)}
-				/>
+
+			{/* Tab switcher */}
+			<div className="cap-tabs">
+				<button
+					className={`cap-tab${skillTab === "installed" ? " cap-tab--active" : ""}`}
+					onClick={() => setSkillTab("installed")}
+				>
+					{t("caps.skills")}
+				</button>
+				<button
+					className={`cap-tab${skillTab === "marketplace" ? " cap-tab--active" : ""}`}
+					onClick={() => setSkillTab("marketplace")}
+				>
+					{t("caps.marketplace") ?? "Marketplace"}
+				</button>
 			</div>
-			<SkillSources
-				roots={view.skillRoots ?? []}
-				busy={busy}
-				onAdd={() => mutate(async () => {
-					const path = await app.PickSkillFolder();
-					if (path) await app.AddSkillPath(path);
-				})}
-				onRefresh={() => mutate(() => app.RefreshSkills())}
-				onRemove={(path) => mutate(() => app.RemoveSkillPath(path))}
-			/>
-			<div className="cap-skills-head">
-				<div className="cap-skills-head__copy">
-					<div className="cap-skills-head__title">{t("caps.skills")}</div>
-					<div className="cap-skills-head__summary">{skillSummary}</div>
-				</div>
-			</div>
-			{view.skills.length === 0 ? (
-				<div className="mem-empty">{t("caps.noSkills")}</div>
-			) : filteredSkills.length === 0 ? (
-				<div className="mem-empty">{t("caps.noSkillMatches")}</div>
-			) : (
-				<div className="cap-skills">
-					{filteredSkills.map((sk) => (
-						<SkillRow
-							key={sk.name}
-							skill={sk}
+
+			{skillTab === "installed" ? (
+				<>
+					<div className="cap-search">
+						<input
+							className="mem-input"
+							type="search"
+							placeholder={t("caps.searchSkills")}
+							value={skillQuery}
+							onChange={(e) => setSkillQuery(e.target.value)}
+						/>
+					</div>
+					<SkillSources
+						roots={view.skillRoots ?? []}
 						busy={busy}
-						expanded={expandedSkills.has(sk.name)}
-						onToggle={() => toggleSkill(sk.name)}
-						onToggleEnabled={(enabled) => void mutate(() => app.SetSkillEnabled(sk.name, enabled))}
+						onAdd={() => mutate(async () => {
+							const path = await app.PickSkillFolder();
+							if (path) await app.AddSkillPath(path);
+						})}
+						onRefresh={() => mutate(() => app.RefreshSkills())}
+						onRemove={(path) => mutate(() => app.RemoveSkillPath(path))}
 					/>
-				))}
-			</div>
-		)}
+					<div className="cap-skills-head">
+						<div className="cap-skills-head__copy">
+							<div className="cap-skills-head__title">{t("caps.skills")}</div>
+							<div className="cap-skills-head__summary">{skillSummary}</div>
+						</div>
+					</div>
+					{view.skills.length === 0 ? (
+						<div className="mem-empty">{t("caps.noSkills")}</div>
+					) : filteredSkills.length === 0 ? (
+						<div className="mem-empty">{t("caps.noSkillMatches")}</div>
+					) : (
+						<div className="cap-skills">
+							{filteredSkills.map((sk) => (
+								<SkillRow
+									key={sk.name}
+									skill={sk}
+								busy={busy}
+								expanded={expandedSkills.has(sk.name)}
+								onToggle={() => toggleSkill(sk.name)}
+								onToggleEnabled={(enabled) => void mutate(() => app.SetSkillEnabled(sk.name, enabled))}
+							/>
+						))}
+					</div>
+				)}
+				</>
+			) : (
+				/* Marketplace tab */
+				<>
+					<div className="cap-search">
+						<input
+							className="mem-input"
+							type="search"
+							placeholder={t("caps.searchRegistry") ?? "Search marketplace..."}
+							value={registryQuery}
+							onChange={(e) => setRegistryQuery(e.target.value)}
+							onKeyDown={(e) => { if (e.key === "Enter") void handleSearchRegistry(); }}
+						/>
+						<button className="cap-search-btn" onClick={() => void handleSearchRegistry()} disabled={registryLoading}>
+							{registryLoading ? "..." : (t("caps.search") ?? "Search")}
+						</button>
+					</div>
+
+					{/* Sources */}
+					{registrySources.length > 0 && (
+						<div className="cap-registry-sources">
+							<div className="cap-registry-sources__title">{t("caps.sources") ?? "Sources"}</div>
+							{registrySources.map((src) => (
+								<div key={src.name} className="cap-registry-source">
+									<span className="cap-registry-source__name">{src.name}</span>
+									{src.trusted && <span className="cap-registry-source__badge cap-registry-source__badge--official">{t("caps.official") ?? "Official"}</span>}
+									<span className="cap-registry-source__type">[{src.type}]</span>
+								</div>
+							))}
+						</div>
+					)}
+
+					{/* Entries */}
+					{registryLoading && registryEntries.length === 0 ? (
+						<div className="mem-empty">{t("caps.loading")}</div>
+					) : registryEntries.length === 0 ? (
+						<div className="mem-empty">{t("caps.noRegistryEntries") ?? "No skills found in the marketplace. Check your network connection or add custom sources in reasonix.toml."}</div>
+					) : (
+						<div className="cap-skills">
+							{registryEntries.map((entry) => (
+								<div key={entry.name} className="cap-registry-entry">
+									<div className="cap-registry-entry__header">
+										<span className="cap-registry-entry__name">{entry.name}</span>
+										{entry.installed ? (
+											<span className="cap-registry-entry__badge cap-registry-entry__badge--installed">{t("caps.installed") ?? "Installed"}</span>
+										) : installing === entry.name ? (
+											<span className="cap-registry-entry__badge cap-registry-entry__badge--installing">{t("caps.installing") ?? "Installing..."}</span>
+										) : (
+											<div className="cap-registry-entry__actions">
+												<button
+													className="cap-registry-entry__btn cap-registry-entry__btn--install"
+													onClick={() => void handleInstall(entry.name, false)}
+													disabled={busy || installing !== null}
+												>
+													{t("caps.install") ?? "Install"}
+												</button>
+												<button
+													className="cap-registry-entry__btn cap-registry-entry__btn--install-global"
+													onClick={() => void handleInstall(entry.name, true)}
+													disabled={busy || installing !== null}
+													title={t("caps.installGlobal") ?? "Install globally for all projects"}
+												>
+													{t("caps.installGlobal") ?? "Global"}
+												</button>
+											</div>
+										)}
+									</div>
+									{entry.description && <div className="cap-registry-entry__desc">{entry.description}</div>}
+									<div className="cap-registry-entry__meta">
+										{entry.source && <span className="cap-registry-entry__source">[{entry.source}]</span>}
+										{entry.author && <span className="cap-registry-entry__author">{entry.author}</span>}
+										{entry.runAs === "subagent" && <span className="cap-registry-entry__runas">subagent</span>}
+									</div>
+									{entry.tags && entry.tags.length > 0 && (
+										<div className="cap-registry-entry__tags">
+											{entry.tags.map((tag) => (
+												<span key={tag} className="cap-registry-entry__tag">{tag}</span>
+											))}
+										</div>
+									)}
+								</div>
+							))}
+						</div>
+					)}
+				</>
+			)}
 	</section>
 	);
 }

@@ -503,6 +503,43 @@ func (c *Config) SetSkillEnabled(name string, enabled bool) error {
 	return nil
 }
 
+// AddRegistrySource appends a user-added registry source, deduping by name.
+func (c *Config) AddRegistrySource(src RegistrySourceConfig) error {
+	src.Name = strings.TrimSpace(src.Name)
+	if src.Name == "" {
+		return fmt.Errorf("registry source: empty name")
+	}
+	if strings.TrimSpace(src.URL) == "" {
+		return fmt.Errorf("registry source %q: empty URL", src.Name)
+	}
+	src.Type = strings.TrimSpace(src.Type)
+	if src.Type == "" {
+		src.Type = "index"
+	}
+	for _, existing := range c.Registry.Sources {
+		if strings.EqualFold(existing.Name, src.Name) {
+			return fmt.Errorf("registry source %q already exists", src.Name)
+		}
+	}
+	c.Registry.Sources = append(c.Registry.Sources, src)
+	return nil
+}
+
+// RemoveRegistrySource removes a user-added registry source by name.
+func (c *Config) RemoveRegistrySource(name string) (bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, fmt.Errorf("registry source: empty name")
+	}
+	for i, existing := range c.Registry.Sources {
+		if strings.EqualFold(existing.Name, name) {
+			c.Registry.Sources = append(c.Registry.Sources[:i], c.Registry.Sources[i+1:]...)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // CanonicalSkillPath expands env vars, ~ and relative segments to an absolute
 // cleaned path for comparing skill roots. On Windows it folds case so paths that
 // differ only in casing dedupe. Use only for comparison, never as stored config.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"reasonix/internal/registry"
 	"reasonix/internal/skill"
 )
 
@@ -77,5 +78,48 @@ func renderSkillPaths(width int, roots []skill.Root) string {
 			r.Priority+1, scope, status, viewCompactPath(r.Dir, viewBudget(width, leftWidth)))
 	}
 	b.WriteString(viewHint(viewCompactText("priority: project > custom > global > builtin · configure [skills] paths in reasonix.toml", viewBudget(width, 2))))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// --- Registry rendering ---
+
+func renderRegistryEntries(width int, entries []registry.Entry) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n", viewHeader("skill marketplace (%d available)", len(entries)))
+	for _, e := range entries {
+		name := e.Name
+		tag := ""
+		if e.Installed {
+			tag = "  " + viewStatus("installed")
+		}
+		runAs := ""
+		if e.RunAs == "subagent" {
+			runAs = "  " + viewMeta("subagent")
+		}
+		source := viewMeta(fmt.Sprintf("[%s]", e.Source))
+		used := 2 + viewPadWidth(name, 22) + 1 + visibleWidth(source) + 2 + visibleWidth(tag) + visibleWidth(runAs)
+		desc := viewCompactText(e.Description, viewBudget(width, used))
+		fmt.Fprintf(&b, "  %-22s %s  %s%s%s\n", name, source, desc, tag, runAs)
+	}
+	b.WriteString(viewHint(viewCompactText("install: /skills install <name> [--global] · browse: /skills browse · sources: /skills sources", viewBudget(width, 2))))
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func renderRegistrySources(width int, sources []registry.Source) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n", viewHeader("registry sources (%d)", len(sources)))
+	for i, s := range sources {
+		trust := ""
+		if s.Trusted {
+			trust = " " + viewStatus("official")
+		}
+		typ := viewMeta(fmt.Sprintf("[%s]", s.Type))
+		fmt.Fprintf(&b, "  %2d. %-24s %s%s\n", i+1, s.Name, typ, trust)
+		if strings.TrimSpace(s.Description) != "" {
+			fmt.Fprintf(&b, "      %s\n", viewCompactText(s.Description, viewBudget(width, 6)))
+		}
+		fmt.Fprintf(&b, "      %s\n", viewMeta(viewCompactPath(s.URL, viewBudget(width, 6))))
+	}
+	b.WriteString(viewHint(viewCompactText("add custom sources in reasonix.toml [registry] section · official sources are built-in", viewBudget(width, 2))))
 	return strings.TrimRight(b.String(), "\n")
 }

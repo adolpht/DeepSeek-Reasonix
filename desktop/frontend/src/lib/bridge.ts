@@ -39,6 +39,8 @@ import type {
   ProviderView,
   QuestionAnswer,
   RecipeView,
+  RegistryEntryView,
+  RegistrySourceView,
   ScheduledTaskView,
   ClipboardEntry,
   ServerView,
@@ -160,6 +162,13 @@ export interface AppBindings {
   RemoveSkillPath(path: string): Promise<void>;
   RefreshSkills(): Promise<void>;
   SetSkillEnabled(name: string, enabled: boolean): Promise<void>;
+  BrowseSkills(): Promise<RegistryEntryView[]>;
+  SearchRegistrySkills(query: string): Promise<RegistryEntryView[]>;
+  InstallSkillFromRegistry(name: string, global: boolean): Promise<void>;
+  UninstallSkill(name: string): Promise<void>;
+  RegistrySources(): Promise<RegistrySourceView[]>;
+  AddRegistrySource(name: string, url: string, srcType: string, description: string, trusted: boolean): Promise<void>;
+  RemoveRegistrySource(name: string): Promise<void>;
   SetMCPServerEnabled(name: string, enabled: boolean): Promise<void>;
   SetMCPServerTier(name: string, tier: string): Promise<void>;
   SlashArgs(input: string): Promise<SlashArgsResult>;
@@ -1416,6 +1425,21 @@ function makeMockApp(): AppBindings {
       const skill = capSkills.find((s) => s.name === name);
       if (skill) skill.enabled = enabled;
     },
+    async BrowseSkills(): Promise<RegistryEntryView[]> {
+      return [];
+    },
+    async SearchRegistrySkills(_query: string): Promise<RegistryEntryView[]> {
+      return [];
+    },
+    async InstallSkillFromRegistry(_name: string, _global: boolean): Promise<void> {},
+    async UninstallSkill(_name: string): Promise<void> {},
+    async RegistrySources(): Promise<RegistrySourceView[]> {
+      return [
+        { name: "Reasonix Official", url: "https://raw.githubusercontent.com/reasonix/skills/main/index.json", type: "index", description: "Official Reasonix skill collection", trusted: true },
+      ];
+    },
+    async AddRegistrySource(_name: string, _url: string, _srcType: string, _description: string, _trusted: boolean): Promise<void> {},
+    async RemoveRegistrySource(_name: string): Promise<void> {},
     async SetMCPServerEnabled(name: string, enabled: boolean) {
       capServers = capServers.map((s) =>
         s.name === name

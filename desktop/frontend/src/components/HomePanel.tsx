@@ -18,7 +18,7 @@ import {
   Lightbulb,
   Clock,
   Zap,
-  ChevronRight,
+  ArrowRight,
   Trophy,
 } from "lucide-react";
 import type { WorkspaceType, SessionMeta, HomePageData } from "../lib/types";
@@ -36,22 +36,22 @@ interface QuickAction {
 
 const QUICK_ACTIONS: Record<WorkspaceType, QuickAction[]> = {
   coding: [
-    { key: "analyzeProject", icon: <Code2 size={18} />, color: "blue", skillCommand: "/explore" },
-    { key: "reviewCode", icon: <GitCompare size={18} />, color: "green", skillCommand: "/review" },
-    { key: "fixBug", icon: <Bug size={18} />, color: "red", skillCommand: "" },
-    { key: "generateTests", icon: <TestTube2 size={18} />, color: "purple", skillCommand: "" },
+    { key: "analyzeProject", icon: <Code2 size={20} />, color: "blue", skillCommand: "/explore" },
+    { key: "reviewCode", icon: <GitCompare size={20} />, color: "green", skillCommand: "/review" },
+    { key: "fixBug", icon: <Bug size={20} />, color: "red", skillCommand: "" },
+    { key: "generateTests", icon: <TestTube2 size={20} />, color: "purple", skillCommand: "" },
   ],
   office: [
-    { key: "analyzeSheet", icon: <Table2 size={18} />, color: "green", skillCommand: "/skill sheet-analysis" },
-    { key: "weeklyReport", icon: <FileSpreadsheet size={18} />, color: "blue", skillCommand: "/skill weekly-report" },
-    { key: "makePpt", icon: <Presentation size={18} />, color: "orange", skillCommand: "" },
-    { key: "organizeDoc", icon: <FileStack size={18} />, color: "teal", skillCommand: "/skill sheet-clean" },
+    { key: "analyzeSheet", icon: <Table2 size={20} />, color: "green", skillCommand: "/skill sheet-analysis" },
+    { key: "weeklyReport", icon: <FileSpreadsheet size={20} />, color: "blue", skillCommand: "/skill weekly-report" },
+    { key: "makePpt", icon: <Presentation size={20} />, color: "orange", skillCommand: "" },
+    { key: "organizeDoc", icon: <FileStack size={20} />, color: "teal", skillCommand: "/skill sheet-clean" },
   ],
   assistant: [
-    { key: "searchResearch", icon: <Search size={18} />, color: "blue", skillCommand: "" },
-    { key: "summarizeArticle", icon: <FileText size={18} />, color: "green", skillCommand: "" },
-    { key: "translateContent", icon: <Languages size={18} />, color: "purple", skillCommand: "" },
-    { key: "scheduleManage", icon: <CalendarCheck size={18} />, color: "orange", skillCommand: "" },
+    { key: "searchResearch", icon: <Search size={20} />, color: "blue", skillCommand: "" },
+    { key: "summarizeArticle", icon: <FileText size={20} />, color: "green", skillCommand: "" },
+    { key: "translateContent", icon: <Languages size={20} />, color: "purple", skillCommand: "" },
+    { key: "scheduleManage", icon: <CalendarCheck size={20} />, color: "orange", skillCommand: "" },
   ],
 };
 
@@ -65,13 +65,16 @@ function getGreetingKey(): "home.greetingMorning" | "home.greetingAfternoon" | "
 
 function getGreetingIcon() {
   const hour = new Date().getHours();
-  if (hour >= 5 && hour < 12) return <Sun size={22} />;
-  if (hour >= 12 && hour < 18) return <CloudSun size={22} />;
-  return <Moon size={22} />;
+  if (hour >= 5 && hour < 12) return <Sun size={28} />;
+  if (hour >= 12 && hour < 18) return <CloudSun size={28} />;
+  return <Moon size={28} />;
 }
 
 // ── Relative time formatting ───────────────────────────────────
-function relativeTime(ms: number, t: (key: "home.justNow" | "home.minutesAgo" | "home.hoursAgo" | "home.daysAgo", params?: Record<string, string | number>) => string): string {
+function relativeTime(
+  ms: number,
+  t: (key: "home.justNow" | "home.minutesAgo" | "home.hoursAgo" | "home.daysAgo", params?: Record<string, string | number>) => string
+): string {
   const diff = Date.now() - ms;
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return t("home.justNow");
@@ -101,7 +104,6 @@ export function HomePanel({
   const [data, setData] = useState<HomePageData | null>(null);
   const [onboardingPending, setOnboardingPending] = useState(() => isOnboardingTaskPending());
 
-  // Re-check onboarding status on mount and after celebration closes.
   useEffect(() => {
     const check = () => setOnboardingPending(isOnboardingTaskPending());
     check();
@@ -114,7 +116,9 @@ export function HomePanel({
     app.GetHomePageData().then((result) => {
       if (!cancelled) setData(result);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const actions = QUICK_ACTIONS[workspaceType];
@@ -126,37 +130,40 @@ export function HomePanel({
     }
   };
 
+  const recentTasks = data?.recentTasks ?? [];
+  const suggestedSkills = data?.suggestedSkills ?? [];
+
   return (
     <div className="home-panel">
-      {/* ── Onboarding progress ── */}
-      {onboardingPending && (
-        <section className="home-panel__onboarding-progress">
-          <div className="home-panel__progress-bar">
-            <div className="home-panel__progress-fill" style={{ width: "50%" }} />
-          </div>
-          <p className="home-panel__progress-text">{t("home.onboardingProgress")}</p>
-        </section>
-      )}
-      {!onboardingPending && (
-        <section className="home-panel__onboarding-complete">
-          <Trophy size={14} />
-          <span>{t("home.onboardingComplete")}</span>
-        </section>
-      )}
-      {/* ── Greeting ── */}
-      <section className="home-panel__greeting">
-        <span className="home-panel__greeting-icon">{getGreetingIcon()}</span>
-        <div className="home-panel__greeting-text">
-          <h2 className="home-panel__greeting-title">{t(getGreetingKey())}</h2>
-          <p className="home-panel__greeting-subtitle">
+      {/* ── Hero / Greeting ── */}
+      <header className="home-panel__hero">
+        <div className="home-panel__hero-icon">{getGreetingIcon()}</div>
+        <div className="home-panel__hero-text">
+          <h1 className="home-panel__hero-title">{t(getGreetingKey())}</h1>
+          <p className="home-panel__hero-subtitle">
             {t(`home.roleDescription.${workspaceType}` as any)}
           </p>
         </div>
-      </section>
+        {onboardingPending ? (
+          <div className="home-panel__onboarding" data-variant="progress">
+            <div className="home-panel__progress-bar">
+              <div className="home-panel__progress-fill" style={{ width: "50%" }} />
+            </div>
+            <span className="home-panel__progress-text">{t("home.onboardingProgress")}</span>
+          </div>
+        ) : (
+          <div className="home-panel__onboarding" data-variant="done">
+            <Trophy size={14} />
+            <span>{t("home.onboardingComplete")}</span>
+          </div>
+        )}
+      </header>
 
       {/* ── Quick actions ── */}
-      <section className="home-panel__quick-actions">
-        <h3 className="home-panel__section-title">{t("home.quickActions")}</h3>
+      <section className="home-panel__section">
+        <div className="home-panel__section-head">
+          <h3 className="home-panel__section-title">{t("home.quickActions")}</h3>
+        </div>
         <div className="home-panel__action-grid">
           {actions.map((action) => (
             <button
@@ -168,78 +175,83 @@ export function HomePanel({
               <span className="home-panel__action-label">
                 {t(`home.action.${action.key}` as any)}
               </span>
+              <ArrowRight size={14} className="home-panel__action-arrow" />
             </button>
           ))}
         </div>
       </section>
 
-      {/* ── Recent tasks ── */}
-      <section className="home-panel__recent-tasks">
-        <h3 className="home-panel__section-title">{t("home.recentTasks")}</h3>
-        {data && data.recentTasks.length > 0 ? (
-          <ul className="home-panel__task-list">
-            {data.recentTasks.slice(0, 5).map((task: SessionMeta) => (
-              <li key={task.path} className="home-panel__task-item">
-                <button
-                  className="home-panel__task-button"
-                  onClick={() => onNavigateToSession(task.path)}
-                >
-                  <span className="home-panel__task-title">
-                    {task.title || task.preview}
-                  </span>
-                  <span className="home-panel__task-meta">
-                    <span className="home-panel__task-status">
-                      {task.open
-                        ? t("home.taskOpen")
-                        : task.current
-                          ? t("home.taskCurrent")
-                          : t("home.taskClosed")}
+      {/* ── Two-column: recent tasks + suggested skills ── */}
+      <div className="home-panel__columns">
+        <section className="home-panel__section">
+          <div className="home-panel__section-head">
+            <h3 className="home-panel__section-title">{t("home.recentTasks")}</h3>
+          </div>
+          {recentTasks.length > 0 ? (
+            <ul className="home-panel__task-list">
+              {recentTasks.slice(0, 5).map((task: SessionMeta) => (
+                <li key={task.path}>
+                  <button
+                    className="home-panel__task-item"
+                    onClick={() => onNavigateToSession(task.path)}
+                  >
+                    <span
+                      className="home-panel__task-dot"
+                      data-state={task.open ? "open" : task.current ? "current" : "closed"}
+                    />
+                    <span className="home-panel__task-title">
+                      {task.title || task.preview}
                     </span>
                     <span className="home-panel__task-time">
                       <Clock size={11} />
                       {relativeTime(task.lastActivityAt, t)}
                     </span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="home-panel__empty">{t("home.noRecentTasks")}</p>
-        )}
-      </section>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="home-panel__empty">{t("home.noRecentTasks")}</p>
+          )}
+        </section>
 
-      {/* ── Suggested skills ── */}
-      <section className="home-panel__skills">
-        <h3 className="home-panel__section-title">{t("home.suggestedSkills")}</h3>
-        {data && data.suggestedSkills.length > 0 ? (
-          <ul className="home-panel__skill-list">
-            {data.suggestedSkills.map((skill) => (
-              <li key={skill.name} className="home-panel__skill-item">
-                <button
-                  className="home-panel__skill-button"
-                  onClick={() => onActivateSkill(skill.name)}
-                >
-                  <Zap size={13} />
-                  <span className="home-panel__skill-name">{skill.name}</span>
-                  <span className="home-panel__skill-desc">{skill.description}</span>
-                  <ChevronRight size={13} className="home-panel__skill-arrow" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="home-panel__empty">{t("home.noSuggestedSkills")}</p>
-        )}
-      </section>
+        <section className="home-panel__section">
+          <div className="home-panel__section-head">
+            <h3 className="home-panel__section-title">{t("home.suggestedSkills")}</h3>
+          </div>
+          {suggestedSkills.length > 0 ? (
+            <ul className="home-panel__skill-list">
+              {suggestedSkills.map((skill) => (
+                <li key={skill.name}>
+                  <button
+                    className="home-panel__skill-item"
+                    onClick={() => onActivateSkill(skill.name)}
+                  >
+                    <Zap size={14} className="home-panel__skill-icon" />
+                    <span className="home-panel__skill-info">
+                      <span className="home-panel__skill-name">{skill.name}</span>
+                      <span className="home-panel__skill-desc">{skill.description}</span>
+                    </span>
+                    <ArrowRight size={13} className="home-panel__skill-arrow" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="home-panel__empty">{t("home.noSuggestedSkills")}</p>
+          )}
+        </section>
+      </div>
 
       {/* ── Daily tip ── */}
-      <section className="home-panel__daily-tip">
-        <span className="home-panel__tip-icon"><Lightbulb size={14} /></span>
+      <footer className="home-panel__tip">
+        <span className="home-panel__tip-icon">
+          <Lightbulb size={15} />
+        </span>
         <span className="home-panel__tip-text">
           {data?.dailyTip || t("home.dailyTip")}
         </span>
-      </section>
+      </footer>
     </div>
   );
 }

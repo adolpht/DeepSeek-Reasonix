@@ -55,6 +55,8 @@ foreach ($p in $standalonePlugins) {
     go build -o "$Root\bin\$p.exe" .
     Pop-Location
 }
+# Copy python helper scripts (slides plugin requires ppt_gen.py)
+Copy-Item "$Root\cmd\reasonix-plugin-slides\ppt_gen.py" "$Root\bin\ppt_gen.py" -Force
 Write-Host "  Standalone-module plugins done" -ForegroundColor Green
 
 # 3. Build frontend
@@ -83,6 +85,8 @@ $allPlugins = @(
 foreach ($p in $allPlugins) {
     Copy-Item "$Root\bin\$p.exe" $pluginsDir -Force
 }
+# Copy python helper scripts for slides plugin
+Copy-Item "$Root\bin\ppt_gen.py" $pluginsDir -Force -ErrorAction SilentlyContinue
 Write-Host "  Plugins staged to $pluginsDir" -ForegroundColor Green
 
 # 5. Build Desktop + NSIS installer
