@@ -343,6 +343,17 @@ func (a *App) RenderDocPreview(absPath string, page int) ([]DocPreviewPage, erro
 		}}, nil
 	}
 
+	// HTML: serve the raw file with text/html MIME so the browser renders
+	// it inside an <iframe> (effect preview instead of source view).
+	if ext == "html" || ext == "htm" {
+		tok := a.ensureMediaTokenStore().create(absPath, name, "text/html; charset=utf-8", "html", info.Size(), info.ModTime())
+		return []DocPreviewPage{{
+			URL:   "/__reasonix_workspace_media/" + tok + "/" + url.PathEscape(name),
+			Page:  1,
+			Total: 1,
+		}}, nil
+	}
+
 	// Fallback: register as binary blob so the frontend gets a download URL.
 	mime := "application/octet-stream"
 	tok := a.ensureMediaTokenStore().create(absPath, name, mime, "binary", info.Size(), info.ModTime())

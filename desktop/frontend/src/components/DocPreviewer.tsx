@@ -9,6 +9,7 @@ import { Tooltip } from "./Tooltip";
 //   - Images (png/jpg/gif/svg/webp): inline <img>
 //   - PDF: inline <iframe> (browser's native PDF viewer handles pagination)
 //   - docx: inline <iframe> (backend parses docx → HTML served via media token)
+//   - HTML/HTM: inline <iframe> (browser renders the page as effect preview)
 //   - everything else: download chip + "Open in default app" affordance
 //
 // `onExported?` is invoked after a successful ExportToWorkspace call so the
@@ -37,7 +38,8 @@ export function DocPreviewer({
   const isImage = ["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext);
   const isPDF = ext === "pdf";
   const isDocx = ext === "docx";
-  const isInlineFrame = isPDF || isDocx; // both render in an <iframe>
+  const isHTML = ext === "html" || ext === "htm";
+  const isInlineFrame = isPDF || isDocx || isHTML; // all render in an <iframe>
 
   useEffect(() => {
     let cancelled = false;

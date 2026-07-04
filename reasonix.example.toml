@@ -131,7 +131,7 @@ bash_timeout_seconds = 120   # foreground safety cap; set 0 for no tool-local ca
 # disabled_skills = ["review"]                  # hide from prompt, slash invocation, and skill tools
 
 # Skill Registry — discover and install community skills from curated sources.
-# Built-in sources: "Reasonix Official", "Awesome Claude Skills", "Awesome Agent Skills".
+# Built-in sources: "Skill Store (Gitee)" (国内优先), "SkillsMP", "OpenAgentSkill", "Reasonix Official".
 # Manage with /skills browse, /skills install <name>, /skills uninstall <name>, /skills sources.
 # [registry]
 # cache_ttl = "1h"                              # how long to trust cached index data (default 1h)

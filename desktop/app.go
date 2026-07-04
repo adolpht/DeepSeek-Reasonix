@@ -3615,6 +3615,8 @@ const fileRefSearchLimit = 20
 var previewMediaMIMEs = map[string]string{
 	".bmp":  "image/bmp",
 	".gif":  "image/gif",
+	".htm":  "text/html; charset=utf-8",
+	".html": "text/html; charset=utf-8",
 	".jpeg": "image/jpeg",
 	".jpg":  "image/jpeg",
 	".pdf":  "application/pdf",
@@ -3649,6 +3651,9 @@ func previewMediaKind(path string) (kind string, mime string) {
 	}
 	if mime == "application/pdf" {
 		return "pdf", mime
+	}
+	if strings.HasPrefix(mime, "text/html") {
+		return "html", mime
 	}
 	return "", ""
 }

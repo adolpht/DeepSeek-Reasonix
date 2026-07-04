@@ -45,28 +45,36 @@ type Index struct {
 }
 
 // BuiltinSources returns the curated list of built-in registry sources.
+// Domestic (China-accessible) sources are listed first for users in China.
 func BuiltinSources() []Source {
 	return []Source{
+		{
+			Name:        "Skill Store (Gitee)",
+			URL:         "https://gitee.com/shishishe/skill/raw/main/index.json",
+			Type:        "index",
+			Description: "国内技能商店 — 243个精选技能，涵盖内容创作、视频制作、电商营销、PPT生成等",
+			Trusted:     true,
+		},
+		{
+			Name:        "SkillsMP",
+			URL:         "https://skillsmp.com/api/v1/skills",
+			Type:        "index",
+			Description: "全球最大的 Agent 技能市场 — 280,000+ 开源技能，支持 Claude Code / Codex CLI / ChatGPT",
+			Trusted:     true,
+		},
+		{
+			Name:        "OpenAgentSkill",
+			URL:         "https://www.openagentskill.com/api/skills",
+			Type:        "index",
+			Description: "开放 Agent 技能注册表 — 20,000+ 技能，带任务匹配和安全审计",
+			Trusted:     true,
+		},
 		{
 			Name:        "Reasonix Official",
 			URL:         "https://raw.githubusercontent.com/reasonix/skills/main/index.json",
 			Type:        "index",
-			Description: "Official Reasonix skill collection — coding, office, and productivity skills",
+			Description: "Reasonix 官方技能集合 — 编程、办公、生产力技能",
 			Trusted:     true,
-		},
-		{
-			Name:        "Awesome Claude Skills",
-			URL:         "https://raw.githubusercontent.com/anthropics/awesome-claude-skills/main/index.json",
-			Type:        "index",
-			Description: "Community-curated Claude-compatible skills (.claude/skills format)",
-			Trusted:     false,
-		},
-		{
-			Name:        "Awesome Agent Skills",
-			URL:         "https://raw.githubusercontent.com/eyalto/awesome-agent-skills/main/index.json",
-			Type:        "index",
-			Description: "Community agent skill collection — automation, analysis, and more",
-			Trusted:     false,
 		},
 	}
 }
