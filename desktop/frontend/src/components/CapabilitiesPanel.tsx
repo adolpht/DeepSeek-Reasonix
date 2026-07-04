@@ -1721,6 +1721,7 @@ type OfficePluginDef = {
 	title: LocalizedText;
 	desc: LocalizedText;
 	envVars: OfficePluginEnvVar[];
+	autoStartTool?: string; // raw MCP tool name to call after plugin connects
 };
 
 const OFFICE_PLUGINS: OfficePluginDef[] = [
@@ -1734,6 +1735,7 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 			zh: "接收企业微信 / 飞书 / 钉钉的远程指令并回推执行结果。钉钉/飞书支持 Stream 长连接模式,无需公网 IP。",
 			en: "Receive remote commands from WeCom / Feishu / DingTalk and push results back. DingTalk/Feishu support Stream long-connection mode (no public IP needed).",
 		},
+		autoStartTool: "start_stream",
 		envVars: [
 			{ key: "IM_BOT_PORT", label: { zh: "HTTP 监听端口", en: "HTTP listen port" }, placeholder: { zh: "9876", en: "9876" } },
 			{
@@ -1949,6 +1951,7 @@ export function OfficePluginsSettingsPage() {
 						locale={locale}
 						onEnable={(env) => void mutate(() => app.AddMCPServer({
 							name: def.id, transport: "stdio", command: def.command, args: [], url: "", env,
+							...(def.autoStartTool ? { autoStartTool: def.autoStartTool } : {}),
 						}))}
 						onRemove={() => void mutate(() => app.RemoveMCPServer(def.id))}
 						onToggle={(on) => void mutate(() => app.SetMCPServerEnabled(def.id, on))}

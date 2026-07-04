@@ -586,13 +586,14 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		ConnectMCP: func(e config.PluginEntry) (installsource.MCPConnectResult, error) {
 			exp := e.ExpandedPlugin()
 			spec := plugin.Spec{
-				Name:    exp.Name,
-				Type:    exp.Type,
-				Command: exp.Command,
-				Args:    exp.Args,
-				Env:     exp.Env,
-				URL:     exp.URL,
-				Headers: exp.Headers,
+				Name:          exp.Name,
+				Type:          exp.Type,
+				Command:       exp.Command,
+				Args:          exp.Args,
+				Env:           exp.Env,
+				URL:           exp.URL,
+				Headers:       exp.Headers,
+				AutoStartTool: exp.AutoStartTool,
 			}
 			if opts.Stderr != nil {
 				spec.Stderr = opts.Stderr
@@ -1038,13 +1039,14 @@ func PluginSpecs(entries []config.PluginEntry) []plugin.Spec {
 	for i, e := range entries {
 		e = e.ExpandedPlugin() // resolve ${VAR} / ${VAR:-default} from the environment
 		specs[i] = plugin.Spec{
-			Name:    e.Name,
-			Type:    e.Type,
-			Command: e.Command,
-			Args:    e.Args,
-			Env:     e.Env,
-			URL:     e.URL,
-			Headers: e.Headers,
+			Name:          e.Name,
+			Type:          e.Type,
+			Command:       e.Command,
+			Args:          e.Args,
+			Env:           e.Env,
+			URL:           e.URL,
+			Headers:       e.Headers,
+			AutoStartTool: e.AutoStartTool,
 		}
 	}
 	return specs

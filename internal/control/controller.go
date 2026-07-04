@@ -1734,13 +1734,14 @@ func (c *Controller) ConnectMCPServer(e config.PluginEntry) (int, error) {
 func (c *Controller) connectMCPServer(e config.PluginEntry) (int, error) {
 	exp := e.ExpandedPlugin()
 	return c.connectMCPSpec(plugin.Spec{
-		Name:    exp.Name,
-		Type:    exp.Type,
-		Command: exp.Command,
-		Args:    exp.Args,
-		Env:     exp.Env,
-		URL:     exp.URL,
-		Headers: exp.Headers,
+		Name:          exp.Name,
+		Type:          exp.Type,
+		Command:       exp.Command,
+		Args:          exp.Args,
+		Env:           exp.Env,
+		URL:           exp.URL,
+		Headers:       exp.Headers,
+		AutoStartTool: exp.AutoStartTool,
 	})
 }
 

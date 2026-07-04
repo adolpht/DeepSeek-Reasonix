@@ -56,6 +56,10 @@ type Spec struct {
 	// instead of the redundant "mcp__codegraph__codegraph_context". The original
 	// raw name is preserved for MCP protocol calls.
 	StripRawPrefix string
+	// AutoStartTool is the raw MCP tool name to call automatically after the
+	// plugin connects and completes the MCP handshake. The tool is called with
+	// an empty argument map. Empty means no auto-start tool is invoked.
+	AutoStartTool string
 }
 
 // transport carries JSON-RPC messages to and from one MCP server. call sends a
@@ -284,6 +288,28 @@ func Start(ctx context.Context, specs []Spec, p StartPolicy) (*Host, []tool.Tool
 					Tools: cacheableToolsOf(ts),
 				})
 			}()
+
+			// Auto-start tool: if the spec declares one, call it in the
+			// background after the handshake so the plugin becomes operational
+			// without manual intervention. Errors are logged only — a failing
+			// auto-start tool must not prevent the session from booting.
+			if spec.AutoStartTool != "" {
+				toolName := spec.AutoStartTool
+				h.bgWrites.Add(1)
+				go func() {
+					defer h.bgWrites.Done()
+					autoStartCtx, autoCancel := context.WithTimeout(ctx, 30*time.Second)
+					defer autoCancel()
+					if _, err := c.call(autoStartCtx, "tools/call", map[string]any{
+						"name":      toolName,
+						"arguments": map[string]any{},
+					}); err != nil {
+						slog.Warn("plugin: auto-start tool failed", "server", spec.Name, "tool", toolName, "err", err)
+					} else {
+						slog.Info("plugin: auto-start tool called", "server", spec.Name, "tool", toolName)
+					}
+				}()
+			}
 
 			// Prompts and resources are deferred to StartPhaseB so the boot path
 			// can return as soon as tools are ready — the slow-to-list surfaces
@@ -595,6 +621,23 @@ func (h *Host) addConnected(ctx context.Context, s Spec) ([]tool.Tool, error) {
 	}
 	if c.hasResources {
 		go h.fetchResources(ctx, c, nil)
+	}
+	// Auto-start tool: call the configured tool in the background so the plugin
+	// becomes operational without manual intervention.
+	if s.AutoStartTool != "" {
+		toolName := s.AutoStartTool
+		go func() {
+			autoStartCtx, autoCancel := context.WithTimeout(ctx, 30*time.Second)
+			defer autoCancel()
+			if _, err := c.call(autoStartCtx, "tools/call", map[string]any{
+				"name":      toolName,
+				"arguments": map[string]any{},
+			}); err != nil {
+				slog.Warn("plugin: auto-start tool failed", "server", s.Name, "tool", toolName, "err", err)
+			} else {
+				slog.Info("plugin: auto-start tool called", "server", s.Name, "tool", toolName)
+			}
+		}()
 	}
 	return ts, nil
 }

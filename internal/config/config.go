@@ -911,6 +911,12 @@ type PluginEntry struct {
 	// Empty defaults to "background" so enabled MCPs connect automatically
 	// without blocking chat. Unknown non-empty values fall back to "lazy".
 	Tier string `toml:"tier"`
+	// AutoStartTool is the raw MCP tool name to call automatically after the
+	// plugin connects and completes the MCP handshake. The tool is called with
+	// an empty argument map. This is useful for plugins that need an explicit
+	// "start" action to become operational (e.g. IM stream connections).
+	// Example: auto_start_tool = "start_stream"
+	AutoStartTool string `toml:"auto_start_tool"`
 }
 
 func (e PluginEntry) ShouldAutoStart() bool {

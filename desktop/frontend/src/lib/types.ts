@@ -410,6 +410,7 @@ export interface ServerView {
   configured?: boolean;
   autoStart: boolean;
   tier?: "lazy" | "background" | "eager" | string;
+  autoStartTool?: string;
   command?: string;
   args?: string[];
   url?: string;
@@ -480,6 +481,7 @@ export interface MCPServerInput {
   args: string[];
   url: string;
   env?: Record<string, string> | null;
+  autoStartTool?: string;
 }
 
 export interface ModelInfo {

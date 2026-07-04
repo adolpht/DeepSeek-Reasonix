@@ -49,6 +49,14 @@
 > ⚠️ Stream 凭证与 Webhook 凭证**互斥**。同一平台只需配置一种模式。
 > 配置 `IM_DINGTALK_APP_KEY` 或 `IM_FEISHU_APP_ID` 后,`start_stream` 工具会自动探测要启用的平台,无需显式传 `platforms`。
 
+### 1.4 自动启动配置
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `auto_start_tool` | 插件初始化后自动调用的 MCP 工具名 | 空(不自动调用) |
+
+> 配置 `auto_start_tool = "start_stream"` 或 `auto_start_tool = "start_bot"` 后,插件在会话启动时会自动建立连接,无需手动调用启动工具。GUI 启用 IM 插件时此选项自动设为 `start_stream`。
+
 ---
 
 ## 二、平台配置步骤
@@ -89,21 +97,28 @@ GUI 路径:**设置 → 办公插件 → IM 即时通讯 → 配置 → 钉钉�
 [[plugins]]
 name = "im"
 command = "reasonix-plugin-im"
+auto_start_tool = "start_stream"
 
 [plugins.env]
 IM_DINGTALK_APP_KEY = "dingxxxxxx"
 IM_DINGTALK_APP_SECRET = "yyyyyyyy"
 ```
 
-#### 步骤 5:启动验证
+> `auto_start_tool = "start_stream"` 使插件在会话启动时自动建立 Stream 长连接,无需手动执行 `start_stream`。GUI 启用时此选项自动配置。
 
-在 Reasonix 中执行:
+#### 步骤 5:验证
+
+配置 `auto_start_tool` 后,插件会在会话启动时自动连接。检查日志( stderr) 应出现:
+
+```
+plugin: auto-start tool called server=im tool=start_stream
+DingTalk stream started (client_id=dingxxxxxx), receiving messages via WebSocket — no public IP needed
+```
+
+也可手动验证:
+
 ```
 mcp__im__start_stream()
-```
-预期输出:
-```
-DingTalk stream started (client_id=dingxxxxxx), receiving messages via WebSocket — no public IP needed
 ```
 
 在钉钉中 @机器人 发送消息,Reasonix 中执行 `list_pending_commands` 应能看到入队消息。
@@ -148,23 +163,29 @@ GUI 路径:**设置 → 办公插件 → IM 即时通讯 → 配置 → 飞书�
 [[plugins]]
 name = "im"
 command = "reasonix-plugin-im"
+auto_start_tool = "start_stream"
 
 [plugins.env]
 IM_FEISHU_APP_ID = "cli_xxxxxx"
 IM_FEISHU_APP_SECRET = "yyyyyyyy"
 ```
 
-#### 步骤 6:启动验证
+> `auto_start_tool = "start_stream"` 使插件在会话启动时自动建立 Stream 长连接,无需手动执行 `start_stream`。GUI 启用时此选项自动配置。
+
+#### 步骤 6:验证
+
+配置 `auto_start_tool` 后,插件会在会话启动时自动连接。检查日志( stderr) 应出现:
+
+```
+plugin: auto-start tool called server=im tool=start_stream
+Feishu stream started (app_id=cli_xxxxxx), receiving messages via WebSocket — no public IP needed
+```
+
+也可手动验证:
 
 ```
 mcp__im__start_stream()
 ```
-预期输出:
-```
-Feishu stream started (app_id=cli_xxxxxx), receiving messages via WebSocket — no public IP needed
-```
-
-在飞书中 @机器人 发消息,验证 `list_pending_commands` 能看到入队记录。
 
 ---
 
@@ -192,6 +213,7 @@ https://example.com/im/dingtalk?token=<IM_BOT_TOKEN 的值>
 [[plugins]]
 name = "im"
 command = "reasonix-plugin-im"
+auto_start_tool = "start_bot"
 
 [plugins.env]
 IM_BOT_PORT = "9876"
@@ -293,8 +315,10 @@ mcp__im__start_bot()
 
 ### 典型工作流
 
+配置 `auto_start_tool` 后,Stream/Bot 会在会话启动时自动运行,无需手动执行第 1 步。
+
 ```
-# 1. 启动接入(任选其一)
+# 1. 启动接入(配置 auto_start_tool 后可跳过)
 mcp__im__start_stream()            # Stream 模式
 mcp__im__start_bot(port=9876)      # Webhook 模式
 

@@ -2052,6 +2052,7 @@ type ServerView struct {
 	Configured     bool       `json:"configured,omitempty"`
 	AutoStart      bool       `json:"autoStart"`
 	Tier           string     `json:"tier,omitempty"`
+	AutoStartTool  string     `json:"autoStartTool,omitempty"`
 	Command        string     `json:"command,omitempty"`
 	Args           []string   `json:"args,omitempty"`
 	URL            string     `json:"url,omitempty"`
@@ -2246,6 +2247,7 @@ func withPluginConfig(v ServerView, p config.PluginEntry) ServerView {
 	v.Configured = true
 	v.AutoStart = p.ShouldAutoStart()
 	v.Tier = p.ResolvedTier()
+	v.AutoStartTool = p.AutoStartTool
 	v.Command = p.Command
 	v.Args = append([]string(nil), p.Args...)
 	v.URL = p.URL
@@ -2704,12 +2706,13 @@ func skillDisplayRoot(sk skill.Skill, roots []skill.Root) string {
 // MCPServerInput is the drawer's "add server" form. Transport is "stdio" (Command
 // + Args + Env) or "http"/"sse" (URL). Mirrors config.PluginEntry's writable shape.
 type MCPServerInput struct {
-	Name      string            `json:"name"`
-	Transport string            `json:"transport"`
-	Command   string            `json:"command"`
-	Args      []string          `json:"args"`
-	URL       string            `json:"url"`
-	Env       map[string]string `json:"env"`
+	Name          string            `json:"name"`
+	Transport     string            `json:"transport"`
+	Command       string            `json:"command"`
+	Args          []string          `json:"args"`
+	URL           string            `json:"url"`
+	Env           map[string]string `json:"env"`
+	AutoStartTool string            `json:"autoStartTool,omitempty"`
 }
 
 // AddMCPServer connects a server live and persists it to config (Customize → MCP →
@@ -2720,12 +2723,13 @@ func (a *App) AddMCPServer(in MCPServerInput) (int, error) {
 		return 0, fmt.Errorf("no active session")
 	}
 	entry := config.PluginEntry{
-		Name:    in.Name,
-		Type:    normalizeMCPTransport(in.Transport),
-		Command: in.Command,
-		Args:    in.Args,
-		URL:     in.URL,
-		Env:     in.Env,
+		Name:          in.Name,
+		Type:          normalizeMCPTransport(in.Transport),
+		Command:       in.Command,
+		Args:          in.Args,
+		URL:           in.URL,
+		Env:           in.Env,
+		AutoStartTool: in.AutoStartTool,
 	}
 	entry, _ = config.NormalizePluginCommandLine(entry)
 	if err := a.saveDesktopMCPServer(entry); err != nil {
@@ -2759,6 +2763,9 @@ func (a *App) UpdateMCPServer(name string, in MCPServerInput) error {
 	updated.Args = append([]string(nil), in.Args...)
 	updated.URL = strings.TrimSpace(in.URL)
 	updated.Tier = ""
+	if in.AutoStartTool != "" {
+		updated.AutoStartTool = in.AutoStartTool
+	}
 	if in.Env != nil {
 		updated.Env = in.Env
 	}
