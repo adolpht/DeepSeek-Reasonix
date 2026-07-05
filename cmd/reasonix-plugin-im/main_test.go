@@ -43,7 +43,7 @@ func TestCommandQueueList(t *testing.T) {
 	}
 
 	// Mark one done
-	q.markDone(pending[0].ID)
+	q.markDone(pending[0].ID, "result")
 	pending = q.list(10)
 	if len(pending) != 2 {
 		t.Fatalf("expected 2 pending after marking one done, got %d", len(pending))
@@ -63,7 +63,7 @@ func TestCommandQueueListLimit(t *testing.T) {
 
 func TestCommandQueueMarkDoneNotFound(t *testing.T) {
 	q := &commandQueue{notify: make(chan struct{})}
-	cmd := q.markDone("nonexistent")
+	cmd := q.markDone("nonexistent", "result")
 	if cmd != nil {
 		t.Error("expected nil for nonexistent command")
 	}
@@ -75,11 +75,11 @@ func TestCommandQueueMarkDoneTwice(t *testing.T) {
 	pending := q.list(1)
 	id := pending[0].ID
 
-	first := q.markDone(id)
+	first := q.markDone(id, "result")
 	if first == nil {
 		t.Error("first markDone should succeed")
 	}
-	second := q.markDone(id)
+	second := q.markDone(id, "result")
 	if second != nil {
 		t.Error("second markDone should return nil (already done)")
 	}
@@ -520,14 +520,14 @@ func TestMCPProtocolEndToEnd(t *testing.T) {
 		t.Fatalf("tools/list error: %v", resp["error"])
 	}
 	toolList := resp["result"].(map[string]any)["tools"].([]any)
-	if len(toolList) != 10 {
-		t.Fatalf("expected 10 tools, got %d", len(toolList))
+	if len(toolList) != 13 {
+		t.Fatalf("expected 13 tools, got %d", len(toolList))
 	}
 	names := map[string]bool{}
 	for _, tt := range toolList {
 		names[tt.(map[string]any)["name"].(string)] = true
 	}
-	for _, want := range []string{"start_bot", "stop_bot", "start_stream", "stop_stream", "send_message", "list_pending_commands", "mark_command_done", "auto_start", "poll_commands", "create_im_session"} {
+	for _, want := range []string{"start_bot", "stop_bot", "start_stream", "stop_stream", "send_message", "list_pending_commands", "mark_command_done", "reply_message", "auto_start", "poll_commands", "create_im_session", "list_im_sessions", "get_im_session"} {
 		if !names[want] {
 			t.Errorf("tool %q missing from tools/list", want)
 		}

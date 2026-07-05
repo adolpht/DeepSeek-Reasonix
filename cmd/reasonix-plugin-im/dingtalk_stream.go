@@ -105,7 +105,10 @@ func runStopDingTalkStream() (any, error) {
 }
 
 // handleDingTalkStreamMessage enqueues an incoming DingTalk message from Stream mode.
-// Stores the SessionWebhook URL (valid ~2h) as WebhookURL for later reply.
+// Stores the SessionWebhook URL (valid ~2h) as WebhookURL for later reply,
+// and refreshes the chat_id -> URL cache so that long-running tasks whose
+// original SessionWebhook expired can still reply via a fresher URL from any
+// later message in the same chat (B2 fix for RC2.4).
 func handleDingTalkStreamMessage(data *chatbot.BotCallbackDataModel) {
 	if data == nil {
 		return
@@ -115,6 +118,10 @@ func handleDingTalkStreamMessage(data *chatbot.BotCallbackDataModel) {
 		log.Printf("DingTalk stream: empty content, msg_id=%s, msgtype=%s", data.MsgId, data.Msgtype)
 		return
 	}
+
+	// Refresh the SessionWebhook cache for this chat so later retries can
+	// pick up a fresher URL even if the original command's URL expires.
+	dingWebhookCache.Refresh(data.ConversationId, data.SessionWebhook)
 
 	queue.add("dingtalk", content, data.SessionWebhook, map[string]string{
 		"reply_mode":        "stream",

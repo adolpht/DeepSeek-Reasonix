@@ -702,6 +702,28 @@ export const zh: Record<DictKey, string> = {
   "dailyBrief.refresh": "刷新",
   "dailyBrief.completeTodo": "完成",
 
+  // IM 会话面板
+  "sidebar.imSessions": "IM 会话",
+  "imSessions.title": "IM 会话",
+  "imSessions.refresh": "刷新",
+  "imSessions.empty": "暂无 IM 会话。配置 IM 插件并启用后,接收到的消息会显示在这里。",
+  "imSessions.loadError": "加载失败。",
+  "imSessions.filterAll": "全部",
+  "imSessions.filterProcessing": "处理中",
+  "imSessions.filterDone": "已完成",
+  "imSessions.filterFailed": "失败",
+  "imSessions.statusPending": "待处理",
+  "imSessions.statusProcessing": "处理中",
+  "imSessions.statusDone": "已完成",
+  "imSessions.statusFailed": "失败",
+  "imSessions.noContent": "(无内容)",
+  "imSessions.detailNotFound": "未找到会话详情。",
+  "imSessions.incomingMessage": "收到的消息",
+  "imSessions.result": "处理结果",
+  "imSessions.executionTrace": "执行轨迹",
+  "imSessions.traceEmpty": "未关联执行轨迹。",
+  "imSessions.sender": "发送者",
+
   // 设置抽屉
   "settings.title": "设置",
   "settings.loading": "加载中…",

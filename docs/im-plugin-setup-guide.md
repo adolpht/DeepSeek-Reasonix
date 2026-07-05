@@ -76,6 +76,26 @@ IM 插件支持**全自动消息处理**:
 
 可同时配置多个平台,`auto_start` 会依次启动所有已配置的连接。
 
+### 1.5 回调重试与可靠性配置
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `IM_CALLBACK_RETRY` | 是否启用回调重试队列与死信目标注册表 | `on` |
+
+> 设置为 `off` 可紧急回滚到原始「标记即完成」行为(推送失败不重试),无需重新编译。仅在生产环境出现异常时临时关闭,排查后建议恢复 `on`。
+
+**回调可靠性机制**(默认启用):
+
+当 Agent 调用 `mark_command_done` 回推结果时,如果 IM 平台返回错误(如 SessionWebhook 过期、网络抖动、限流),插件会:
+
+1. **不标记命令完成** — 命令保持 pending 状态,可安全重试
+2. **入重试队列** — 按指数退避自动重试(30s → 1m → 5m → 15m → 1h,最多 5 次)
+3. **刷新回调地址** — 钉钉 Stream 模式下,自动从缓存中取该会话最新的 SessionWebhook URL
+4. **死信目标标记** — 若判定为永久错误(机器人被踢出群、群被删除),标记目标为死信,不再无谓重试;后续成功发送时自动清除标记(自愈)
+5. **持久化** — 重试任务保存到 `~/.reasonix/im-plugin/callbacks.json`,插件重启后自动恢复
+
+**消息去重**:钉钉/飞书 SDK 断线重连后可能重投消息,插件按 `msg_id` 自动去重(10 分钟窗口),避免同一消息被处理两次。
+
 ---
 
 ## 二、平台配置步骤
@@ -211,6 +231,12 @@ mcp__im__start_stream()
 ---
 
 ### 2.3 钉钉 Webhook 模式(需公网 IP)
+
+> ⚠️ **重要区分**:钉钉有两种机器人,凭证不通用:
+> - **群机器人**(自定义机器人,`IM_DINGTALK_KEY`):只能**主动推送**消息到群,无法接收用户消息。适合定时报告、告警通知等单向场景。
+> - **企业机器人**(企业内部应用,`IM_DINGTALK_APP_KEY`):支持 Stream 模式接收用户消息并回复。适合交互式命令/响应场景(详见 2.1 节)。
+>
+> 若需要**接收用户消息并回复**,请使用 [2.1 钉钉 Stream 模式](#21-钉钉-stream-模式推荐无需公网-ip)。本节 Webhook 模式仅用于主动推送。
 
 #### 步骤 1:创建钉钉自定义机器人
 
@@ -373,8 +399,9 @@ im-watcher: started, polling for IM messages
 | `mcp__im__poll_commands` | 长轮询等待新 IM 消息(阻塞直到消息到达或超时) | ✅ 后台 IM Watcher 自动轮询 |
 | `mcp__im__list_pending_commands` | 列出待处理的远程指令 | 手动(或由 Agent 调用) |
 | `mcp__im__create_im_session` | 为 IM 消息创建可追溯会话,关联平台/会话/发送者 | ✅ Agent 按提示词自动调用 |
-| `mcp__im__mark_command_done` | 标记指令已执行,并把结果回推到原平台 | ✅ Agent 处理完成后自动调用 |
-| `mcp__im__send_message` | 主动向指定 IM 平台 Webhook 推送消息 | 手动 |
+| `mcp__im__mark_command_done` | 标记指令已执行并回推最终结果。推送失败时自动入重试队列,无需手动重试 | ✅ Agent 处理完成后自动调用 |
+| `mcp__im__reply_message` | 按 command_id 回复中间进度或结果,自动解析回调地址,不标记命令完成 | 手动(用于中间进度通知) |
+| `mcp__im__send_message` | 主动向指定 IM 平台 Webhook 推送消息(钉钉自动识别群机器人 vs SessionWebhook) | 手动 |
 
 ### 自动化工作流
 
@@ -385,16 +412,25 @@ im-watcher: started, polling for IM messages
   │
   ├─ auto_start 自动检测环境变量 → 启动 Stream/Webhook 连接
   ├─ 后台 IM Watcher 启动 → 持续轮询 poll_commands
+  ├─ 回调重试 Worker 启动 → 后台自动重试失败的推送
   │
   └─ IM 消息到达
        │
+       ├─ 按 msg_id 去重(避免 SDK 重连导致的重复处理)
        ├─ IM Watcher 收到通知 → 通知 Agent
        │
        └─ Agent 自动处理
             ├─ poll_commands → 获取消息详情
             ├─ create_im_session → 创建可追溯会话
             ├─ 执行业务逻辑
-            └─ mark_command_done → 回推结果到 IM 平台
+            │   └─ (可选) reply_message → 回推中间进度
+            └─ mark_command_done → 回推最终结果到 IM 平台
+                 │
+                 ├─ 推送成功 → 标记命令完成 ✅
+                 └─ 推送失败 → 自动入重试队列(30s/1m/5m/15m/1h 退避)
+                      │
+                      └─ 重试成功 → 标记命令完成 ✅
+                      └─ 重试耗尽 → 标记会话失败 ❌(日志告警)
 ```
 
 ### 手动工作流(不使用 auto_start)
@@ -416,6 +452,12 @@ mcp__im__create_im_session(
 )
 
 # 4. 执行业务逻辑后回推结果
+#    (可选)中间进度通知:reply_message 不标记命令完成,可多次调用
+mcp__im__reply_message(
+  command_id="cmd-1-abc123",
+  result="⏳ 正在查询日程,请稍候..."
+)
+#    最终结果:mark_command_done 标记完成并回推
 mcp__im__mark_command_done(
   command_id="cmd-1-abc123",
   result="✅ 已为您完成日程查询:\n- 明天 09:00 项目周会\n- 14:00 客户拜访"
@@ -540,6 +582,46 @@ IM 插件启动后,后台 IM Watcher 会持续调用 `poll_commands` 等待新�
 | `start_bot` | `auto_start_tool = "start_bot"` 或手动调用 | 仅启动 Webhook HTTP 服务器 |
 
 推荐使用 `auto_start`,它会根据实际配置自动选择最佳模式。
+
+### Q10:`reply_message` 和 `mark_command_done` 有什么区别?
+
+| 工具 | 是否标记完成 | 可否多次调用 | 典型场景 |
+|------|-------------|-------------|---------|
+| `reply_message` | ❌ 不标记 | ✅ 可多次调用 | 中间进度通知、阶段性反馈 |
+| `mark_command_done` | ✅ 标记完成 | ❌ 仅一次 | 最终结果回推 |
+
+两者都会自动解析回调地址(`command_id` 即可),无需手动传 `webhook_url`。`mark_command_done` 推送失败时会自动入重试队列;`reply_message` 失败则直接返回错误(不重试,因为它通常用于中间状态)。
+
+### Q11:回调推送失败后会怎样?
+
+`mark_command_done` 回推结果时,如果 IM 平台返回错误,插件会:
+
+1. **不标记命令完成** — 命令保持 pending,Agent 可重试或查询
+2. **入持久化重试队列** — 后台 Worker 按指数退避自动重试(30s → 1m → 5m → 15m → 1h)
+3. **钉钉 Stream 模式** — 自动从缓存取该会话最新的 SessionWebhook URL(有效期约 2h)
+4. **永久错误**(机器人被踢出群等)— 标记死信目标,不再重试
+5. **重试耗尽**(5 次仍失败)— 标记会话为 failed,日志告警
+
+重试任务持久化到 `~/.reasonix/im-plugin/callbacks.json`,插件重启后自动恢复。如需紧急关闭重试机制,设置 `IM_CALLBACK_RETRY=off`。
+
+### Q12:钉钉群机器人和企业机器人有什么区别?
+
+| 类型 | 凭证 | 能力 | 适用场景 |
+|------|------|------|---------|
+| **群机器人**(自定义机器人) | `IM_DINGTALK_KEY` + `IM_DINGTALK_SECRET` | 只能**主动推送**消息到群,无法接收用户消息 | 单向通知(如定时报告、告警) |
+| **企业机器人**(企业内部应用) | `IM_DINGTALK_APP_KEY` + `IM_DINGTALK_APP_SECRET` | Stream 模式**接收 + 回复**双向消息 | 交互式命令/响应、对话式 Agent |
+
+> ⚠️ 两者凭证**不可混用**。若需接收用户消息并回复,必须使用企业机器人(Stream 模式)。群机器人仅用于主动推送。
+
+### Q13:为何 Agent 处理完消息后用户没收到回复?
+
+排查清单:
+
+1. **Agent 是否调用了 `mark_command_done`** — 这是回推结果的唯一入口;若 Agent 遗忘调用,用户不会收到回复
+2. **查看日志是否有 `callback_retry: enqueued`** — 表示推送失败已入重试队列
+3. **钉钉 Stream 模式**:确认消息接收后日志有 `DingTalk stream: queued msg` 记录;若 SessionWebhook 已过期(超 2h),重试时会自动从缓存刷新
+4. **死信目标** — 若机器人被移出群,日志会出现 `dead_targets: marked`,需重新将机器人加入群
+5. **设置 `IM_CALLBACK_RETRY=off`** — 若曾紧急关闭,记得恢复为 `on`
 
 ---
 

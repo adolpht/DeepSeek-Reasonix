@@ -23,7 +23,8 @@
 //
 // Reasonix then surfaces its tools as mcp__im__start_bot / stop_bot /
 // start_stream / stop_stream / send_message / list_pending_commands /
-// mark_command_done / auto_start / poll_commands / create_im_session.
+// mark_command_done / reply_message / auto_start / poll_commands /
+// create_im_session.
 //
 // Environment variables:
 //
@@ -31,12 +32,25 @@
 //	IM_BOT_TOKEN         - Verification token for incoming webhooks (used when start_bot omits token)
 //	IM_WECOM_KEY         - WeCom webhook key (also enables wecom platform when start_bot omits platforms)
 //	IM_FEISHU_KEY        - Feishu webhook key (also enables feishu platform when start_bot omits platforms)
-//	IM_DINGTALK_KEY      - DingTalk access token (also enables dingtalk platform when start_bot omits platforms)
-//	IM_DINGTALK_SECRET   - DingTalk signing secret
-//	IM_DINGTALK_APP_KEY  - DingTalk enterprise app AppKey (for Stream mode)
-//	IM_DINGTALK_APP_SECRET - DingTalk enterprise app AppSecret (for Stream mode)
-//	IM_FEISHU_APP_ID     - Feishu enterprise app App ID (for Stream mode)
-//	IM_FEISHU_APP_SECRET - Feishu enterprise app App Secret (for Stream mode)
+//
+//	DingTalk has TWO robot types — do NOT mix their credentials:
+//	  - Group robot (群机器人): IM_DINGTALK_KEY + IM_DINGTALK_SECRET
+//	    Can only PROACTIVELY push messages to a group; CANNOT receive user messages.
+//	    Use this for one-way notifications (e.g. cron reports).
+//	  - Enterprise robot (企业机器人): IM_DINGTALK_APP_KEY + IM_DINGTALK_APP_SECRET
+//	    Supports Stream mode (WebSocket long-connection) for receiving user messages
+//	    AND replying via SessionWebhook. Use this for interactive command/response.
+//
+//	IM_DINGTALK_KEY        - Group robot access_token (proactive push only; signs with IM_DINGTALK_SECRET)
+//	IM_DINGTALK_SECRET     - Group robot signing secret
+//	IM_DINGTALK_APP_KEY    - Enterprise robot AppKey (Stream mode: receive + reply)
+//	IM_DINGTALK_APP_SECRET - Enterprise robot AppSecret (Stream mode)
+//	IM_FEISHU_APP_ID       - Feishu enterprise app App ID (for Stream mode)
+//	IM_FEISHU_APP_SECRET   - Feishu enterprise app App Secret (for Stream mode)
+//
+//	IM_CALLBACK_RETRY     - Enable callback retry queue + dead-target registry (default "on").
+//	                         Set to "off" for emergency rollback to the original
+//	                         "mark done first, fail silently on push error" behavior.
 //
 // Protocol: newline-delimited JSON-RPC 2.0 on stdin/stdout. Logs go to stderr;
 // stdout is reserved for JSON-RPC.
@@ -57,8 +71,16 @@ var version = "dev"
 func main() {
 	log.SetPrefix("reasonix-plugin-im: ")
 	log.SetFlags(0)
+	loadState()          // restore sessions + commands from ~/.reasonix/im-plugin/state.json
+	callbackRetry.load() // restore pending callback retries from callbacks.json
+	if callbackRetryEnabled() {
+		callbackRetry.StartWorker() // background goroutine retries failed pushes
+	}
 	if err := serve(os.Stdin, os.Stdout); err != nil {
 		log.Fatal(err)
+	}
+	if callbackRetryEnabled() {
+		callbackRetry.Stop()
 	}
 }
 
@@ -168,9 +190,12 @@ var tools = []toolDef{
 	sendMessageTool,
 	listPendingCommandsTool,
 	markCommandDoneTool,
+	replyMessageTool,
 	autoStartTool,
 	pollCommandsTool,
 	createIMSessionTool,
+	listIMSessionsTool,
+	getIMSessionTool,
 }
 
 func toolList() []map[string]any {
@@ -466,7 +491,7 @@ var listPendingCommandsTool = toolDef{
 
 var markCommandDoneTool = toolDef{
 	name:        "mark_command_done",
-	description: "Mark a remote command as executed and push the result back to the IM platform",
+	description: "Mark a remote command as executed and push the result back to the IM platform. MUST be called after processing a command so the result is delivered to the user. On push failure, the command is automatically enqueued for retry (no need to retry manually).",
 	readOnly:    false,
 	schema: map[string]any{
 		"type": "object",
@@ -486,6 +511,42 @@ var markCommandDoneTool = toolDef{
 			return nil, err
 		}
 		return runMarkCommandDone(commandID, result)
+	},
+}
+
+// replyMessageTool is the recommended way to push a result back to the IM
+// platform: it only needs the command_id and the result text, automatically
+// resolving the correct webhook URL and reply mode (stream vs webhook) from
+// the stored pending command. This avoids the fragile manual webhook_url
+// passing that caused Stream-mode replies to fail (RC1.2).
+//
+// Unlike mark_command_done, reply_message does NOT mark the command as done;
+// it only pushes the result. Use reply_message for intermediate progress
+// updates, and mark_command_done for the final result.
+var replyMessageTool = toolDef{
+	name:        "reply_message",
+	description: "Reply to a pending IM command by command_id, auto-resolving the correct webhook URL and reply mode. Use this to send intermediate progress or the final result back to the user. For final completion, prefer mark_command_done (which also marks the command as done).",
+	readOnly:    false,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"command_id": map[string]any{"type": "string", "description": "Command ID to reply to"},
+			"result":     map[string]any{"type": "string", "description": "Result / progress text to send back"},
+			"msg_type":   map[string]any{"type": "string", "enum": []string{"text", "markdown"}, "description": "Message type", "default": "text"},
+		},
+		"required": []string{"command_id", "result"},
+	},
+	run: func(args map[string]any) (any, error) {
+		commandID, err := argString(args, "command_id")
+		if err != nil {
+			return nil, err
+		}
+		result, err := argString(args, "result")
+		if err != nil {
+			return nil, err
+		}
+		msgType := argStringDefault(args, "msg_type", "text")
+		return runReplyMessage(commandID, result, msgType)
 	},
 }
 
@@ -650,5 +711,52 @@ var createIMSessionTool = toolDef{
 		senderName := argStringDefault(args, "sender_name", "")
 		tags := argStringSliceDefault(args, "tags", nil)
 		return runCreateIMSession(platform, conversationID, senderID, senderName, commandID, tags)
+	},
+}
+
+// listIMSessionsTool returns tracked IM sessions for the management UI.
+// Read-only — safe for the desktop to call on every panel refresh.
+var listIMSessionsTool = toolDef{
+	name:        "list_im_sessions",
+	description: "List tracked IM conversation sessions, newest first. Used by the desktop IM Sessions panel to show incoming messages and their processing state.",
+	readOnly:    true,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"status": map[string]any{
+				"type":        "string",
+				"enum":        []string{"", "pending", "processing", "done", "failed"},
+				"description": "Filter by status; empty = all",
+				"default":     "",
+			},
+			"limit": map[string]any{"type": "integer", "description": "Max sessions to return", "default": 100},
+		},
+	},
+	run: func(args map[string]any) (any, error) {
+		status := argStringDefault(args, "status", "")
+		limit := argIntDefault(args, "limit", 100)
+		return runListIMSessions(status, limit)
+	},
+}
+
+// getIMSessionTool returns a single IM session with its linked command,
+// for the detail view in the desktop IM Sessions panel.
+var getIMSessionTool = toolDef{
+	name:        "get_im_session",
+	description: "Get a single IM session by ID, including the linked pending command for full context. Used by the desktop IM Sessions panel detail view.",
+	readOnly:    true,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"session_id": map[string]any{"type": "string", "description": "IM session ID"},
+		},
+		"required": []string{"session_id"},
+	},
+	run: func(args map[string]any) (any, error) {
+		sessionID, err := argString(args, "session_id")
+		if err != nil {
+			return nil, err
+		}
+		return runGetIMSession(sessionID)
 	},
 }

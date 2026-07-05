@@ -849,3 +849,44 @@ export interface MailSummary {
   date: number; // unix ms
   read: boolean;
 }
+
+// --- IM Sessions dock panel (desktop/app.go ListIMSessions / GetIMSession) ---
+// IMSessionView is one row in the IM Sessions list. The IM plugin tracks each
+// incoming IM command as a session, linking platform/sender/content/status/
+// result. agentSession (when set) is the agent transcript (.jsonl) path that
+// processed this command — the detail view loads it via PreviewSession.
+export type IMSessionStatus = "pending" | "processing" | "done" | "failed";
+
+export interface IMSessionView {
+  id: string;
+  platform: string;
+  conversationId?: string;
+  senderId?: string;
+  senderName?: string;
+  commandId: string;
+  content?: string;
+  status: IMSessionStatus;
+  result?: string;
+  agentSession?: string;
+  createdAt: number; // unix ms
+  updatedAt: number; // unix ms
+  doneAt?: number; // unix ms, 0 = not done
+}
+
+// IMCommandView mirrors the plugin's pendingCommand for the detail panel.
+export interface IMCommandView {
+  id: string;
+  platform: string;
+  content: string;
+  webhookUrl?: string;
+  extra?: Record<string, string>;
+  receivedAt: number; // unix ms
+  done: boolean;
+  result?: string;
+  doneAt?: number; // unix ms
+}
+
+// IMSessionDetailView is a single IM session plus its linked pending command.
+export interface IMSessionDetailView extends IMSessionView {
+  command?: IMCommandView;
+}

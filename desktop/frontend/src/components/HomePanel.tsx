@@ -105,10 +105,7 @@ export function HomePanel({
   const [onboardingPending, setOnboardingPending] = useState(() => isOnboardingTaskPending());
 
   useEffect(() => {
-    const check = () => setOnboardingPending(isOnboardingTaskPending());
-    check();
-    const timer = setInterval(check, 2000);
-    return () => clearInterval(timer);
+    setOnboardingPending(isOnboardingTaskPending());
   }, []);
 
   useEffect(() => {

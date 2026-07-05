@@ -1,4 +1,4 @@
-import { memo, useDeferredValue } from "react";
+import { memo, lazy, Suspense, useDeferredValue } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,9 +6,12 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { CodeViewer } from "./CodeViewer";
-import { MermaidBlock } from "./MermaidBlock";
 import { normalizeMath } from "./mathNormalize";
 import { openExternal } from "../lib/bridge";
+
+// Lazy-load MermaidBlock: mermaid + cytoscape + dagre are ~2MB of JS.
+// Only load when a ```mermaid code block is actually encountered.
+const MermaidBlock = lazy(() => import("./MermaidBlock").then((m) => ({ default: m.MermaidBlock })));
 
 // Markdown rendering via react-markdown + remark-gfm (tables, task lists,
 // strike, autolinks) and remark-math + rehype-katex for $/$$ KaTeX math.
@@ -32,7 +35,7 @@ const components: Components = {
     const isBlock = match !== null || text.includes("\n");
     if (isBlock) {
       if (lang === "mermaid") {
-        return <MermaidBlock source={text.replace(/\n$/, "")} />;
+        return <Suspense fallback={<pre className="md-code">{text}</pre>}><MermaidBlock source={text.replace(/\n$/, "")} /></Suspense>;
       }
       return <CodeViewer value={text.replace(/\n$/, "")} language={lang} maxHeight={360} />;
     }

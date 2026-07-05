@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -88,6 +89,14 @@ type App struct {
 	workflowStore    *workflow.Store
 	clipboardHistory *ClipboardHistory
 	terminals        *terminalManager
+
+	// imProcessor is the App-level single IM background processor. It owns the
+	// sole IM plugin connection + poll watcher, keeping IM message handling
+	// isolated from user tab conversations. Nil until startIMProcessor runs.
+	imMu      sync.Mutex
+	imCtrl    *control.Controller
+	imCancel  context.CancelFunc
+	imStarted bool
 }
 
 // mediaTokenEntry holds metadata for a workspace media file served via temporary URL.
@@ -410,6 +419,12 @@ func (a *App) startup(ctx context.Context) {
 	if err := a.RegisterClipboardHotkey(); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: clipboard hotkey not registered:", err)
 	}
+
+	// Start the App-level IM background processor. It owns the sole IM plugin
+	// connection + poll watcher, keeping IM message handling isolated from user
+	// tab conversations. Runs in a goroutine so a slow IM plugin spawn never
+	// blocks the UI. See startIMProcessor for details.
+	go a.startIMProcessor()
 }
 
 func (a *App) monitorClipboard() {
@@ -623,6 +638,10 @@ func (a *App) shutdown(context.Context) {
 	if a.dataStore != nil {
 		a.dataStore.Close()
 	}
+
+	// Stop the App-level IM processor first so its poll watcher exits before
+	// we close tab controllers (avoids racing on shared plugin host state).
+	a.stopIMProcessor()
 
 	a.mu.RLock()
 	tabs := make([]*WorkspaceTab, 0, len(a.tabs))
@@ -1187,10 +1206,10 @@ func (a *App) Fork(turn int) (TabMeta, error) {
 
 	a.emitProjectTreeChanged()
 	a.startTabControllerBuild(tab)
+	wruntime.EventsEmit(a.ctx, "tabs:changed")
 	return meta, nil
 }
 
-// SummarizeFrom / SummarizeUpTo compress the conversation from / up to the start
 // of turn into one summary (Claude Code's "summarize from/up to here"), keeping
 // code intact. The frontend re-reads History after this resolves.
 func (a *App) SummarizeFrom(turn int) error {
@@ -2219,6 +2238,70 @@ func (a *App) Capabilities() CapabilitiesView {
 	}
 	out.Servers = orderServerViews(out.Servers, order)
 
+	// Merge IM processor connection status. The IM plugin lives on the
+	// App-level background controller (imCtrl), not on any tab controller,
+	// so Capabilities() must check it separately. If the IM plugin is
+	// connected there, override its status in the server list so the
+	// frontend shows "已连接" instead of "disabled"/"initializing".
+	a.imMu.Lock()
+	imCtrl := a.imCtrl
+	a.imMu.Unlock()
+	if imCtrl != nil {
+		if h := imCtrl.Host(); h != nil {
+			for _, s := range h.Servers() {
+				if s.Name != "im" {
+					continue
+				}
+				// Find or add the IM entry in the output list.
+				found := false
+				for i, sv := range out.Servers {
+					if sv.Name == "im" {
+						out.Servers[i].Status = "connected"
+						out.Servers[i].Error = ""
+						if p, ok := configured["im"]; ok {
+							out.Servers[i] = withPluginConfig(out.Servers[i], p)
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					view := ServerView{
+						Name: "im", Status: "connected",
+						Tools: s.Tools, Prompts: s.Prompts, Resources: s.Resources,
+						ToolList: pluginToolsToView(s.ToolList),
+					}
+					if p, ok := configured["im"]; ok {
+						view = withPluginConfig(view, p)
+					}
+					out.Servers = append(out.Servers, view)
+				}
+			}
+			// Also check for IM failures on the processor.
+			for _, f := range h.Failures() {
+				if f.Name != "im" {
+					continue
+				}
+				found := false
+				for i, sv := range out.Servers {
+					if sv.Name == "im" {
+						out.Servers[i].Status = "failed"
+						out.Servers[i].Error = f.Error
+						found = true
+						break
+					}
+				}
+				if !found {
+					view := ServerView{Name: "im", Status: "failed", Error: f.Error}
+					if p, ok := configured["im"]; ok {
+						view = withPluginConfig(view, p)
+					}
+					out.Servers = append(out.Servers, view)
+				}
+			}
+		}
+	}
+
 	a.mu.Lock()
 	for name := range connected {
 		delete(retainedDisabled, name)
@@ -2718,10 +2801,6 @@ type MCPServerInput struct {
 // AddMCPServer connects a server live and persists it to config (Customize → MCP →
 // Add). Returns the number of tools it exposed.
 func (a *App) AddMCPServer(in MCPServerInput) (int, error) {
-	ctrl := a.activeCtrl()
-	if ctrl == nil {
-		return 0, fmt.Errorf("no active session")
-	}
 	entry := config.PluginEntry{
 		Name:          in.Name,
 		Type:          normalizeMCPTransport(in.Transport),
@@ -2732,8 +2811,35 @@ func (a *App) AddMCPServer(in MCPServerInput) (int, error) {
 		AutoStartTool: in.AutoStartTool,
 	}
 	entry, _ = config.NormalizePluginCommandLine(entry)
+
+	// CRITICAL: the "im" plugin requires auto_start_tool = "auto_start" so
+	// the Stream/Webhook connection is established immediately upon plugin
+	// spawn. Without it, the plugin starts but never calls auto_start, so
+	// DingTalk/Feishu Stream connections are never opened and messages are
+	// never received. Force-set this if the caller omitted it.
+	if in.Name == "im" && entry.AutoStartTool == "" {
+		entry.AutoStartTool = "auto_start"
+	}
+
 	if err := a.saveDesktopMCPServer(entry); err != nil {
 		return 0, err
+	}
+
+	// CRITICAL: the "im" plugin must ONLY be owned by the App-level IM
+	// background processor (which uses a silent sink so its turns never
+	// surface in any user tab transcript). If we connect it to the active
+	// tab's controller here, the tab would (a) see IM steering in its system
+	// prompt, (b) start its own poll watcher, and (c) inject IM messages into
+	// the user's coding conversation — hijacking the window. So for IM we
+	// persist the config and restart the dedicated processor instead.
+	if in.Name == "im" {
+		a.restartIMProcessor()
+		return 1, nil
+	}
+
+	ctrl := a.activeCtrl()
+	if ctrl == nil {
+		return 0, fmt.Errorf("no active session")
 	}
 	return ctrl.ConnectMCPServer(entry)
 }
@@ -2743,10 +2849,6 @@ func (a *App) AddMCPServer(in MCPServerInput) (int, error) {
 func (a *App) UpdateMCPServer(name string, in MCPServerInput) error {
 	if name == "codegraph" {
 		return fmt.Errorf("codegraph is built in; configure it with [codegraph]")
-	}
-	ctrl := a.activeCtrl()
-	if ctrl == nil {
-		return fmt.Errorf("no active session")
 	}
 	if strings.TrimSpace(in.Name) != "" && strings.TrimSpace(in.Name) != name {
 		return fmt.Errorf("renaming MCP servers is not supported; remove and add a new server")
@@ -2780,6 +2882,24 @@ func (a *App) UpdateMCPServer(name string, in MCPServerInput) error {
 		return err
 	}
 
+	// IM plugin: restart the dedicated background processor instead of
+	// touching the active tab's controller. See AddMCPServer for rationale.
+	// Also ensure auto_start_tool is set (it's required for Stream startup).
+	if name == "im" {
+		if updated.AutoStartTool == "" {
+			updated.AutoStartTool = "auto_start"
+			if err := a.saveDesktopMCPServer(updated); err != nil {
+				return err
+			}
+		}
+		a.restartIMProcessor()
+		return nil
+	}
+
+	ctrl := a.activeCtrl()
+	if ctrl == nil {
+		return fmt.Errorf("no active session")
+	}
 	a.mu.RLock()
 	tab := a.activeTabLocked()
 	sessionDisabled := false
@@ -2806,15 +2926,26 @@ func (a *App) RemoveMCPServer(name string) error {
 	if name == "codegraph" {
 		return fmt.Errorf("codegraph is built in; it cannot be removed")
 	}
+	removed, err := a.removeDesktopMCPServer(name)
+	if err != nil {
+		return err
+	}
+
+	// IM plugin: stop the dedicated background processor. No tab cleanup
+	// needed because IM is never connected to tabs. See AddMCPServer.
+	if name == "im" {
+		a.stopIMProcessor()
+		if removed {
+			return nil
+		}
+		return fmt.Errorf("no MCP server named %q", name)
+	}
+
 	tab := a.activeTab()
 	if tab == nil || tab.Ctrl == nil {
 		return fmt.Errorf("no active session")
 	}
 	disconnected := tab.Ctrl.DisconnectMCPServer(name)
-	removed, err := a.removeDesktopMCPServer(name)
-	if err != nil {
-		return err
-	}
 	if disconnected || removed {
 		a.mu.Lock()
 		delete(tab.disabledMCP, name)
@@ -3415,6 +3546,7 @@ func (a *App) SetModelForTab(tabID, name string) error {
 		Sink:           tab.sink,
 		WorkspaceRoot:  tab.WorkspaceRoot,
 		EffortOverride: cloneStringPtr(effortOverride),
+		ExcludePlugins: []string{"im"},
 	})
 	if err != nil {
 		return err
@@ -3506,6 +3638,7 @@ func (a *App) SetEffortForTab(tabID, level string) error {
 		Sink:           tab.sink,
 		WorkspaceRoot:  tab.WorkspaceRoot,
 		EffortOverride: &effort,
+		ExcludePlugins: []string{"im"},
 	})
 	if err != nil {
 		return err
@@ -4392,6 +4525,399 @@ func parseMailSummaries(text string) []MailSummaryView {
 		result = []MailSummaryView{}
 	}
 	return result
+}
+
+// IMSessionView is the lightweight row used by the IM Sessions dock panel.
+// It mirrors the imSession struct in the IM plugin, plus an optional
+// agent_session path that links the IM command to the agent transcript that
+// processed it (filled in by the desktop from the controller's session path).
+type IMSessionView struct {
+	ID             string `json:"id"`
+	Platform       string `json:"platform"`
+	ConversationID string `json:"conversationId,omitempty"`
+	SenderID       string `json:"senderId,omitempty"`
+	SenderName     string `json:"senderName,omitempty"`
+	CommandID      string `json:"commandId"`
+	Content        string `json:"content,omitempty"`
+	Status         string `json:"status"`
+	Result         string `json:"result,omitempty"`
+	AgentSession   string `json:"agentSession,omitempty"`
+	CreatedAt      int64  `json:"createdAt"`
+	UpdatedAt      int64  `json:"updatedAt"`
+	DoneAt         int64  `json:"doneAt,omitempty"`
+}
+
+// ListIMSessions fetches tracked IM sessions from the IM MCP plugin via the
+// App-level IM processor. Returns an empty list (not an error) if the IM
+// processor is not running — the panel shows a placeholder in that case.
+//
+// The optional status filter is forwarded to the plugin ("", "pending",
+// "processing", "done", "failed"). Results are newest-first.
+func (a *App) ListIMSessions(status string) []IMSessionView {
+	ctrl := a.imCtrlLocked()
+	if ctrl == nil {
+		return []IMSessionView{}
+	}
+	args, _ := json.Marshal(map[string]any{"status": status, "limit": 100})
+	out, err := ctrl.CallTool(a.ctx, "mcp__im__list_im_sessions", args)
+	if err != nil {
+		return []IMSessionView{}
+	}
+	return parseIMSessions(out)
+}
+
+// GetIMSession fetches a single IM session with its linked command. The
+// agent_session path (if any) lets the frontend load the agent transcript
+// that processed this IM command and render the execution trace.
+func (a *App) GetIMSession(sessionID string) IMSessionDetailView {
+	ctrl := a.imCtrlLocked()
+	if ctrl == nil {
+		return IMSessionDetailView{}
+	}
+	args, _ := json.Marshal(map[string]any{"session_id": sessionID})
+	out, err := ctrl.CallTool(a.ctx, "mcp__im__get_im_session", args)
+	if err != nil {
+		return IMSessionDetailView{}
+	}
+	return parseIMSessionDetail(out)
+}
+
+// imCtrlLocked returns the App-level IM controller under a short lock.
+func (a *App) imCtrlLocked() *control.Controller {
+	a.imMu.Lock()
+	defer a.imMu.Unlock()
+	return a.imCtrl
+}
+
+// startIMProcessor builds the App-level single IM background controller.
+//
+// It owns the sole IM plugin connection + poll watcher, keeping IM message
+// handling isolated from user tab conversations. The controller is built with
+// a silent sink (no frontend transcript push), bypass mode (auto-approve
+// side-effect tools so IM processing is unattended), and a global-scope
+// workspace root so it doesn't bind to any project.
+//
+// This is idempotent: if already started (or starting), it returns immediately.
+// stopIMProcessor closes it.
+func (a *App) startIMProcessor() {
+	a.imMu.Lock()
+	if a.imStarted {
+		a.imMu.Unlock()
+		slog.Info("im-processor: already started, skipping")
+		return
+	}
+	a.imStarted = true
+	a.imMu.Unlock()
+
+	slog.Info("im-processor: starting App-level background controller...")
+
+	// Use the global home directory as the workspace root so the IM controller
+	// doesn't bind to any project (it's not project-scoped).
+	home, _ := os.UserHomeDir()
+	slog.Info("im-processor: workspace root", "root", home)
+
+	// Auto-fix: if the IM plugin config exists but is missing auto_start_tool,
+	// patch it so the Stream/Webhook connection is established on spawn.
+	// This handles configs created before the auto_start_tool requirement
+	// was enforced (e.g. manual edits to config.toml).
+	if cfg, err := config.LoadForRoot(home); err == nil {
+		for i, p := range cfg.Plugins {
+			if p.Name == "im" && p.AutoStartTool == "" {
+				cfg.Plugins[i].AutoStartTool = "auto_start"
+				if uc := config.UserConfigPath(); uc != "" {
+					if err := cfg.SaveTo(uc); err != nil {
+						slog.Warn("im-processor: failed to patch auto_start_tool into config", "err", err)
+					} else {
+						slog.Info("im-processor: patched auto_start_tool into IM plugin config")
+					}
+				}
+				break
+			}
+		}
+	}
+
+	// The IM controller lives for the whole app lifetime; use a child context
+	// we can cancel on shutdown so the poll watcher and plugin subprocesses
+	// exit cleanly.
+	imCtx, cancel := context.WithCancel(a.ctx)
+
+	// Silent sink: log IM processing turns without pushing them to the frontend
+	// transcript. The IM Sessions panel queries history on demand via
+	// list_im_sessions / get_im_session — no real-time push needed.
+	silentSink := &silentEventSink{}
+
+	// Use the global home directory as the workspace root so the IM controller
+	// doesn't bind to any project (it's not project-scoped).
+	slog.Info("im-processor: workspace root", "root", home)
+
+	ctrl, err := boot.Build(imCtx, boot.Options{
+		Model:         "", // use config default
+		RequireKey:    false,
+		Sink:          silentSink,
+		WorkspaceRoot: home,
+		// No ExcludePlugins here: this controller owns the IM plugin.
+	})
+	if err != nil {
+		slog.Error("im-processor: failed to build controller", "err", err)
+		fmt.Fprintln(os.Stderr, "warning: IM processor failed to start:", err)
+		cancel()
+		a.imMu.Lock()
+		a.imStarted = false
+		a.imMu.Unlock()
+		return
+	}
+
+	// Bypass approval gates: IM processing is unattended and cannot pop modals.
+	// Deny rules in the permission policy still apply for genuinely dangerous
+	// operations, so this only skips the interactive approval prompt.
+	ctrl.SetBypass(true)
+
+	a.imMu.Lock()
+	a.imCtrl = ctrl
+	a.imCancel = cancel
+	a.imMu.Unlock()
+
+	// Log IM plugin connection status for diagnostics.
+	// Also: if the IM plugin connected but auto_start was not called (e.g.
+	// config.toml lacked auto_start_tool at the time boot.Build loaded it),
+	// manually call auto_start now so DingTalk/Feishu Stream connections
+	// are established. This is the belt-and-suspenders fix for the race
+	// between config patch and boot.Build's config load.
+	if h := ctrl.Host(); h != nil {
+		imConnected := false
+		for _, s := range h.Servers() {
+			if s.Name == "im" {
+				imConnected = true
+				slog.Info("im-processor: IM plugin connected", "tools", len(s.ToolList))
+				break
+			}
+		}
+		for _, f := range h.Failures() {
+			if f.Name == "im" {
+				slog.Error("im-processor: IM plugin failed to connect", "error", f.Error)
+			}
+		}
+		if !imConnected {
+			slog.Warn("im-processor: IM plugin not found in connected servers (may be deferred/background)")
+		}
+	}
+
+	// Ensure auto_start is called even if the config didn't have it at
+	// boot.Build time. Start a background goroutine that waits for the IM
+	// plugin to connect (deferred/background tier) and then calls auto_start.
+	// The goroutine exits when the IM context is cancelled.
+	go func() {
+		// Wait up to 60 seconds for the IM plugin to become available.
+		for i := 0; i < 30; i++ {
+			select {
+			case <-imCtx.Done():
+				return
+			default:
+			}
+			if h := ctrl.Host(); h != nil {
+				for _, s := range h.Servers() {
+					if s.Name == "im" {
+						slog.Info("im-processor: calling auto_start for IM plugin")
+						autoCtx, autoCancel := context.WithTimeout(imCtx, 30*time.Second)
+						_, err := ctrl.Host().CallTool(autoCtx, "im", "auto_start", map[string]any{})
+						autoCancel()
+						if err != nil {
+							slog.Warn("im-processor: auto_start call failed", "err", err)
+						} else {
+							slog.Info("im-processor: auto_start called successfully")
+						}
+						return
+					}
+				}
+			}
+			time.Sleep(2 * time.Second)
+		}
+		slog.Warn("im-processor: IM plugin never became available within 60s, auto_start not called")
+	}()
+
+	slog.Info("im-processor: started (App-level single background controller)")
+}
+
+// stopIMProcessor closes the App-level IM controller and releases its plugin
+// subprocesses. Safe to call multiple times.
+func (a *App) stopIMProcessor() {
+	a.imMu.Lock()
+	ctrl := a.imCtrl
+	cancel := a.imCancel
+	a.imCtrl = nil
+	a.imCancel = nil
+	a.imStarted = false
+	a.imMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if ctrl != nil {
+		ctrl.Close()
+		slog.Info("im-processor: stopped")
+	}
+}
+
+// restartIMProcessor stops the current IM background processor (if any) and
+// starts a fresh one that picks up the latest IM configuration from
+// reasonix.toml. Called when the user saves / updates / removes IM plugin
+// configuration so new credentials take effect without restarting the app.
+func (a *App) restartIMProcessor() {
+	slog.Info("im-processor: restarting (stop + start) to pick up new config...")
+	a.stopIMProcessor()
+	a.startIMProcessor()
+}
+
+// silentEventSink is an event.Sink that discards all events. Used by the IM
+// background processor so its turns never surface in any user tab transcript.
+type silentEventSink struct{}
+
+func (s *silentEventSink) Emit(e event.Event) {
+	// Log turn-level events at debug for diagnostics; drop everything else.
+	if e.Kind == event.TurnDone && e.Err != nil {
+		slog.Debug("im-processor: turn ended with error", "err", e.Err)
+	}
+}
+
+// IMSessionDetailView is a single IM session plus its linked pending command.
+type IMSessionDetailView struct {
+	IMSessionView
+	Command IMCommandView `json:"command,omitempty"`
+}
+
+// IMCommandView mirrors the plugin's pendingCommand for the detail panel.
+type IMCommandView struct {
+	ID         string            `json:"id"`
+	Platform   string            `json:"platform"`
+	Content    string            `json:"content"`
+	WebhookURL string            `json:"webhookUrl,omitempty"`
+	Extra      map[string]string `json:"extra,omitempty"`
+	ReceivedAt int64             `json:"receivedAt"`
+	Done       bool              `json:"done"`
+	Result     string            `json:"result,omitempty"`
+	DoneAt     int64             `json:"doneAt,omitempty"`
+}
+
+// parseIMSessions extracts a session list from the list_im_sessions tool
+// output. The plugin returns either an indented JSON array or the plain
+// string "no IM sessions" when the store is empty.
+func parseIMSessions(text string) []IMSessionView {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" || trimmed == "no IM sessions" {
+		return []IMSessionView{}
+	}
+	var raw []struct {
+		ID             string     `json:"id"`
+		Platform       string     `json:"platform"`
+		ConversationID string     `json:"conversation_id,omitempty"`
+		SenderID       string     `json:"sender_id,omitempty"`
+		SenderName     string     `json:"sender_name,omitempty"`
+		CommandID      string     `json:"command_id"`
+		Content        string     `json:"content,omitempty"`
+		Status         string     `json:"status"`
+		Result         string     `json:"result,omitempty"`
+		AgentSession   string     `json:"agent_session,omitempty"`
+		CreatedAt      time.Time  `json:"created_at"`
+		UpdatedAt      time.Time  `json:"updated_at"`
+		DoneAt         *time.Time `json:"done_at,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+		return []IMSessionView{}
+	}
+	out := make([]IMSessionView, 0, len(raw))
+	for _, r := range raw {
+		v := IMSessionView{
+			ID:             r.ID,
+			Platform:       r.Platform,
+			ConversationID: r.ConversationID,
+			SenderID:       r.SenderID,
+			SenderName:     r.SenderName,
+			CommandID:      r.CommandID,
+			Content:        r.Content,
+			Status:         r.Status,
+			Result:         r.Result,
+			AgentSession:   r.AgentSession,
+			CreatedAt:      r.CreatedAt.UnixMilli(),
+			UpdatedAt:      r.UpdatedAt.UnixMilli(),
+		}
+		if r.DoneAt != nil {
+			v.DoneAt = r.DoneAt.UnixMilli()
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// parseIMSessionDetail extracts a single session + its linked command from
+// the get_im_session tool output. Returns an empty struct on any parse error.
+func parseIMSessionDetail(text string) IMSessionDetailView {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return IMSessionDetailView{}
+	}
+	var raw struct {
+		ID             string     `json:"id"`
+		Platform       string     `json:"platform"`
+		ConversationID string     `json:"conversation_id,omitempty"`
+		SenderID       string     `json:"sender_id,omitempty"`
+		SenderName     string     `json:"sender_name,omitempty"`
+		CommandID      string     `json:"command_id"`
+		Content        string     `json:"content,omitempty"`
+		Status         string     `json:"status"`
+		Result         string     `json:"result,omitempty"`
+		AgentSession   string     `json:"agent_session,omitempty"`
+		CreatedAt      time.Time  `json:"created_at"`
+		UpdatedAt      time.Time  `json:"updated_at"`
+		DoneAt         *time.Time `json:"done_at,omitempty"`
+		Command        *struct {
+			ID         string            `json:"id"`
+			Platform   string            `json:"platform"`
+			Content    string            `json:"content"`
+			WebhookURL string            `json:"webhook_url,omitempty"`
+			Extra      map[string]string `json:"extra,omitempty"`
+			ReceivedAt time.Time         `json:"received_at"`
+			Done       bool              `json:"done"`
+			Result     string            `json:"result,omitempty"`
+			DoneAt     *time.Time        `json:"done_at,omitempty"`
+		} `json:"command,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
+		return IMSessionDetailView{}
+	}
+	v := IMSessionView{
+		ID:             raw.ID,
+		Platform:       raw.Platform,
+		ConversationID: raw.ConversationID,
+		SenderID:       raw.SenderID,
+		SenderName:     raw.SenderName,
+		CommandID:      raw.CommandID,
+		Content:        raw.Content,
+		Status:         raw.Status,
+		Result:         raw.Result,
+		AgentSession:   raw.AgentSession,
+		CreatedAt:      raw.CreatedAt.UnixMilli(),
+		UpdatedAt:      raw.UpdatedAt.UnixMilli(),
+	}
+	if raw.DoneAt != nil {
+		v.DoneAt = raw.DoneAt.UnixMilli()
+	}
+	detail := IMSessionDetailView{IMSessionView: v}
+	if raw.Command != nil {
+		detail.Command = IMCommandView{
+			ID:         raw.Command.ID,
+			Platform:   raw.Command.Platform,
+			Content:    raw.Command.Content,
+			WebhookURL: raw.Command.WebhookURL,
+			Extra:      raw.Command.Extra,
+			ReceivedAt: raw.Command.ReceivedAt.UnixMilli(),
+			Done:       raw.Command.Done,
+			Result:     raw.Command.Result,
+		}
+		if raw.Command.DoneAt != nil {
+			detail.Command.DoneAt = raw.Command.DoneAt.UnixMilli()
+		}
+	}
+	return detail
 }
 
 // parseScope maps a frontend scope id to a memory.Scope, defaulting to project.

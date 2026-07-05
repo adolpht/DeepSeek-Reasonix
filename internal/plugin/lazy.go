@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -92,6 +93,7 @@ func (s *lazySpawn) run() {
 		s.state = spawnFailed
 		s.spawnErr = err
 		s.host.RecordFailure(s.spec, err)
+		slog.Warn("plugin: deferred spawn failed", "server", s.spec.Name, "err", err)
 		return
 	}
 	s.real = make(map[string]tool.Tool, len(real))
@@ -99,6 +101,7 @@ func (s *lazySpawn) run() {
 		s.real[t.Name()] = t
 	}
 	s.state = spawnReady
+	slog.Info("plugin: deferred spawn ready", "server", s.spec.Name, "tools", len(real))
 	s.trySwap()
 }
 

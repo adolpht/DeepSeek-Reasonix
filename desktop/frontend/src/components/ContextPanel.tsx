@@ -108,11 +108,6 @@ export function ContextPanel({ tabId, context, usage, sessionCost, sessionCurren
   }, [tabId]);
 
   useEffect(() => {
-    const id = window.setInterval(() => void refresh(), 2000);
-    return () => window.clearInterval(id);
-  }, [refresh]);
-
-  useEffect(() => {
     void refresh();
   }, [refresh, refreshKey]);
 

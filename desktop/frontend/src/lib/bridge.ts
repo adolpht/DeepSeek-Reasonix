@@ -28,6 +28,9 @@ import type {
   GitStatusView,
   HistoryMessage,
   HomePageData,
+  IMSessionDetailView,
+  IMSessionStatus,
+  IMSessionView,
   JobView,
   MCPServerInput,
   MemoryView,
@@ -355,6 +358,11 @@ export interface AppBindings {
   UpdateTodo(id: string, title: string, description: string, dueDate: string, priority: string, status: string): Promise<void>;
   DeleteTodo(id: string): Promise<void>;
   GetRecentMailSummaries(): Promise<{ from: string; subject: string; date: string }[]>;
+  // IM Sessions dock panel — list tracked IM sessions and fetch detail.
+  // The Go side dispatches mcp__im__list_im_sessions / get_im_session via
+  // the active tab's controller. Returns empty when the IM plugin is absent.
+  ListIMSessions(status: IMSessionStatus | ""): Promise<IMSessionView[]>;
+  GetIMSession(sessionId: string): Promise<IMSessionDetailView>;
 
   // --- Clipboard bindings (for FloatingWindow) ---
   ReadClipboard(): Promise<string>;
@@ -480,6 +488,13 @@ export function onReady(cb: () => void): () => void {
 export function onProjectTreeChanged(cb: () => void): () => void {
   if (realApp() && typeof window !== "undefined" && window.runtime) {
     return window.runtime.EventsOn("project-tree:changed", () => cb());
+  }
+  return () => {};
+}
+
+export function onTabsChanged(cb: () => void): () => void {
+  if (realApp() && typeof window !== "undefined" && window.runtime) {
+    return window.runtime.EventsOn("tabs:changed", () => cb());
   }
   return () => {};
 }
@@ -2319,6 +2334,14 @@ function makeMockApp(): AppBindings {
       // Controller.CallTool. Without a backend we return an empty list so
       // the DailyBriefPanel mail section renders its empty-state placeholder.
       return [];
+    },
+    async ListIMSessions(_status: IMSessionStatus | ""): Promise<IMSessionView[]> {
+      // Browser mock: no IM plugin in dev → empty list, panel shows placeholder.
+      return [];
+    },
+    async GetIMSession(_sessionId: string): Promise<IMSessionDetailView> {
+      // Browser mock: returns empty detail; the panel shows "not found".
+      return { id: "", platform: "", commandId: "", status: "pending", createdAt: 0, updatedAt: 0 };
     },
     async CreateTodo(_title: string, _description: string, _dueDate: string, _priority: string): Promise<void> {
       // no-op in mock

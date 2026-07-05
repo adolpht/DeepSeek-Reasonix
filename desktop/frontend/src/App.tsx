@@ -17,11 +17,12 @@ import {
   TerminalSquare,
   Calendar,
   Newspaper,
+  MessageSquare,
 } from "lucide-react";
 import { asArray } from "./lib/array";
 import { clearLegacyLangPref, normalizeLangPref, readLegacyLangPref, t, useI18n, useT } from "./lib/i18n";
 import { useController, type Item, type LiveStream } from "./lib/useController";
-import { app, onProjectTreeChanged } from "./lib/bridge";
+import { app, onProjectTreeChanged, onTabsChanged } from "./lib/bridge";
 import { Transcript, type TranscriptHandle } from "./components/Transcript";
 import { Composer } from "./components/Composer";
 import { TodoPanel } from "./components/TodoPanel";
@@ -44,6 +45,7 @@ import { TemplateLibrary } from "./components/TemplateLibrary";
 import { Sidebar } from "./components/Sidebar";
 import { HomePanel } from "./components/HomePanel";
 import { CalendarPanel } from "./components/CalendarPanel";
+import { IMSessionsPanel } from "./components/IMSessionsPanel";
 import { SchedulerPanel } from "./components/SchedulerPanel";
 import { ResizableDrawer } from "./components/ResizableDrawer";
 import { SaveRecipeModal } from "./components/SaveRecipeModal";
@@ -95,13 +97,13 @@ const RIGHT_DOCK_TREE_MAX_WIDTH = 560;
 const RIGHT_DOCK_PREVIEW_DEFAULT_WIDTH = 640;
 const RIGHT_DOCK_MAX_WIDTH = 860;
 
-type RightDockMode = "preview" | "files" | "changed" | "context" | "calendar" | "dailyBrief";
+type RightDockMode = "preview" | "files" | "changed" | "context" | "calendar" | "dailyBrief" | "imSessions";
 const SHOW_CONTEXT_DOCK = true;
 
 // Fixed-width dock modes (context, calendar, dailyBrief) use a constant
 // panel width and skip width-persistence logic.
 function isFixedWidthDockMode(mode: RightDockMode): boolean {
-  return mode === "context" || mode === "calendar" || mode === "dailyBrief";
+  return mode === "context" || mode === "calendar" || mode === "dailyBrief" || mode === "imSessions";
 }
 type HistoryScopeFilter = { scope: "global" | "project"; workspaceRoot: string };
 type DesktopPlatform = "darwin" | "windows" | "linux";
@@ -969,8 +971,14 @@ export default function App() {
 
   useEffect(() => {
     void refreshTabMetas();
-    const id = window.setInterval(() => void refreshTabMetas(), 2000);
-    return () => window.clearInterval(id);
+    // Event-driven refresh: listen for backend "tabs:changed" events instead
+    // of 2s polling. A 30s heartbeat is kept as a safety net.
+    const off = onTabsChanged(() => void refreshTabMetas());
+    const id = window.setInterval(() => void refreshTabMetas(), 30000);
+    return () => {
+      off();
+      window.clearInterval(id);
+    };
   }, [refreshTabMetas]);
 
   useEffect(() => {
@@ -2093,6 +2101,16 @@ export default function App() {
                 <button
                   type="button"
                   role="tab"
+                  aria-selected={rightDockMode === "imSessions"}
+                  className={`workbench-dock__tab${rightDockMode === "imSessions" ? " workbench-dock__tab--active" : ""}`}
+                  onClick={() => openRightDockMode("imSessions")}
+                >
+                  <MessageSquare size={13} />
+                  <span className="workbench-dock__tab-label">{t("sidebar.imSessions")}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
                   aria-selected={rightDockMode === "calendar"}
                   className={`workbench-dock__tab${rightDockMode === "calendar" ? " workbench-dock__tab--active" : ""}`}
                   onClick={() => openRightDockMode("calendar")}
@@ -2151,6 +2169,8 @@ export default function App() {
                 />
               ) : rightDockMode === "dailyBrief" ? (
                 <DailyBriefPanel />
+              ) : rightDockMode === "imSessions" ? (
+                <IMSessionsPanel />
               ) : rightDockMode === "calendar" ? (
                 <CalendarPanel tabId={activeTabId} />
               ) : (

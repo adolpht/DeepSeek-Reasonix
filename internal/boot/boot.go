@@ -116,6 +116,11 @@ type Options struct {
 	// SandboxMode overrides the config-based sandbox mode when set. Empty means
 	// use the value derived from config.
 	SandboxMode sandbox.SandboxMode
+	// ExcludePlugins is a set of plugin names to skip when connecting MCP
+	// servers. Desktop tab controllers pass ["im"] so the IM plugin (and its
+	// poll watcher) is owned solely by the App-level IM processor, preventing
+	// per-tab IM message injection that pollutes user conversations.
+	ExcludePlugins []string
 }
 
 // Build loads config, resolves the model(s), and returns a Controller wrapping a
@@ -287,7 +292,22 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// Partition configured plugins by tier so eager/lazy/background can each
 	// take the path that fits them. User entries default to background: the
 	// session starts immediately while enabled MCP servers warm up.
-	eagerEntries, lazyEntries, bgEntries := partitionByTier(cfg.AutoStartPlugins())
+	allEntries := cfg.AutoStartPlugins()
+	if len(opts.ExcludePlugins) > 0 {
+		exclude := make(map[string]bool, len(opts.ExcludePlugins))
+		for _, n := range opts.ExcludePlugins {
+			exclude[n] = true
+		}
+		kept := allEntries[:0]
+		for _, e := range allEntries {
+			if exclude[e.Name] {
+				continue
+			}
+			kept = append(kept, e)
+		}
+		allEntries = kept
+	}
+	eagerEntries, lazyEntries, bgEntries := partitionByTier(allEntries)
 
 	// Auto-demote: any eager plugin that has been chronically slow (recent
 	// samples repeatedly hit the blocking startup budget) drops to lazy

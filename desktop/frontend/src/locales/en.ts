@@ -701,6 +701,28 @@ export const en = {
   "dailyBrief.refresh": "Refresh",
   "dailyBrief.completeTodo": "Complete",
 
+  // IM Sessions panel
+  "sidebar.imSessions": "IM Sessions",
+  "imSessions.title": "IM Sessions",
+  "imSessions.refresh": "Refresh",
+  "imSessions.empty": "No IM sessions yet. Configure and enable the IM plugin — received messages will appear here.",
+  "imSessions.loadError": "Failed to load.",
+  "imSessions.filterAll": "All",
+  "imSessions.filterProcessing": "Processing",
+  "imSessions.filterDone": "Done",
+  "imSessions.filterFailed": "Failed",
+  "imSessions.statusPending": "Pending",
+  "imSessions.statusProcessing": "Processing",
+  "imSessions.statusDone": "Done",
+  "imSessions.statusFailed": "Failed",
+  "imSessions.noContent": "(no content)",
+  "imSessions.detailNotFound": "Session detail not found.",
+  "imSessions.incomingMessage": "Incoming message",
+  "imSessions.result": "Result",
+  "imSessions.executionTrace": "Execution trace",
+  "imSessions.traceEmpty": "No linked execution trace.",
+  "imSessions.sender": "Sender",
+
   // settings drawer
   "settings.title": "Settings",
   "settings.loading": "Loading…",

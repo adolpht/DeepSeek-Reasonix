@@ -40,11 +40,9 @@ export function CapabilitiesPanel({
   useEffect(() => {
     void reload();
   }, [reload]);
-  useEffect(() => {
-    if (tab !== "servers" || !view?.servers.some((s) => s.status === "initializing" || s.status === "deferred")) return;
-    const id = window.setInterval(() => void reload(), 2500);
-    return () => window.clearInterval(id);
-  }, [reload, tab, view?.servers]);
+  // No polling: servers that are "initializing" will be refreshed when the
+  // user navigates back to this panel or manually clicks refresh. This
+  // eliminates the 2.5s polling that kept the WebView2 process alive.
 
   // mutate runs an MCP edit, re-reads the snapshot, and surfaces any failure as an
   // inline banner (a connect error, a missing binary, a bad URL).
@@ -1329,11 +1327,6 @@ export function MCPServersSettingsPage() {
 		setView(normalizeCapabilitiesView(await app.Capabilities().catch(() => ({ servers: [], skills: [], skillRoots: [] }))));
 	}, []);
 	useEffect(() => { void reload(); }, [reload]);
-	useEffect(() => {
-		if (!view || !view.servers.some((s) => s.status === "initializing" || s.status === "deferred")) return;
-		const id = window.setInterval(() => void reload(), 2500);
-		return () => window.clearInterval(id);
-	}, [reload, view]);
 
 	const mutate = async (fn: () => Promise<unknown>) => {
 		setBusy(true);
@@ -1918,11 +1911,6 @@ export function OfficePluginsSettingsPage() {
 		setView(normalizeCapabilitiesView(await app.Capabilities().catch(() => ({ servers: [], skills: [], skillRoots: [] }))));
 	}, []);
 	useEffect(() => { void reload(); }, [reload]);
-	useEffect(() => {
-		if (!view || !view.servers.some((s) => s.status === "initializing" || s.status === "deferred")) return;
-		const id = window.setInterval(() => void reload(), 2500);
-		return () => window.clearInterval(id);
-	}, [reload, view]);
 
 	const mutate = async (fn: () => Promise<unknown>) => {
 		setBusy(true);

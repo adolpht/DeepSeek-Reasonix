@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"reasonix/internal/agent"
 	"reasonix/internal/boot"
@@ -135,6 +136,8 @@ func (s *tabEventSink) Emit(e event.Event) {
 	// Persist after each turn so a force-kill loses at most the in-flight prompt.
 	if e.Kind == event.TurnDone && s.app != nil {
 		s.app.scheduleTabSnapshot(s.tabID)
+		// Notify frontend that tab state (running → idle) changed.
+		wruntime.EventsEmit(s.app.ctx, "tabs:changed")
 	}
 }
 
@@ -405,6 +408,7 @@ func (a *App) OpenProjectTab(workspaceRoot, topicID string) (TabMeta, error) {
 	a.mu.Unlock()
 
 	a.startTabControllerBuild(tab)
+	wruntime.EventsEmit(a.ctx, "tabs:changed")
 	return a.tabMeta(tab, true), nil
 }
 
@@ -447,6 +451,7 @@ func (a *App) OpenGlobalTab(topicID string) (TabMeta, error) {
 	a.mu.Unlock()
 
 	a.startTabControllerBuild(tab)
+	wruntime.EventsEmit(a.ctx, "tabs:changed")
 	return a.tabMeta(tab, true), nil
 }
 
@@ -463,6 +468,7 @@ func (a *App) SetActiveTab(tabID string) error {
 	}
 	a.activeTabID = tabID
 	a.saveTabsLocked()
+	wruntime.EventsEmit(a.ctx, "tabs:changed")
 	return nil
 }
 
@@ -488,6 +494,7 @@ func (a *App) ReorderTabs(tabIDs []string) error {
 	}
 	a.tabOrder = next
 	a.saveTabsLocked()
+	wruntime.EventsEmit(a.ctx, "tabs:changed")
 	return nil
 }
 
@@ -541,6 +548,7 @@ func (a *App) CloseTab(tabID string) error {
 	if tab.sink != nil {
 		tab.sink.ctx = nil // stop further emissions (nil ctx → Emit becomes no-op)
 	}
+	wruntime.EventsEmit(a.ctx, "tabs:changed")
 	return nil
 }
 
@@ -609,6 +617,7 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 		Sink:           tab.sink,
 		WorkspaceRoot:  root,
 		EffortOverride: cloneStringPtr(tab.effort),
+		ExcludePlugins: []string{"im"},
 	})
 	if err != nil {
 		a.mu.Lock()

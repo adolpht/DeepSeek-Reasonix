@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -156,6 +157,13 @@ type Controller struct {
 	// When a turn completes and the queue is non-empty, the first message is
 	// automatically submitted as a new turn so IM commands are never dropped.
 	imQueue []string
+
+	// imSeen tracks recently-processed IM command IDs to prevent re-processing
+	// the same command if the agent fails to call mark_command_done (e.g. due
+	// to an error or timeout). Entries expire after imSeenTTL so commands that
+	// legitimately re-appear (rare) can be processed again later.
+	imSeen    map[string]time.Time
+	imSeenTTL time.Duration
 
 	// imWatcherDone is closed to stop the IM poll watcher goroutine. It is
 	// non-nil when the watcher is running; guarded by imWatcherMu.
@@ -391,15 +399,16 @@ func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 		c.running = false
 		c.cancel = nil
 		// Drain any IM messages that arrived while this turn was running.
-		// If the queue is non-empty, submit the first one as a new turn
-		// immediately so IM commands are processed without waiting for
-		// local user interaction.
+		// Merge queued items into a single turn so every queued IM command
+		// is processed (previous code only submitted pending[0] and dropped
+		// the rest — losing IM commands when multiple arrived mid-turn).
 		pending := c.imQueue
 		c.imQueue = nil
 		c.mu.Unlock()
 		c.sink.Emit(event.Event{Kind: event.TurnDone, Err: explainError(err)})
 		if len(pending) > 0 {
-			c.Submit(pending[0])
+			combined := strings.Join(pending, "\n\n---\n\n")
+			c.SubmitIM(combined)
 		}
 	}()
 }
@@ -701,9 +710,18 @@ func (c *Controller) stopIMWatcher() {
 // imPollWatcher runs in the background, continuously polling the IM plugin for
 // new messages via poll_commands. When a message arrives, it calls
 // HandleIMMessage to automatically trigger an agent turn for processing, so IM
-// commands are handled without requiring local user interaction. The watcher
-// stops when done is closed or the plugin context is cancelled.
+// commands are handled without requiring local user interaction.
+//
+// This watcher runs on the App-level IM background controller, which uses a
+// silent event sink — its turns never surface in any user tab transcript. Tab
+// controllers exclude the "im" plugin (ExcludePlugins), so they never start
+// this watcher and IM traffic cannot pollute user coding conversations.
 func (c *Controller) imPollWatcher(done chan struct{}) {
+	slog.Info("im-watcher: started, processing IM messages silently")
+	if c.imSeen == nil {
+		c.imSeen = make(map[string]time.Time)
+		c.imSeenTTL = 10 * time.Minute
+	}
 	for {
 		pollCtx, pollCancel := context.WithTimeout(c.pluginCtx, 35*time.Second)
 		result, err := c.host.CallTool(pollCtx, "im", "poll_commands", map[string]any{
@@ -738,14 +756,98 @@ func (c *Controller) imPollWatcher(done chan struct{}) {
 			continue
 		}
 
-		slog.Info("im-watcher: received IM messages", "result_len", len(result))
-		c.sink.Emit(event.Event{
-			Kind:  event.Notice,
-			Level: event.LevelInfo,
-			Text:  "IM: new remote command(s) received — auto-processing",
-		})
+		// Deduplicate: extract command IDs from the poll result and skip
+		// commands we've already handed off to the agent within the TTL
+		// window. This prevents re-processing if the agent fails to call
+		// mark_command_done (e.g. due to an error) — without this, the same
+		// commands would be returned by every subsequent poll, creating an
+		// infinite loop even with the idle-wait fix.
+		result = c.filterSeenCommands(result)
+		if result == "" {
+			continue
+		}
+
+		// Silent processing: log but do NOT emit Notice events to the frontend.
+		// The IM Sessions panel queries history on demand — no real-time push needed.
+		slog.Info("im-watcher: processing IM messages", "result_len", len(result))
 
 		c.HandleIMMessage(result)
+
+		// CRITICAL: wait for the triggered turn to finish before polling again.
+		// Without this, the watcher immediately re-polls poll_commands, which
+		// returns the same pending commands (the agent hasn't called
+		// mark_command_done yet), creating an infinite loop that queues
+		// duplicate IM messages into imQueue on every iteration — causing
+		// unbounded memory growth and blocking all other work.
+		c.waitForIMTurnIdle(done)
+	}
+}
+
+// filterSeenCommands strips command entries whose IDs have been seen recently
+// (within imSeenTTL). It also garbage-collects expired entries. If all
+// commands in the result were seen, it returns "".
+func (c *Controller) filterSeenCommands(result string) string {
+	// Extract command IDs from the result. poll_commands output contains
+	// lines like "cmd-1-abc123" — match the cmd-N-xxxx pattern.
+	idRe := regexp.MustCompile(`cmd-\d+-[a-f0-9]+`)
+	ids := idRe.FindAllString(result, -1)
+	if len(ids) == 0 {
+		// No IDs found — can't dedupe, return as-is.
+		return result
+	}
+
+	now := time.Now()
+	// Garbage-collect expired entries.
+	for id, t := range c.imSeen {
+		if now.Sub(t) > c.imSeenTTL {
+			delete(c.imSeen, id)
+		}
+	}
+
+	// Mark new IDs; track if any are new.
+	anyNew := false
+	for _, id := range ids {
+		if _, seen := c.imSeen[id]; !seen {
+			c.imSeen[id] = now
+			anyNew = true
+		}
+	}
+
+	if !anyNew {
+		// All commands were already seen — skip this batch entirely.
+		return ""
+	}
+	return result
+}
+
+// waitForIMTurnIdle blocks until the controller is no longer running a turn
+// (i.e. the IM-triggered turn has completed) or the watcher is stopped.
+// It polls c.running every 200ms; this is cheap and avoids the complexity of
+// condition variables or channel signaling for this single use case.
+func (c *Controller) waitForIMTurnIdle(done chan struct{}) {
+	// Give the turn a moment to start (runGuarded launches a goroutine).
+	time.Sleep(500 * time.Millisecond)
+	for {
+		select {
+		case <-done:
+			return
+		case <-c.pluginCtx.Done():
+			return
+		default:
+		}
+		c.mu.Lock()
+		running := c.running
+		c.mu.Unlock()
+		if !running {
+			return
+		}
+		select {
+		case <-done:
+			return
+		case <-c.pluginCtx.Done():
+			return
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 }
 
