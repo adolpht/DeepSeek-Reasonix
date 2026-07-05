@@ -22,14 +22,21 @@ var (
 )
 
 type feishuStreamState struct {
-	wsClient   *larkws.Client
-	apiClient  *lark.Client
-	appID      string
-	cancel     context.CancelFunc
+	wsClient  *larkws.Client
+	apiClient *lark.Client
+	appID     string
+	appSecret string
+	cancel    context.CancelFunc
 }
 
 // runStartFeishuStream starts the Feishu WebSocket long-connection client.
 // No public IP needed — the SDK opens a WSS connection TO Feishu's gateway.
+//
+// The Feishu SDK's Start(ctx) is blocking: it connects, spawns internal
+// goroutines (pingLoop, receiveMessageLoop), then blocks forever on
+// select{}. The SDK handles reconnection internally (autoReconnect defaults
+// to true), so no external watchdog is needed. Start only returns on fatal
+// errors (e.g. auth failure), at which point retrying would fail anyway.
 func runStartFeishuStream(appID, appSecret string) (any, error) {
 	if appID == "" || appSecret == "" {
 		return nil, fmt.Errorf("app_id and app_secret are required (set IM_FEISHU_APP_ID / IM_FEISHU_APP_SECRET)")
@@ -57,33 +64,30 @@ func runStartFeishuStream(appID, appSecret string) (any, error) {
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startErr := make(chan error, 1)
+
+	// Start is blocking — run it in a goroutine. The SDK's internal
+	// autoReconnect handles connection drops transparently.
 	go func() {
-		err := wsClient.Start(ctx)
-		if err != nil {
-			startErr <- err
+		if err := wsClient.Start(ctx); err != nil {
+			log.Printf("Feishu stream client exited with error: %v", err)
 		}
 	}()
-
-	// Brief wait for immediate startup errors
-	select {
-	case err := <-startErr:
-		cancel()
-		return nil, fmt.Errorf("start Feishu stream: %w", err)
-	default:
-	}
 
 	runningFeishuStream = &feishuStreamState{
 		wsClient:  wsClient,
 		apiClient: apiClient,
 		appID:     appID,
+		appSecret: appSecret,
 		cancel:    cancel,
 	}
+
 	log.Printf("Feishu stream started (app_id=%s), no public IP required", appID)
 	return fmt.Sprintf("Feishu stream started (app_id=%s), receiving messages via WebSocket — no public IP needed", appID), nil
 }
 
 // runStopFeishuStream stops the Feishu WebSocket client.
+// The SDK's Close() sets autoReconnect=false and disconnects, preventing
+// internal reconnection.
 func runStopFeishuStream() (any, error) {
 	feishuStreamMu.Lock()
 	defer feishuStreamMu.Unlock()
@@ -93,6 +97,9 @@ func runStopFeishuStream() (any, error) {
 	}
 
 	runningFeishuStream.cancel()
+	// wsClient.Close() sets autoReconnect=false then disconnects — safe to
+	// call from outside the Start goroutine.
+	runningFeishuStream.wsClient.Close()
 	appID := runningFeishuStream.appID
 	runningFeishuStream = nil
 	log.Printf("Feishu stream stopped (app_id=%s)", appID)

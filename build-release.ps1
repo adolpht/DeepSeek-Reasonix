@@ -36,7 +36,8 @@ $mainPlugins = @(
     "reasonix-plugin-office",
     "reasonix-plugin-sheet",
     "reasonix-plugin-mail",
-    "reasonix-plugin-im"
+    "reasonix-plugin-im",
+    "reasonix-plugin-dws"
 )
 foreach ($p in $mainPlugins) {
     go build -ldflags $LDFLAGS -o "$Root\bin\$p.exe" "./cmd/$p"
@@ -80,7 +81,8 @@ $allPlugins = @(
     "reasonix-plugin-calendar",
     "reasonix-plugin-slides",
     "reasonix-plugin-mail",
-    "reasonix-plugin-im"
+    "reasonix-plugin-im",
+    "reasonix-plugin-dws"
 )
 foreach ($p in $allPlugins) {
     Copy-Item "$Root\bin\$p.exe" $pluginsDir -Force

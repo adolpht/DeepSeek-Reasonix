@@ -11,12 +11,19 @@
 // Wire it up in reasonix.toml:
 //
 //	[[plugins]]
-//	name    = "im"
-//	command = "reasonix-plugin-im"
+//	name           = "im"
+//	command        = "reasonix-plugin-im"
+//	auto_start_tool = "auto_start"
+//
+// The auto_start_tool setting causes the plugin to call "auto_start" after
+// the MCP handshake, which inspects IM_* environment variables and
+// automatically starts the appropriate connections (Stream for
+// DingTalk/Feishu, Webhook for WeCom). Without auto_start_tool, you must
+// manually call mcp__im__start_stream or mcp__im__start_bot.
 //
 // Reasonix then surfaces its tools as mcp__im__start_bot / stop_bot /
 // start_stream / stop_stream / send_message / list_pending_commands /
-// mark_command_done.
+// mark_command_done / auto_start / poll_commands / create_im_session.
 //
 // Environment variables:
 //
@@ -161,6 +168,9 @@ var tools = []toolDef{
 	sendMessageTool,
 	listPendingCommandsTool,
 	markCommandDoneTool,
+	autoStartTool,
+	pollCommandsTool,
+	createIMSessionTool,
 }
 
 func toolList() []map[string]any {
@@ -413,10 +423,10 @@ var sendMessageTool = toolDef{
 	schema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"platform":     map[string]any{"type": "string", "enum": []string{"wecom", "feishu", "dingtalk"}, "description": "IM platform"},
-			"webhook_url":  map[string]any{"type": "string", "description": "Platform webhook URL"},
-			"content":      map[string]any{"type": "string", "description": "Message content (text or markdown)"},
-			"msg_type":     map[string]any{"type": "string", "enum": []string{"text", "markdown"}, "description": "Message type", "default": "text"},
+			"platform":    map[string]any{"type": "string", "enum": []string{"wecom", "feishu", "dingtalk"}, "description": "IM platform"},
+			"webhook_url": map[string]any{"type": "string", "description": "Platform webhook URL"},
+			"content":     map[string]any{"type": "string", "description": "Message content (text or markdown)"},
+			"msg_type":    map[string]any{"type": "string", "enum": []string{"text", "markdown"}, "description": "Message type", "default": "text"},
 		},
 		"required": []string{"platform", "webhook_url", "content"},
 	},
@@ -557,4 +567,88 @@ func trimSpace(b []byte) []byte {
 		b = b[:len(b)-1]
 	}
 	return b
+}
+
+// --- auto-start, poll, session tools ---
+
+// autoStartTool is the tool called automatically after MCP handshake when
+// auto_start_tool = "auto_start" is set in the plugin config. It inspects
+// environment variables and starts the appropriate transport (Stream for
+// DingTalk/Feishu, Webhook for WeCom) so the bot is receiving messages
+// immediately without manual tool calls.
+var autoStartTool = toolDef{
+	name:        "auto_start",
+	description: "Auto-start IM connections based on environment variables. Starts Stream mode for DingTalk/Feishu (when IM_DINGTALK_APP_KEY / IM_FEISHU_APP_ID are set) and Webhook mode for WeCom (when IM_WECOM_KEY is set). Called automatically at plugin startup.",
+	readOnly:    false,
+	schema: map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	},
+	run: func(args map[string]any) (any, error) {
+		return runAutoStart()
+	},
+}
+
+// pollCommandsTool blocks until at least one pending command arrives or the
+// timeout expires, then returns all pending commands. This enables the agent
+// to wait for new IM messages efficiently instead of busy-polling.
+var pollCommandsTool = toolDef{
+	name:        "poll_commands",
+	description: "Wait for new IM commands. Blocks up to 'timeout_seconds' until a pending command arrives, then returns all pending commands. Returns immediately if commands are already queued.",
+	readOnly:    true,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"timeout_seconds": map[string]any{"type": "integer", "description": "Max seconds to wait for new commands (default 30, max 120)", "default": 30},
+			"limit":           map[string]any{"type": "integer", "description": "Maximum commands to return", "default": 20},
+		},
+	},
+	run: func(args map[string]any) (any, error) {
+		timeout := argIntDefault(args, "timeout_seconds", 30)
+		if timeout > 120 {
+			timeout = 120
+		}
+		if timeout < 1 {
+			timeout = 1
+		}
+		limit := argIntDefault(args, "limit", 20)
+		return runPollCommands(timeout, limit)
+	},
+}
+
+// createIMSessionTool creates a named session context for an IM conversation,
+// linking the platform, conversation ID, and sender info so that subsequent
+// interactions within the same conversation can be traced back. Returns a
+// session ID that can be used for future correlation.
+var createIMSessionTool = toolDef{
+	name:        "create_im_session",
+	description: "Create a named session for an IM conversation to enable traceability. Links platform, conversation ID, sender, and optional tags. Returns a session ID for future correlation.",
+	readOnly:    false,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"platform":        map[string]any{"type": "string", "enum": []string{"wecom", "feishu", "dingtalk"}, "description": "IM platform"},
+			"conversation_id": map[string]any{"type": "string", "description": "Conversation/chat ID from the IM platform"},
+			"sender_id":       map[string]any{"type": "string", "description": "Sender's user ID on the IM platform"},
+			"sender_name":     map[string]any{"type": "string", "description": "Sender's display name"},
+			"command_id":      map[string]any{"type": "string", "description": "The pending command ID this session is created for"},
+			"tags":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags for categorization (e.g. ['urgent', 'bug-report'])"},
+		},
+		"required": []string{"platform", "command_id"},
+	},
+	run: func(args map[string]any) (any, error) {
+		platform, err := argString(args, "platform")
+		if err != nil {
+			return nil, err
+		}
+		commandID, err := argString(args, "command_id")
+		if err != nil {
+			return nil, err
+		}
+		conversationID := argStringDefault(args, "conversation_id", "")
+		senderID := argStringDefault(args, "sender_id", "")
+		senderName := argStringDefault(args, "sender_name", "")
+		tags := argStringSliceDefault(args, "tags", nil)
+		return runCreateIMSession(platform, conversationID, senderID, senderName, commandID, tags)
+	},
 }

@@ -5,6 +5,7 @@
 /npm/.stage/
 /reasonix
 /reasonix.exe
+reasonix-plugin-*.exe
 
 # Website (Astro) build output
 /site/dist/
@@ -60,3 +61,6 @@ Thumbs.db
 /.codex/
 content/
 contenttestresult/
+
+# Local build tools (NSIS portable, etc.)
+/tools/

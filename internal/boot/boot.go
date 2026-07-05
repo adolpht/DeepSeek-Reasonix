@@ -65,6 +65,25 @@ var opspecBuiltinSkillNames = []string{
 	"opsx-onboard",
 }
 
+// imSteerText is injected into the system prompt when IM plugin tools are
+// available, so the model knows how to process remote IM commands.
+// IM messages are now automatically delivered as turns — the model does not
+// need to poll manually.
+const imSteerText = `## IM Messaging Integration
+You have IM (Instant Messaging) tools for receiving and processing remote commands from WeCom, Feishu, and DingTalk. When the IM plugin is active, IM messages are automatically delivered to you as turns — you do not need to poll for them.
+
+When you receive an IM message turn, the command details are already included in the turn input. Follow this workflow:
+1. **Create a traceable session**: For each command, call mcp__im__create_im_session with the platform and command_id to create a session for traceability. The tool auto-fills conversation_id and sender info from the command.
+2. **Process the command**: Execute the requested task using your available tools.
+3. **Push the result back**: Call mcp__im__mark_command_done with the command_id and the execution result. This automatically sends the reply to the originating IM platform.
+4. **Wait for the next message**: After processing, the next IM message will be delivered automatically as a new turn.
+
+Important:
+- Always create an IM session before processing — it links the conversation for future reference.
+- Always mark commands done when finished — this sends the result back to the user on the IM platform.
+- IM messages are auto-triggered; you do not need to call poll_commands — the commands are already fetched and included in the turn input.
+- Do NOT call poll_commands again after receiving an IM message turn — it will return empty results since the commands were already consumed.`
+
 // Options carries the per-run knobs a frontend chooses; everything else is read
 // from configuration. Model "" falls back to the configured default_model;
 // MaxSteps 0 uses the config/default. RequireKey forces the executor's API key to
@@ -403,10 +422,24 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// for either the first model call (lazy) or a goroutine kicked off here
 	// (background). Both share the same pluginHost so /mcp status, hot-add,
 	// and Close see one cohesive set of servers regardless of tier.
+	//
+	// For the "im" plugin, we need a callback when the deferred spawn finishes
+	// so the Controller can start the IM poll watcher. The Controller hasn't
+	// been created yet, so we use a closure variable that is set after
+	// construction.
+	var imOnReady func()
 	registerDeferred := func(specs []plugin.Spec, kick bool) {
 		for _, s := range specs {
 			cs, _ := plugin.LoadCachedSchema(s.Name, plugin.SpecFingerprint(s))
-			for _, t := range plugin.LazyToolset(s, cs, pluginHost, reg, ctx, kick) {
+			onReady := func() {}
+			if s.Name == "im" {
+				onReady = func() {
+					if imOnReady != nil {
+						imOnReady()
+					}
+				}
+			}
+			for _, t := range plugin.LazyToolset(s, cs, pluginHost, reg, ctx, kick, onReady) {
 				reg.Add(t)
 			}
 		}
@@ -432,11 +465,41 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		}
 	}
 
+	// Inject IM steering into the system prompt when IM plugin tools are
+	// available, so the model knows how to poll for remote IM commands and
+	// process them with session traceability.
+	{
+		imPrefix := plugin.ToolPrefix("im")
+		var imTools []string
+		for _, name := range reg.Names() {
+			if strings.HasPrefix(name, imPrefix) {
+				imTools = append(imTools, name)
+			}
+		}
+		if len(imTools) > 0 {
+			sysPrompt += "\n\n" + imSteerText
+		}
+	}
+
 	for _, msg := range demoteMessages {
 		sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: msg})
 	}
 
 	cleanup := pluginHost.Close
+
+	// IM message watcher setup is deferred until after the Controller is
+	// created (below), since it needs the Controller to submit automatic
+	// turns. We just detect availability here.
+	imHasPoll := false
+	{
+		imPrefix := plugin.ToolPrefix("im")
+		for _, name := range reg.Names() {
+			if strings.HasPrefix(name, imPrefix) && strings.HasSuffix(name, "poll_commands") {
+				imHasPoll = true
+				break
+			}
+		}
+	}
 
 	// LSP tools resolve their servers on PATH and spawn lazily on first query, so
 	// registering them is cheap even when no server is installed (a query then
@@ -794,7 +857,22 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	if classifier != nil {
 		ctrlOpts.Classifier = classifier
 	}
-	return control.New(ctrlOpts), nil
+	ctrl := control.New(ctrlOpts)
+
+	// Wire the IM onReady callback so that when a deferred (background-tier)
+	// IM plugin finishes spawning, the Controller starts the IM poll watcher.
+	// This covers the case where the IM plugin's tools are not available at
+	// boot time (e.g. first install with no schema cache) but become available
+	// after the background spawn completes.
+	imOnReady = ctrl.EnsureIMWatcher
+
+	// If IM plugin tools were already available at boot (eager or cache-hit
+	// background), start the watcher immediately.
+	if imHasPoll {
+		ctrl.EnsureIMWatcher()
+	}
+
+	return ctrl, nil
 }
 
 func migrateLegacySessionSources(sink event.Sink) {

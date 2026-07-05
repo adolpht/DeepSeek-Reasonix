@@ -63,6 +63,11 @@ type lazySpawn struct {
 	// same names as the real tools, so reg.Add overwrites in place and no
 	// prefix removal is needed.
 	removePrefix string
+	// onReady is called once (from the goroutine that transitions to
+	// spawnReady) after the real tools have been swapped into the registry.
+	// It is used to notify the Controller that a deferred plugin's tools
+	// are now available (e.g. to start the IM poll watcher). nil-safe.
+	onReady func()
 }
 
 // kick starts the spawn if it has not yet started. Used by background-tier
@@ -110,6 +115,12 @@ func (s *lazySpawn) trySwap() {
 		s.reg.Add(t)
 	}
 	s.swapped = true
+	// Notify listeners that this deferred plugin's tools are now available.
+	// Called under mu so the callback sees a consistent registry state;
+	// the callback must not re-acquire s.mu (deadlock) or block for long.
+	if s.onReady != nil {
+		s.onReady()
+	}
 }
 
 // lazyTool is a tool.Tool placeholder backed by a shared lazySpawn. The model
@@ -222,12 +233,19 @@ func (lt *lazyTool) Execute(ctx context.Context, args json.RawMessage) (string, 
 // real tools land after a successful spawn. sessionCtx must outlive any
 // single Execute (use the controller's PluginCtx) — a turn-scoped ctx would
 // kill the stdio child between turns.
-func LazyToolset(spec Spec, cs *CachedSchema, host *Host, reg *tool.Registry, sessionCtx context.Context, kick bool) []tool.Tool {
+//
+// onReady, when non-nil, is called once after the deferred spawn succeeds
+// and the real tools have been swapped into the registry. It is invoked
+// under lazySpawn.mu, so it must not re-acquire that lock or block for long.
+// Use it to trigger actions that depend on the plugin's tools being available
+// (e.g. starting the IM poll watcher when the "im" plugin finishes loading).
+func LazyToolset(spec Spec, cs *CachedSchema, host *Host, reg *tool.Registry, sessionCtx context.Context, kick bool, onReady func()) []tool.Tool {
 	shared := &lazySpawn{
-		spec: spec,
-		host: host,
-		reg:  reg,
-		ctx:  sessionCtx,
+		spec:    spec,
+		host:    host,
+		reg:     reg,
+		ctx:     sessionCtx,
+		onReady: onReady,
 	}
 
 	var out []tool.Tool

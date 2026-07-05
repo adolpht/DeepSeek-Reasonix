@@ -13,6 +13,15 @@
 
 **核心区别**:Webhook 模式需要在本地启动 HTTP 服务并暴露给公网,IM 平台回调 URL 主动推送消息;Stream 模式由插件主动连接到 IM 平台的 WebSocket 网关,所有流量走出站,无需任何入站端口。
 
+### 自动化工作流
+
+IM 插件支持**全自动消息处理**:
+
+1. **自动连接** — 配置 `auto_start_tool = "auto_start"` 后,插件启动时根据环境变量自动建立 Stream/Webhook 连接
+2. **自动收取** — 后台 IM Watcher 持续轮询 `poll_commands`,收到消息后自动通知 Agent
+3. **自动处理** — Agent 按系统提示词指导,自动创建会话、执行任务、回推结果
+4. **会话追溯** — 每条消息自动关联 `create_im_session` 会话,支持跨平台追踪
+
 ---
 
 ## 一、环境变量完整清单
@@ -51,11 +60,21 @@
 
 ### 1.4 自动启动配置
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
 | `auto_start_tool` | 插件初始化后自动调用的 MCP 工具名 | 空(不自动调用) |
 
-> 配置 `auto_start_tool = "start_stream"` 或 `auto_start_tool = "start_bot"` 后,插件在会话启动时会自动建立连接,无需手动调用启动工具。GUI 启用 IM 插件时此选项自动设为 `start_stream`。
+> 配置 `auto_start_tool = "auto_start"` 后,插件在会话启动时会根据环境变量自动检测并启动所有已配置的平台连接(钉钉/飞书 Stream、企业微信 Webhook),无需手动选择模式。**GUI 启用 IM 插件时此选项自动设为 `auto_start`。**
+
+`auto_start` 的自动检测逻辑:
+
+| 环境变量 | 自动行为 |
+|----------|----------|
+| `IM_DINGTALK_APP_KEY` + `IM_DINGTALK_APP_SECRET` | 自动启动钉钉 Stream 长连接 |
+| `IM_FEISHU_APP_ID` + `IM_FEISHU_APP_SECRET` | 自动启动飞书 Stream 长连接 |
+| `IM_WECOM_KEY` | 自动启动企业微信 Webhook 服务器 |
+
+可同时配置多个平台,`auto_start` 会依次启动所有已配置的连接。
 
 ---
 
@@ -97,22 +116,23 @@ GUI 路径:**设置 → 办公插件 → IM 即时通讯 → 配置 → 钉钉�
 [[plugins]]
 name = "im"
 command = "reasonix-plugin-im"
-auto_start_tool = "start_stream"
+auto_start_tool = "auto_start"
 
 [plugins.env]
 IM_DINGTALK_APP_KEY = "dingxxxxxx"
 IM_DINGTALK_APP_SECRET = "yyyyyyyy"
 ```
 
-> `auto_start_tool = "start_stream"` 使插件在会话启动时自动建立 Stream 长连接,无需手动执行 `start_stream`。GUI 启用时此选项自动配置。
+> `auto_start_tool = "auto_start"` 使插件在会话启动时自动检测环境变量并建立 Stream 长连接,无需手动执行任何启动工具。GUI 启用时此选项自动配置。
 
 #### 步骤 5:验证
 
-配置 `auto_start_tool` 后,插件会在会话启动时自动连接。检查日志( stderr) 应出现:
+配置 `auto_start_tool` 后,插件会在会话启动时自动连接。检查日志(stderr)应出现:
 
 ```
-plugin: auto-start tool called server=im tool=start_stream
+plugin: auto-start tool called server=im tool=auto_start
 DingTalk stream started (client_id=dingxxxxxx), receiving messages via WebSocket — no public IP needed
+im-watcher: started, polling for IM messages
 ```
 
 也可手动验证:
@@ -121,7 +141,7 @@ DingTalk stream started (client_id=dingxxxxxx), receiving messages via WebSocket
 mcp__im__start_stream()
 ```
 
-在钉钉中 @机器人 发送消息,Reasonix 中执行 `list_pending_commands` 应能看到入队消息。
+在钉钉中 @机器人 发送消息,Reasonix 会自动收到并通过后台 IM Watcher 通知 Agent 处理。
 
 ---
 
@@ -163,22 +183,23 @@ GUI 路径:**设置 → 办公插件 → IM 即时通讯 → 配置 → 飞书�
 [[plugins]]
 name = "im"
 command = "reasonix-plugin-im"
-auto_start_tool = "start_stream"
+auto_start_tool = "auto_start"
 
 [plugins.env]
 IM_FEISHU_APP_ID = "cli_xxxxxx"
 IM_FEISHU_APP_SECRET = "yyyyyyyy"
 ```
 
-> `auto_start_tool = "start_stream"` 使插件在会话启动时自动建立 Stream 长连接,无需手动执行 `start_stream`。GUI 启用时此选项自动配置。
+> `auto_start_tool = "auto_start"` 使插件在会话启动时自动检测环境变量并建立 Stream 长连接,无需手动执行任何启动工具。GUI 启用时此选项自动配置。
 
 #### 步骤 6:验证
 
-配置 `auto_start_tool` 后,插件会在会话启动时自动连接。检查日志( stderr) 应出现:
+配置 `auto_start_tool` 后,插件会在会话启动时自动连接。检查日志(stderr)应出现:
 
 ```
-plugin: auto-start tool called server=im tool=start_stream
+plugin: auto-start tool called server=im tool=auto_start
 Feishu stream started (app_id=cli_xxxxxx), receiving messages via WebSocket — no public IP needed
+im-watcher: started, polling for IM messages
 ```
 
 也可手动验证:
@@ -213,7 +234,7 @@ https://example.com/im/dingtalk?token=<IM_BOT_TOKEN 的值>
 [[plugins]]
 name = "im"
 command = "reasonix-plugin-im"
-auto_start_tool = "start_bot"
+auto_start_tool = "auto_start"
 
 [plugins.env]
 IM_BOT_PORT = "9876"
@@ -221,6 +242,8 @@ IM_BOT_TOKEN = "任意复杂字符串"
 IM_DINGTALK_KEY = "access_token 串"
 IM_DINGTALK_SECRET = "加签 Secret"
 ```
+
+`auto_start` 检测到 `IM_DINGTALK_KEY` 后会自动启动 Webhook 服务器。也可手动启动:
 
 ```
 mcp__im__start_bot()
@@ -273,13 +296,52 @@ https://example.com/im/wecom?token=<IM_BOT_TOKEN 的值>
 #### 步骤 3:启动
 
 ```toml
+[[plugins]]
+name = "im"
+command = "reasonix-plugin-im"
+auto_start_tool = "auto_start"
+
 [plugins.env]
 IM_WECOM_KEY = "企微 Webhook Key"
 IM_BOT_TOKEN = "任意复杂字符串"
 ```
 
+`auto_start` 检测到 `IM_WECOM_KEY` 后会自动启动 Webhook 服务器。也可手动启动:
+
 ```
 mcp__im__start_bot()
+```
+
+---
+
+### 2.6 多平台混合配置
+
+可同时配置多个平台,`auto_start` 会依次启动所有已配置的连接:
+
+```toml
+[[plugins]]
+name = "im"
+command = "reasonix-plugin-im"
+auto_start_tool = "auto_start"
+
+[plugins.env]
+IM_DINGTALK_APP_KEY = "dingxxxxxx"        # 钉钉走 Stream
+IM_DINGTALK_APP_SECRET = "yyyyyyyy"
+IM_FEISHU_APP_ID = "cli_xxxxxx"           # 飞书走 Stream
+IM_FEISHU_APP_SECRET = "zzzzzzzz"
+IM_WECOM_KEY = "wwwwwwww"                 # 企业微信走 Webhook
+IM_BOT_PORT = "9876"
+IM_BOT_TOKEN = "验证Token"
+```
+
+启动后日志:
+
+```
+auto_start:
+  dingtalk: DingTalk stream started (client_id=dingxxxxxx), receiving messages via WebSocket — no public IP needed
+  feishu: Feishu stream started (app_id=cli_xxxxxx), receiving messages via WebSocket — no public IP needed
+  wecom: Bot server listening on :9876, platforms: [wecom]
+im-watcher: started, polling for IM messages
 ```
 
 ---
@@ -295,50 +357,125 @@ mcp__im__start_bot()
    - **Webhook 模式**:填 `IM_BOT_PORT`、`IM_BOT_TOKEN`(可选)和对应平台的 `IM_*_KEY` / `IM_DINGTALK_SECRET`
 6. 点击「保存并启用」
 7. 卡片右上角的开关会自动切换到「已连接」状态
-8. 启动模式:
-   - Stream 模式:在 Reasonix 对话中执行 `mcp__im__start_stream()`
-   - Webhook 模式:执行 `mcp__im__start_bot()`
+8. `auto_start_tool` 自动设为 `auto_start`,插件启动后自动建立连接,无需手动调用启动工具
 
 ---
 
 ## 四、工具调用清单
 
-| 工具 | 说明 |
-|------|------|
-| `mcp__im__start_bot` | 启动 Webhook HTTP 服务器(需公网 IP) |
-| `mcp__im__stop_bot` | 停止 Webhook 服务器 |
-| `mcp__im__start_stream` | 启动 Stream 长连接(钉钉/飞书,无需公网 IP) |
-| `mcp__im__stop_stream` | 停止 Stream 长连接 |
-| `mcp__im__list_pending_commands` | 列出待处理的远程指令 |
-| `mcp__im__mark_command_done` | 标记指令已执行,并把结果回推到原平台 |
-| `mcp__im__send_message` | 主动向指定 IM 平台 Webhook 推送消息 |
+| 工具 | 说明 | 自动化 |
+|------|------|--------|
+| `mcp__im__auto_start` | 根据环境变量自动启动所有已配置的 IM 连接 | ✅ `auto_start_tool` 自动调用 |
+| `mcp__im__start_bot` | 启动 Webhook HTTP 服务器(需公网 IP) | 手动 |
+| `mcp__im__stop_bot` | 停止 Webhook 服务器 | 手动 |
+| `mcp__im__start_stream` | 启动 Stream 长连接(钉钉/飞书,无需公网 IP) | 手动(或由 `auto_start` 触发) |
+| `mcp__im__stop_stream` | 停止 Stream 长连接 | 手动 |
+| `mcp__im__poll_commands` | 长轮询等待新 IM 消息(阻塞直到消息到达或超时) | ✅ 后台 IM Watcher 自动轮询 |
+| `mcp__im__list_pending_commands` | 列出待处理的远程指令 | 手动(或由 Agent 调用) |
+| `mcp__im__create_im_session` | 为 IM 消息创建可追溯会话,关联平台/会话/发送者 | ✅ Agent 按提示词自动调用 |
+| `mcp__im__mark_command_done` | 标记指令已执行,并把结果回推到原平台 | ✅ Agent 处理完成后自动调用 |
+| `mcp__im__send_message` | 主动向指定 IM 平台 Webhook 推送消息 | 手动 |
 
-### 典型工作流
+### 自动化工作流
 
-配置 `auto_start_tool` 后,Stream/Bot 会在会话启动时自动运行,无需手动执行第 1 步。
+配置 `auto_start_tool = "auto_start"` 后,整个消息处理流程**全自动运行**,无需手动操作:
 
 ```
-# 1. 启动接入(配置 auto_start_tool 后可跳过)
+软件启动
+  │
+  ├─ auto_start 自动检测环境变量 → 启动 Stream/Webhook 连接
+  ├─ 后台 IM Watcher 启动 → 持续轮询 poll_commands
+  │
+  └─ IM 消息到达
+       │
+       ├─ IM Watcher 收到通知 → 通知 Agent
+       │
+       └─ Agent 自动处理
+            ├─ poll_commands → 获取消息详情
+            ├─ create_im_session → 创建可追溯会话
+            ├─ 执行业务逻辑
+            └─ mark_command_done → 回推结果到 IM 平台
+```
+
+### 手动工作流(不使用 auto_start)
+
+如未配置 `auto_start_tool`,可手动操作:
+
+```
+# 1. 启动接入
 mcp__im__start_stream()            # Stream 模式
 mcp__im__start_bot(port=9876)      # Webhook 模式
 
-# 2. 轮询待处理指令
-mcp__im__list_pending_commands(limit=10)
+# 2. 等待消息(推荐使用 poll_commands 而非 busy-polling)
+mcp__im__poll_commands(timeout_seconds=30)
 
-# 3. 执行业务逻辑后回推结果
+# 3. 创建会话(便于追溯)
+mcp__im__create_im_session(
+  platform="dingtalk",
+  command_id="cmd-1-abc123"
+)
+
+# 4. 执行业务逻辑后回推结果
 mcp__im__mark_command_done(
   command_id="cmd-1-abc123",
   result="✅ 已为您完成日程查询:\n- 明天 09:00 项目周会\n- 14:00 客户拜访"
 )
 
-# 4. 关闭
+# 5. 关闭
 mcp__im__stop_stream()
 mcp__im__stop_bot()
 ```
 
 ---
 
-## 五、常见问题
+## 五、会话管理
+
+### create_im_session 详解
+
+`create_im_session` 为每条 IM 消息创建一个可追溯的会话记录,包含:
+
+| 字段 | 说明 | 自动填充 |
+|------|------|----------|
+| `platform` | IM 平台(dingtalk/feishu/wecom) | 必填 |
+| `command_id` | 关联的待处理指令 ID | 必填 |
+| `conversation_id` | IM 平台会话/聊天 ID | ✅ 从 command 自动提取 |
+| `sender_id` | 发送者用户 ID | ✅ 从 command 自动提取 |
+| `sender_name` | 发送者昵称 | ✅ 从 command 自动提取 |
+| `tags` | 分类标签(如 urgent, bug-report) | 可选 |
+
+> 会话信息(conversation_id、sender_id、sender_name)可从待处理指令的 `Extra` 字段自动提取,无需手动填写。只需提供 `platform` 和 `command_id` 即可。
+
+返回示例:
+
+```json
+{
+  "id": "im-sess-1-a1b2c3d4",
+  "platform": "dingtalk",
+  "conversation_id": "cidxxxxxx",
+  "sender_id": "user123",
+  "sender_name": "张三",
+  "command_id": "cmd-1-abc123",
+  "tags": [],
+  "created_at": "2026-07-05T10:30:00+08:00"
+}
+```
+
+### poll_commands 详解
+
+`poll_commands` 支持**长轮询**,比 `list_pending_commands` 更高效:
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `timeout_seconds` | 最大等待秒数(超时后立即返回) | 30 |
+| `limit` | 最多返回条数 | 20 |
+
+- 如果队列中已有待处理指令,立即返回
+- 如果队列为空,阻塞等待直到有新指令到达或超时
+- 超时返回 `"no pending commands (timed out)"`,非错误,可继续轮询
+
+---
+
+## 六、常见问题
 
 ### Q1:Stream 模式启动失败,提示 `app_id and app_secret are required`
 
@@ -378,18 +515,35 @@ mcp__im__stop_bot()
 
 ### Q6:能否同时启用 Webhook 和 Stream 两种模式?
 
-可以,但**同一平台不要重复配置**。常见组合:
-- 钉钉 + 飞书走 Stream 模式,企业微信走 Webhook 模式
-- 配置:`IM_DINGTALK_APP_KEY` / `IM_FEISHU_APP_ID` / `IM_WECOM_KEY` 同时存在
-- 启动:`start_stream()` + `start_bot(platforms=["wecom"])` 同时调用
+可以,但**同一平台不要重复配置**。推荐使用 `auto_start_tool = "auto_start"`,它会自动根据环境变量选择最佳模式:
+- 钉钉/飞书:有 `IM_*_APP_KEY`/`IM_*_APP_ID` → 自动走 Stream
+- 企业微信:有 `IM_WECOM_KEY` → 自动走 Webhook
 
 ### Q7:Stream 模式断线后会自动重连吗?
 
 会。钉钉 SDK 和飞书 SDK 默认开启了 `AutoReconnect`,断线后会自动重连,无需手动干预。日志中会出现 `StreamClient reconnect success` 记录。
 
+### Q8:IM 消息是如何被 Agent 自动处理的?
+
+IM 插件启动后,后台 IM Watcher 会持续调用 `poll_commands` 等待新消息。当有消息到达时:
+1. IM Watcher 通过事件通知和后台任务完成机制通知 Agent
+2. Agent 在下一个 turn 自动感知到待处理的 IM 消息
+3. 按系统提示词指导自动执行:poll → create_im_session → 处理 → mark_command_done
+4. 处理完毕后 IM Watcher 继续等待下一条消息
+
+### Q9:auto_start 和手动启动有什么区别?
+
+| 方式 | 配置 | 行为 |
+|------|------|------|
+| `auto_start` | `auto_start_tool = "auto_start"` | 自动检测所有 `IM_*` 环境变量,按需启动 Stream 和/或 Webhook |
+| `start_stream` | `auto_start_tool = "start_stream"` 或手动调用 | 仅启动 Stream 长连接(钉钉/飞书) |
+| `start_bot` | `auto_start_tool = "start_bot"` 或手动调用 | 仅启动 Webhook HTTP 服务器 |
+
+推荐使用 `auto_start`,它会根据实际配置自动选择最佳模式。
+
 ---
 
-## 六、安全建议
+## 七、安全建议
 
 1. **`IM_BOT_TOKEN` 必填**:Webhook 模式下,在回调 URL 后附加 `?token=<该值>` 可防止伪造请求
 2. **凭证定期轮换**:AppSecret / Webhook Key 泄露后应立即在开放平台重置,并在 Reasonix 中更新配置
@@ -398,7 +552,7 @@ mcp__im__stop_bot()
 
 ---
 
-## 七、参考链接
+## 八、参考链接
 
 - 钉钉 Stream 模式官方文档:https://open.dingtalk.com/document/development/stream
 - 钉钉 Stream Go SDK:https://github.com/open-dingtalk/dingtalk-stream-sdk-go

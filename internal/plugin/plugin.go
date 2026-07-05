@@ -642,6 +642,33 @@ func (h *Host) addConnected(ctx context.Context, s Spec) ([]tool.Tool, error) {
 	return ts, nil
 }
 
+// CallTool invokes a tool on the named MCP server by its raw MCP tool name.
+// It returns the text result from the tool execution. This is used for
+// programmatic tool invocation outside the normal agent dispatch path (e.g.
+// the IM message watcher).
+func (h *Host) CallTool(ctx context.Context, server, toolName string, args map[string]any) (string, error) {
+	h.mu.RLock()
+	var target *Client
+	for _, c := range h.clients {
+		if c.name == server {
+			target = c
+			break
+		}
+	}
+	h.mu.RUnlock()
+	if target == nil {
+		return "", fmt.Errorf("no MCP server named %q", server)
+	}
+	res, err := target.call(ctx, "tools/call", map[string]any{
+		"name":      toolName,
+		"arguments": args,
+	})
+	if err != nil {
+		return "", fmt.Errorf("call tool %q on %q: %w", toolName, server, err)
+	}
+	return parseToolResult(res)
+}
+
 // Remove disconnects the named server and drops its prompts/resources, returning
 // the namespaced tool-name prefix ("mcp__<server>__") the caller unregisters from
 // the tool registry, and whether the server was connected.

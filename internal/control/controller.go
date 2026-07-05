@@ -134,9 +134,9 @@ type Controller struct {
 	// execution turn returns.
 	autoApprove bool
 	// autoLearner scans user messages for preference declarations.
-	autoLearner        *memory.AutoLearner
-	autoLearnEnabled   bool
-	autoLearnConfirm   bool
+	autoLearner      *memory.AutoLearner
+	autoLearnEnabled bool
+	autoLearnConfirm bool
 
 	// bypass is "YOLO" mode: while set, every approval prompt is auto-allowed for
 	// the rest of the session (writers and bash run without asking). It is a
@@ -151,6 +151,18 @@ type Controller struct {
 	// a fresh memory takes effect this session without busting the prompt cache;
 	// it joins the prefix naturally on the next session.
 	pendingMemory []string
+
+	// imQueue holds IM messages that arrived while a turn was already running.
+	// When a turn completes and the queue is non-empty, the first message is
+	// automatically submitted as a new turn so IM commands are never dropped.
+	imQueue []string
+
+	// imWatcherDone is closed to stop the IM poll watcher goroutine. It is
+	// non-nil when the watcher is running; guarded by imWatcherMu.
+	imWatcherDone chan struct{}
+	// imWatcherMu serialises start/stop of the IM poll watcher so at most one
+	// instance runs per Controller, even when the IM plugin is hot-added.
+	imWatcherMu sync.Mutex
 
 	displayRecorder func(content, display string)
 }
@@ -220,35 +232,35 @@ func New(opts Options) *Controller {
 		pluginCtx = context.Background()
 	}
 	c := &Controller{
-		runner:        opts.Runner,
-		executor:      opts.Executor,
-		sink:          sink,
-		policy:        opts.Policy,
-		label:         opts.Label,
-		systemPrompt:  opts.SystemPrompt,
-		sessionDir:    opts.SessionDir,
-		sessionPath:   opts.SessionPath,
-		host:          opts.Host,
-		commands:      opts.Commands,
-		skills:        opts.Skills,
-		allSkills:     opts.AllSkills,
-		hooks:         opts.Hooks,
-		mem:           opts.Memory,
-		cleanup:       opts.Cleanup,
-		autoPlan:      normalizeAutoPlan(opts.AutoPlan),
-		classifier:    classifier,
-		onRemember:    opts.OnRemember,
-		balanceURL:    opts.BalanceURL,
-		balanceKey:    opts.BalanceKey,
-		balanceClient: opts.BalanceClient,
-		jobs:          opts.Jobs,
-		reg:           opts.Registry,
-		pluginCtx:     pluginCtx,
-		cpRoot:        opts.WorkspaceRoot,
-		approvals:       map[string]chan approvalReply{},
-		asks:            map[string]chan []event.AskAnswer{},
-		granted:         map[string]bool{},
-		autoLearner:     memory.NewAutoLearner(),
+		runner:           opts.Runner,
+		executor:         opts.Executor,
+		sink:             sink,
+		policy:           opts.Policy,
+		label:            opts.Label,
+		systemPrompt:     opts.SystemPrompt,
+		sessionDir:       opts.SessionDir,
+		sessionPath:      opts.SessionPath,
+		host:             opts.Host,
+		commands:         opts.Commands,
+		skills:           opts.Skills,
+		allSkills:        opts.AllSkills,
+		hooks:            opts.Hooks,
+		mem:              opts.Memory,
+		cleanup:          opts.Cleanup,
+		autoPlan:         normalizeAutoPlan(opts.AutoPlan),
+		classifier:       classifier,
+		onRemember:       opts.OnRemember,
+		balanceURL:       opts.BalanceURL,
+		balanceKey:       opts.BalanceKey,
+		balanceClient:    opts.BalanceClient,
+		jobs:             opts.Jobs,
+		reg:              opts.Registry,
+		pluginCtx:        pluginCtx,
+		cpRoot:           opts.WorkspaceRoot,
+		approvals:        map[string]chan approvalReply{},
+		asks:             map[string]chan []event.AskAnswer{},
+		granted:          map[string]bool{},
+		autoLearner:      memory.NewAutoLearner(),
 		autoLearnEnabled: opts.AutoLearn,
 		autoLearnConfirm: opts.AutoLearnConfirm,
 	}
@@ -378,8 +390,17 @@ func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 		c.mu.Lock()
 		c.running = false
 		c.cancel = nil
+		// Drain any IM messages that arrived while this turn was running.
+		// If the queue is non-empty, submit the first one as a new turn
+		// immediately so IM commands are processed without waiting for
+		// local user interaction.
+		pending := c.imQueue
+		c.imQueue = nil
 		c.mu.Unlock()
 		c.sink.Emit(event.Event{Kind: event.TurnDone, Err: explainError(err)})
+		if len(pending) > 0 {
+			c.Submit(pending[0])
+		}
 	}()
 }
 
@@ -614,6 +635,118 @@ func (c *Controller) CallTool(ctx context.Context, name string, args json.RawMes
 		return "", fmt.Errorf("tool %q is not read-only; CallTool only allows read-only tools", name)
 	}
 	return t.Execute(ctx, args)
+}
+
+// SubmitIM enqueues an IM-originated message for automatic processing. If no
+// turn is currently running, the message is submitted immediately as a new
+// turn; otherwise it is queued and automatically submitted when the current
+// turn completes. Unlike Submit, this bypasses slash-command dispatch and
+// @-reference expansion — the message goes straight to the agent as a
+// processing instruction.
+func (c *Controller) SubmitIM(input string) {
+	c.mu.Lock()
+	if c.running {
+		c.imQueue = append(c.imQueue, input)
+		c.mu.Unlock()
+		c.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
+			Text: "IM: command queued (turn in progress); will process after current turn completes"})
+		return
+	}
+	c.mu.Unlock()
+	c.runGuarded(func(ctx context.Context) error {
+		return c.runTurn(ctx, input)
+	})
+}
+
+// HandleIMMessage is the entry point called by the IM watcher when a new
+// IM message arrives. It formats the IM notification and submits it as an
+// automatic turn via SubmitIM, so the agent processes the message without
+// requiring local user interaction.
+//
+// The watcher has already fetched the pending commands via poll_commands,
+// so the agent should NOT call poll_commands again — the commands are
+// included directly in the turn input. The agent only needs to create a
+// session, process each command, and mark it done.
+func (c *Controller) HandleIMMessage(summary string) {
+	input := "IM: new remote command(s) received. Details:\n" + summary + "\n\nProcess the IM command(s) now: for each command, call mcp__im__create_im_session to create a session, process the command, and mcp__im__mark_command_done to push the result back. Do NOT call poll_commands again — the commands above were already fetched."
+	c.SubmitIM(input)
+}
+
+// EnsureIMWatcher starts the IM poll watcher goroutine if it is not already
+// running. It is safe to call multiple times (e.g. when the IM plugin is
+// connected at boot and also hot-added later) — only one watcher runs.
+func (c *Controller) EnsureIMWatcher() {
+	c.imWatcherMu.Lock()
+	defer c.imWatcherMu.Unlock()
+	if c.imWatcherDone != nil {
+		return // already running
+	}
+	done := make(chan struct{})
+	c.imWatcherDone = done
+	go c.imPollWatcher(done)
+	slog.Info("im-watcher: started via ensureIMWatcher")
+}
+
+// stopIMWatcher stops the IM poll watcher if it is running. Called during
+// cleanup.
+func (c *Controller) stopIMWatcher() {
+	c.imWatcherMu.Lock()
+	defer c.imWatcherMu.Unlock()
+	if c.imWatcherDone != nil {
+		close(c.imWatcherDone)
+		c.imWatcherDone = nil
+	}
+}
+
+// imPollWatcher runs in the background, continuously polling the IM plugin for
+// new messages via poll_commands. When a message arrives, it calls
+// HandleIMMessage to automatically trigger an agent turn for processing, so IM
+// commands are handled without requiring local user interaction. The watcher
+// stops when done is closed or the plugin context is cancelled.
+func (c *Controller) imPollWatcher(done chan struct{}) {
+	for {
+		pollCtx, pollCancel := context.WithTimeout(c.pluginCtx, 35*time.Second)
+		result, err := c.host.CallTool(pollCtx, "im", "poll_commands", map[string]any{
+			"timeout_seconds": 30,
+			"limit":           5,
+		})
+		pollCancel()
+
+		select {
+		case <-done:
+			slog.Info("im-watcher: stopped")
+			return
+		case <-c.pluginCtx.Done():
+			slog.Info("im-watcher: context cancelled")
+			return
+		default:
+		}
+
+		if err != nil {
+			slog.Warn("im-watcher: poll_commands failed", "err", err)
+			select {
+			case <-done:
+				return
+			case <-c.pluginCtx.Done():
+				return
+			case <-time.After(5 * time.Second):
+				continue
+			}
+		}
+
+		if strings.Contains(result, "no pending commands") {
+			continue
+		}
+
+		slog.Info("im-watcher: received IM messages", "result_len", len(result))
+		c.sink.Emit(event.Event{
+			Kind:  event.Notice,
+			Level: event.LevelInfo,
+			Text:  "IM: new remote command(s) received — auto-processing",
+		})
+
+		c.HandleIMMessage(result)
+	}
 }
 
 // Submit is the one-call entry for a simple frontend: it takes raw user input
@@ -1759,6 +1892,12 @@ func (c *Controller) connectMCPSpec(s plugin.Spec) (int, error) {
 			c.reg.Add(t)
 		}
 	}
+	// When the IM plugin is connected (either at boot or hot-added mid-session),
+	// ensure the IM poll watcher is running so incoming messages are automatically
+	// received and trigger agent turns without manual intervention.
+	if s.Name == "im" {
+		c.EnsureIMWatcher()
+	}
 	return len(tools), nil
 }
 
@@ -1959,6 +2098,7 @@ func (c *Controller) Close() {
 	if c.jobs != nil {
 		c.jobs.Close() // cancel any still-running background jobs
 	}
+	c.stopIMWatcher()
 	if c.cleanup != nil {
 		c.cleanup()
 	}

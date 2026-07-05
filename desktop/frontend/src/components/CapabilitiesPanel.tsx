@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { MessageSquare, Mail, Calendar, FileText, Table, Presentation, Search } from "lucide-react";
+import { MessageSquare, Mail, Calendar, FileText, Table, Presentation, Search, Cloud } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app, openExternal } from "../lib/bridge";
 import { useI18n, useT, type Locale } from "../lib/i18n";
@@ -1735,7 +1735,7 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 			zh: "接收企业微信 / 飞书 / 钉钉的远程指令并回推执行结果。钉钉/飞书支持 Stream 长连接模式,无需公网 IP。",
 			en: "Receive remote commands from WeCom / Feishu / DingTalk and push results back. DingTalk/Feishu support Stream long-connection mode (no public IP needed).",
 		},
-		autoStartTool: "start_stream",
+		autoStartTool: "auto_start",
 		envVars: [
 			{ key: "IM_BOT_PORT", label: { zh: "HTTP 监听端口", en: "HTTP listen port" }, placeholder: { zh: "9876", en: "9876" } },
 			{
@@ -1771,6 +1771,26 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 				label: { zh: "飞书企业应用 App Secret (Stream 模式)", en: "Feishu App Secret (Stream mode)" },
 				hint: { zh: "Stream 长连接模式专用,无需公网 IP", en: "Stream long-connection mode only, no public IP needed" },
 				secret: true,
+			},
+		],
+	},
+	{
+		id: "dws",
+		command: "reasonix-plugin-dws",
+		icon: <Cloud size={16} />,
+		color: "blue",
+		title: { zh: "钉钉工作台 (dws)", en: "DingTalk Workspace (dws)" },
+		desc: {
+			zh: "通过 dws CLI 操作钉钉全产品能力:通讯录/日历/文档/AI表格/群聊/待办/审批/考勤/邮件/云盘/听记/知识库等。启用后自动检测安装和认证状态,未认证时自动跳转浏览器授权(管理员审批即可使用)。",
+			en: "Operate DingTalk full product suite via dws CLI: contacts/calendar/docs/AI tables/chat/todo/approval/attendance/mail/drive/minutes/wiki etc. Auto-checks install & auth on enable; opens browser for OAuth if unauthenticated (admin approval = ready to use).",
+		},
+		autoStartTool: "dws_check",
+		envVars: [
+			{
+				key: "DWS_PATH",
+				label: { zh: "dws 可执行文件路径", en: "dws executable path" },
+				hint: { zh: "可选;默认从 PATH 查找 dws,若安装路径不在 PATH 中可手动指定", en: "Optional; defaults to 'dws' from PATH. Specify if dws is installed outside PATH" },
+				placeholder: { zh: "dws", en: "dws" },
 			},
 		],
 	},

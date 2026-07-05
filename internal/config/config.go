@@ -915,7 +915,7 @@ type PluginEntry struct {
 	// plugin connects and completes the MCP handshake. The tool is called with
 	// an empty argument map. This is useful for plugins that need an explicit
 	// "start" action to become operational (e.g. IM stream connections).
-	// Example: auto_start_tool = "start_stream"
+	// Example: auto_start_tool = "auto_start"
 	AutoStartTool string `toml:"auto_start_tool"`
 }
 

@@ -149,6 +149,7 @@ Section
     File "..\..\bin\plugins\reasonix-plugin-slides.exe"
     File "..\..\bin\plugins\reasonix-plugin-mail.exe"
     File "..\..\bin\plugins\reasonix-plugin-im.exe"
+    File "..\..\bin\plugins\reasonix-plugin-dws.exe"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"

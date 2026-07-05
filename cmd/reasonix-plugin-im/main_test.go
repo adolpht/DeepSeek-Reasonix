@@ -15,7 +15,7 @@ import (
 // --- command queue tests ---
 
 func TestCommandQueueAdd(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	cmd := q.add("wecom", "hello world", "https://example.com/hook", nil)
 	if cmd.ID == "" {
 		t.Error("expected non-empty command ID")
@@ -32,7 +32,7 @@ func TestCommandQueueAdd(t *testing.T) {
 }
 
 func TestCommandQueueList(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	q.add("wecom", "cmd1", "", nil)
 	q.add("feishu", "cmd2", "", nil)
 	q.add("dingtalk", "cmd3", "", nil)
@@ -51,7 +51,7 @@ func TestCommandQueueList(t *testing.T) {
 }
 
 func TestCommandQueueListLimit(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	for i := 0; i < 5; i++ {
 		q.add("wecom", "cmd", "", nil)
 	}
@@ -62,7 +62,7 @@ func TestCommandQueueListLimit(t *testing.T) {
 }
 
 func TestCommandQueueMarkDoneNotFound(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	cmd := q.markDone("nonexistent")
 	if cmd != nil {
 		t.Error("expected nil for nonexistent command")
@@ -70,7 +70,7 @@ func TestCommandQueueMarkDoneNotFound(t *testing.T) {
 }
 
 func TestCommandQueueMarkDoneTwice(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	q.add("wecom", "cmd", "", nil)
 	pending := q.list(1)
 	id := pending[0].ID
@@ -88,7 +88,7 @@ func TestCommandQueueMarkDoneTwice(t *testing.T) {
 // --- WeCom handler tests ---
 
 func TestWeComHandlerText(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	oldQueue := queue
 	queue = q
 	defer func() { queue = oldQueue }()
@@ -119,7 +119,7 @@ func TestWeComHandlerText(t *testing.T) {
 }
 
 func TestWeComHandlerTokenVerification(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	oldQueue := queue
 	queue = q
 	defer func() { queue = oldQueue }()
@@ -175,7 +175,7 @@ func TestExtractWeComContent(t *testing.T) {
 // --- Feishu handler tests ---
 
 func TestFeishuHandlerText(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	oldQueue := queue
 	queue = q
 	defer func() { queue = oldQueue }()
@@ -261,7 +261,7 @@ func TestExtractFeishuContent(t *testing.T) {
 // --- DingTalk handler tests ---
 
 func TestDingTalkHandlerText(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	oldQueue := queue
 	queue = q
 	defer func() { queue = oldQueue }()
@@ -292,7 +292,7 @@ func TestDingTalkHandlerText(t *testing.T) {
 }
 
 func TestDingTalkHandlerTokenVerification(t *testing.T) {
-	q := &commandQueue{}
+	q := &commandQueue{notify: make(chan struct{})}
 	oldQueue := queue
 	queue = q
 	defer func() { queue = oldQueue }()
@@ -520,14 +520,14 @@ func TestMCPProtocolEndToEnd(t *testing.T) {
 		t.Fatalf("tools/list error: %v", resp["error"])
 	}
 	toolList := resp["result"].(map[string]any)["tools"].([]any)
-	if len(toolList) != 7 {
-		t.Fatalf("expected 7 tools, got %d", len(toolList))
+	if len(toolList) != 10 {
+		t.Fatalf("expected 10 tools, got %d", len(toolList))
 	}
 	names := map[string]bool{}
 	for _, tt := range toolList {
 		names[tt.(map[string]any)["name"].(string)] = true
 	}
-	for _, want := range []string{"start_bot", "stop_bot", "start_stream", "stop_stream", "send_message", "list_pending_commands", "mark_command_done"} {
+	for _, want := range []string{"start_bot", "stop_bot", "start_stream", "stop_stream", "send_message", "list_pending_commands", "mark_command_done", "auto_start", "poll_commands", "create_im_session"} {
 		if !names[want] {
 			t.Errorf("tool %q missing from tools/list", want)
 		}
