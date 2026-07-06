@@ -722,6 +722,10 @@ export const en = {
   "imSessions.executionTrace": "Execution trace",
   "imSessions.traceEmpty": "No linked execution trace.",
   "imSessions.sender": "Sender",
+  "imSessions.delete": "Delete session",
+  "imSessions.clearAll": "Clear all sessions",
+  "imSessions.confirmClear": "Confirm",
+  "imSessions.cancelClear": "Cancel",
 
   // settings drawer
   "settings.title": "Settings",

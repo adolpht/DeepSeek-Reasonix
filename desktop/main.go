@@ -8,9 +8,11 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -160,4 +162,29 @@ func (d *dualWriter) Write(p []byte) (n int, err error) {
 		return n1, e1
 	}
 	return n2, e2
+}
+
+// recoverPanic is the desktop-side panic backstop. Wails routes bound Go methods
+// straight onto the UI thread; an unrecovered panic there (or in any goroutine
+// they spawn without their own recover) takes down the whole process — and
+// because production Wails builds have no stderr attached, the stack trace is
+// lost. Deferring this at the entry of every bound method turns those crashes
+// into a logged error the user can recover from by retrying.
+//
+// The recovered value and a goroutine stack snapshot are written through slog,
+// which initLogging has already pointed at reasonix.log (and stderr in dev).
+// Recovering here does NOT keep a panicking turn alive — controller.runGuarded
+// has its own recover for in-turn panics — this is the outer guard for panics
+// in tab lookup, transcript snapshotting, approval plumbing, etc.
+func recoverPanic(label string) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	buf := make([]byte, 8192)
+	n := goruntime.Stack(buf, false)
+	slog.Error("desktop: panic in bound method",
+		"label", label,
+		"panic", fmt.Sprintf("%v", r),
+		"stack", string(buf[:n]))
 }

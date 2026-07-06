@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -712,8 +713,23 @@ func (a *Agent) stream(ctx context.Context, turn int) (string, string, string, [
 			}
 		case provider.ChunkToolCall:
 			partialToolStarted = true
+			// Defensive: providers contractually send a non-nil ToolCall here,
+			// but a buggy/edge-case stream chunk could violate that. Dereferencing
+			// a nil pointer would panic the whole agent goroutine (and, without
+			// recover upstream, kill the desktop process). Skip the malformed chunk
+			// rather than crashing.
+			if chunk.ToolCall == nil {
+				slog.Warn("agent: dropped ChunkToolCall with nil ToolCall")
+				continue
+			}
 			calls = append(calls, *chunk.ToolCall)
 		case provider.ChunkUsage:
+			// Defensive: same contract argument as ChunkToolCall. A nil Usage
+			// would panic on the CacheHitTokens access below; log and skip.
+			if chunk.Usage == nil {
+				slog.Warn("agent: dropped ChunkUsage with nil Usage")
+				continue
+			}
 			usage = chunk.Usage
 			a.lastUsage.Store(chunk.Usage)
 			a.sessCacheHit.Add(int64(chunk.Usage.CacheHitTokens))

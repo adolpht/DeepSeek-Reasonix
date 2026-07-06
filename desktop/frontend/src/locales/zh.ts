@@ -723,6 +723,10 @@ export const zh: Record<DictKey, string> = {
   "imSessions.executionTrace": "执行轨迹",
   "imSessions.traceEmpty": "未关联执行轨迹。",
   "imSessions.sender": "发送者",
+  "imSessions.delete": "删除会话",
+  "imSessions.clearAll": "清空所有会话",
+  "imSessions.confirmClear": "确认清空",
+  "imSessions.cancelClear": "取消",
 
   // 设置抽屉
   "settings.title": "设置",

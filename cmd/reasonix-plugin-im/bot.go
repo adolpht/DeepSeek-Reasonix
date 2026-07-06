@@ -796,6 +796,36 @@ func (s *imSessionStore) markSessionCallbackPending(commandID, result string) {
 	}
 }
 
+// delete removes a session by its ID. Returns true if found and removed.
+func (s *imSessionStore) delete(id string) bool {
+	s.mu.Lock()
+	found := false
+	for i, sess := range s.sessions {
+		if sess.ID == id {
+			s.sessions = append(s.sessions[:i], s.sessions[i+1:]...)
+			found = true
+			break
+		}
+	}
+	s.mu.Unlock()
+	if found {
+		persistState()
+	}
+	return found
+}
+
+// clear removes all sessions. Returns the count of removed sessions.
+func (s *imSessionStore) clear() int {
+	s.mu.Lock()
+	n := len(s.sessions)
+	s.sessions = s.sessions[:0]
+	s.mu.Unlock()
+	if n > 0 {
+		persistState()
+	}
+	return n
+}
+
 // runCreateIMSession creates a new IM session for traceability.
 // If the command has extra info (conversation_id, sender), it is
 // automatically populated from the pending command when not explicitly provided.
@@ -842,7 +872,7 @@ func runListIMSessions(statusFilter string, limit int) (any, error) {
 	if len(sessions) == 0 {
 		return "no IM sessions", nil
 	}
-	b, err := json.MarshalIndent(sessions, "", "  ")
+	b, err := json.Marshal(sessions)
 	if err != nil {
 		return nil, fmt.Errorf("marshal sessions: %w", err)
 	}
@@ -864,11 +894,31 @@ func runGetIMSession(sessionID string) (any, error) {
 	if sess.CommandID != "" {
 		detail.Command = queue.get(sess.CommandID)
 	}
-	b, err := json.MarshalIndent(detail, "", "  ")
+	b, err := json.Marshal(detail)
 	if err != nil {
 		return nil, fmt.Errorf("marshal session detail: %w", err)
 	}
 	return string(b), nil
+}
+
+// runDeleteIMSession deletes a single IM session by ID.
+func runDeleteIMSession(sessionID string) (any, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session_id is required")
+	}
+	found := sessionStore.delete(sessionID)
+	if !found {
+		return nil, fmt.Errorf("IM session %q not found", sessionID)
+	}
+	log.Printf("deleted IM session %s", sessionID)
+	return map[string]any{"deleted": true, "session_id": sessionID}, nil
+}
+
+// runClearIMSessions removes all IM sessions and returns the count cleared.
+func runClearIMSessions() (any, error) {
+	n := sessionStore.clear()
+	log.Printf("cleared all IM sessions (count=%d)", n)
+	return map[string]any{"cleared": n}, nil
 }
 
 // --- persistence ---

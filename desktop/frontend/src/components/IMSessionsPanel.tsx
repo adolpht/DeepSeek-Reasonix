@@ -3,6 +3,8 @@ import {
   MessageSquare,
   RefreshCw,
   Loader,
+  Trash2,
+  XCircle,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -49,6 +51,7 @@ export function IMSessionsPanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<IMSessionDetailView | null>(null);
   const [statusFilter, setStatusFilter] = useState<IMSessionStatus | "">("");
+  const [confirmClear, setConfirmClear] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [error, setError] = useState("");
@@ -96,6 +99,35 @@ export function IMSessionsPanel() {
     loadSessions();
   }, [loadSessions]);
 
+  // Delete a single session
+  const deleteSession = useCallback(async (id: string) => {
+    try {
+      const ok = await app.DeleteIMSession(id);
+      if (ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== id));
+        if (selectedId === id) {
+          setSelectedId(null);
+          setDetail(null);
+          setTranscript(null);
+        }
+      }
+    } catch { /* ignore */ }
+  }, [selectedId]);
+
+  // Clear all sessions
+  const clearAllSessions = useCallback(async () => {
+    try {
+      const cleared = await app.ClearIMSessions();
+      if (cleared >= 0) {
+        setSessions([]);
+        setSelectedId(null);
+        setDetail(null);
+        setTranscript(null);
+        setConfirmClear(false);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   const totalCount = sessions.length;
 
   return (
@@ -113,6 +145,26 @@ export function IMSessionsPanel() {
         >
           {loading ? <Loader size={13} className="spin" /> : <RefreshCw size={13} />}
         </button>
+        {totalCount > 0 && !confirmClear && (
+          <button
+            type="button"
+            className="im-sessions__clear"
+            onClick={() => setConfirmClear(true)}
+            title={t("imSessions.clearAll") as string}
+          >
+            <XCircle size={13} />
+          </button>
+        )}
+        {confirmClear && (
+          <>
+            <button type="button" className="im-sessions__confirm" onClick={clearAllSessions}>
+              {t("imSessions.confirmClear") as string}
+            </button>
+            <button type="button" className="im-sessions__cancel" onClick={() => setConfirmClear(false)}>
+              {t("imSessions.cancelClear") as string}
+            </button>
+          </>
+        )}
       </header>
 
       {/* Status filter chips */}
@@ -162,6 +214,14 @@ export function IMSessionsPanel() {
                     <span className="im-sessions__platform">
                       {PLATFORM_LABELS[s.platform] ?? s.platform}
                     </span>
+                    <button
+                      type="button"
+                      className="im-sessions__delete"
+                      title={t("imSessions.delete") as string}
+                      onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }}
+                    >
+                      <Trash2 size={11} />
+                    </button>
                   </div>
                   <div className="im-sessions__row-content">
                     {s.content || t("imSessions.noContent") as string}

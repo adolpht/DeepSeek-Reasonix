@@ -196,6 +196,8 @@ var tools = []toolDef{
 	createIMSessionTool,
 	listIMSessionsTool,
 	getIMSessionTool,
+	deleteIMSessionTool,
+	clearIMSessionsTool,
 }
 
 func toolList() []map[string]any {
@@ -758,5 +760,46 @@ var getIMSessionTool = toolDef{
 			return nil, err
 		}
 		return runGetIMSession(sessionID)
+	},
+}
+
+// deleteIMSessionTool deletes a single IM session by its ID.
+// This removes the session record from the session store — the session
+// history is no longer visible in the desktop panel after deletion.
+// The linked agent transcript file (.jsonl) is NOT deleted automatically;
+// delete it separately if needed.
+var deleteIMSessionTool = toolDef{
+	name:        "delete_im_session",
+	description: "Delete a single IM session by ID. Removes the session record from the session store so it no longer appears in the desktop IM Sessions panel. Does NOT delete the linked agent transcript file.",
+	readOnly:    false,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"session_id": map[string]any{"type": "string", "description": "IM session ID to delete"},
+		},
+		"required": []string{"session_id"},
+	},
+	run: func(args map[string]any) (any, error) {
+		sessionID, err := argString(args, "session_id")
+		if err != nil {
+			return nil, err
+		}
+		return runDeleteIMSession(sessionID)
+	},
+}
+
+// clearIMSessionsTool removes all IM session records from the session store.
+// Useful for cleaning up stale history. Does NOT delete agent transcript
+// files; those remain on disk and can be managed separately.
+var clearIMSessionsTool = toolDef{
+	name:        "clear_im_sessions",
+	description: "Remove all IM session records from the session store. Useful for cleaning up stale history. Does NOT delete agent transcript files.",
+	readOnly:    false,
+	schema: map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	},
+	run: func(args map[string]any) (any, error) {
+		return runClearIMSessions()
 	},
 }

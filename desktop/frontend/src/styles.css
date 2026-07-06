@@ -10056,6 +10056,65 @@ a[href] {
   color: var(--text);
   background: var(--hover-bg, rgba(0, 0, 0, 0.05));
 }
+.im-sessions__clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+.im-sessions__clear:hover {
+  color: var(--danger, #dc3545);
+  background: var(--hover-bg, rgba(0, 0, 0, 0.05));
+}
+.im-sessions__confirm {
+  background: none;
+  border: 1px solid var(--danger, #dc3545);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--danger, #dc3545);
+  cursor: pointer;
+}
+.im-sessions__confirm:hover {
+  background: var(--danger, #dc3545);
+  color: #fff;
+}
+.im-sessions__cancel {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.im-sessions__cancel:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.05));
+}
+.im-sessions__delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.im-sessions__row:hover .im-sessions__delete {
+  opacity: 1;
+}
+.im-sessions__delete:hover {
+  color: var(--danger, #dc3545);
+  background: var(--hover-bg, rgba(0, 0, 0, 0.05));
+}
 .im-sessions__filters {
   display: flex;
   gap: 4px;

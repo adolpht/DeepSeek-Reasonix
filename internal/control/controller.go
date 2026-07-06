@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -394,6 +395,25 @@ func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 
 	go func() {
 		defer cancel()
+		// recoverAny turns a panic inside body (the entire turn — agent loop,
+		// tool execution, compaction, hooks) into a TurnDone error instead of
+		// letting the goroutine crash the whole process. Without this, a single
+		// nil deref or out-of-range slice in a provider/tool would silently kill
+		// the Wails desktop app (no stderr in production builds → no trace).
+		// The stack is logged so the next crash leaves a fingerprint in
+		// reasonix.log, and the user sees a recoverable error in-tab.
+		defer func() {
+			if r := recover(); r != nil {
+				stack := debugStack()
+				slog.Error("controller: panic in turn", "panic", fmt.Sprintf("%v", r), "stack", stack)
+				c.mu.Lock()
+				c.running = false
+				c.cancel = nil
+				c.imQueue = nil
+				c.mu.Unlock()
+				c.sink.Emit(event.Event{Kind: event.TurnDone, Err: fmt.Errorf("internal panic: %v\n%s", r, stack)})
+			}
+		}()
 		err := body(ctx)
 		c.mu.Lock()
 		c.running = false
@@ -411,6 +431,13 @@ func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 			c.SubmitIM(combined)
 		}
 	}()
+}
+
+// debugStack returns the current goroutine's stack trace as a string. Wrapped
+// so the recover site can log it without pulling runtime/debug into the hot
+// import list elsewhere.
+func debugStack() string {
+	return string(debug.Stack())
 }
 
 // Send starts a turn with an uncomposed message. The controller applies
@@ -646,6 +673,31 @@ func (c *Controller) CallTool(ctx context.Context, name string, args json.RawMes
 	return t.Execute(ctx, args)
 }
 
+// CallToolDirect invokes a plugin tool by name, bypassing both the agent loop
+// and the read-only check. It resolves the MCP server and tool name from the
+// namespaced tool name (e.g. "mcp__im__delete_im_session") and calls the
+// plugin directly via the Host. This is intended for desktop UI operations
+// that need to invoke write tools (e.g. deleting/clearing IM sessions) where
+// the approval gate is not appropriate because the user explicitly initiated
+// the action through the UI.
+func (c *Controller) CallToolDirect(ctx context.Context, namespacedName string, args map[string]any) (string, error) {
+	if c.host == nil {
+		return "", fmt.Errorf("plugin host not initialized")
+	}
+	// Parse "mcp__<server>__<tool>" into server + tool name.
+	if !strings.HasPrefix(namespacedName, "mcp__") {
+		return "", fmt.Errorf("invalid namespaced tool name %q", namespacedName)
+	}
+	rest := namespacedName[5:] // drop "mcp__"
+	idx := strings.Index(rest, "__")
+	if idx < 0 {
+		return "", fmt.Errorf("invalid namespaced tool name %q", namespacedName)
+	}
+	server := rest[:idx]
+	toolName := rest[idx+2:]
+	return c.host.CallTool(ctx, server, toolName, args)
+}
+
 // SubmitIM enqueues an IM-originated message for automatic processing. If no
 // turn is currently running, the message is submitted immediately as a new
 // turn; otherwise it is queued and automatically submitted when the current
@@ -722,6 +774,17 @@ func (c *Controller) imPollWatcher(done chan struct{}) {
 		c.imSeen = make(map[string]time.Time)
 		c.imSeenTTL = 10 * time.Minute
 	}
+	// recoverBackstop: a panic inside the watcher loop (e.g. in filterSeenCommands
+	// regex, in host.CallTool plugin IPC, or in HandleIMMessage formatting) would
+	// otherwise kill the process — the Wails desktop build has no stderr to print
+	// the runtime trace to, so the crash looks like a silent exit. This turns the
+	// panic into a logged error and lets the watcher exit cleanly via done.
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("im-watcher: panic — watcher exiting", "panic", fmt.Sprintf("%v", r), "stack", debugStack())
+		}
+		slog.Info("im-watcher: stopped (deferred)")
+	}()
 	for {
 		pollCtx, pollCancel := context.WithTimeout(c.pluginCtx, 35*time.Second)
 		result, err := c.host.CallTool(pollCtx, "im", "poll_commands", map[string]any{
@@ -732,7 +795,6 @@ func (c *Controller) imPollWatcher(done chan struct{}) {
 
 		select {
 		case <-done:
-			slog.Info("im-watcher: stopped")
 			return
 		case <-c.pluginCtx.Done():
 			slog.Info("im-watcher: context cancelled")

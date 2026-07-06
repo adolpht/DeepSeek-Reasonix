@@ -52,13 +52,40 @@ type Ledger struct {
 func NewLedger() *Ledger { return &Ledger{} }
 
 // Reset clears receipts between user turns.
+// Reset clears receipts between user turns, but preserves successful
+// complete_step receipts so that todo completion state survives across
+// turn boundaries (e.g. when a model connection fails mid-turn and the
+// agent retries). It also preserves the last todo_write receipt so that
+// the new turn can detect step transitions (in_progress→completed) that
+// span turns. Without this preservation, a model failure mid-turn would
+// lose the evidence ledger and prevent the resumed session from validating
+// complete_step calls against the prior todo list.
 func (l *Ledger) Reset() {
 	if l == nil {
 		return
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.receipts = nil
+	var kept []Receipt
+	var lastTodoWrite *Receipt
+	for i := len(l.receipts) - 1; i >= 0; i-- {
+		r := l.receipts[i]
+		if r.Success && r.ToolName == "todo_write" && lastTodoWrite == nil {
+			cp := r
+			lastTodoWrite = &cp
+		}
+		if r.Success && r.ToolName == "complete_step" && r.Step != "" {
+			kept = append(kept, r)
+		}
+	}
+	if lastTodoWrite != nil {
+		kept = append(kept, *lastTodoWrite)
+	}
+	if len(kept) > 0 {
+		l.receipts = kept
+	} else {
+		l.receipts = nil
+	}
 }
 
 // Record appends a receipt. Failed receipts are retained for auditability but

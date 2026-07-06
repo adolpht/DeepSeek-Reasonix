@@ -714,6 +714,7 @@ func (a *App) Submit(input string) {
 }
 
 func (a *App) SubmitToTab(tabID, input string) {
+	defer recoverPanic("SubmitToTab")
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "/effort" || strings.HasPrefix(trimmed, "/effort ") {
 		a.runEffortCommandForTab(tabID, trimmed)
@@ -731,6 +732,7 @@ func (a *App) RunShell(command string) {
 }
 
 func (a *App) RunShellForTab(tabID, command string) {
+	defer recoverPanic("RunShellForTab")
 	if ctrl := a.ctrlByTabID(tabID); ctrl != nil {
 		ctrl.RunShell(command)
 	}
@@ -743,6 +745,7 @@ func (a *App) SubmitDisplay(display, input string) {
 }
 
 func (a *App) SubmitDisplayToTab(tabID, display, input string) {
+	defer recoverPanic("SubmitDisplayToTab")
 	ctrl := a.ctrlByTabID(tabID)
 	if ctrl == nil {
 		return
@@ -958,6 +961,7 @@ func (a *App) Cancel() {
 }
 
 func (a *App) CancelTab(tabID string) {
+	defer recoverPanic("CancelTab")
 	if ctrl := a.ctrlByTabID(tabID); ctrl != nil {
 		ctrl.Cancel()
 	}
@@ -970,6 +974,7 @@ func (a *App) Approve(id string, allow, session, persist bool) {
 }
 
 func (a *App) ApproveTab(tabID, id string, allow, session, persist bool) {
+	defer recoverPanic("ApproveTab")
 	ctrl := a.ctrlByTabID(tabID)
 	if ctrl != nil {
 		ctrl.Approve(id, allow, session, persist)
@@ -4553,13 +4558,14 @@ type IMSessionView struct {
 //
 // The optional status filter is forwarded to the plugin ("", "pending",
 // "processing", "done", "failed"). Results are newest-first.
+// Uses CallToolDirect for a direct Host→MCP path, avoiding the registry
+// lookup overhead of CallTool.
 func (a *App) ListIMSessions(status string) []IMSessionView {
 	ctrl := a.imCtrlLocked()
 	if ctrl == nil {
 		return []IMSessionView{}
 	}
-	args, _ := json.Marshal(map[string]any{"status": status, "limit": 100})
-	out, err := ctrl.CallTool(a.ctx, "mcp__im__list_im_sessions", args)
+	out, err := ctrl.CallToolDirect(a.ctx, "mcp__im__list_im_sessions", map[string]any{"status": status, "limit": 100})
 	if err != nil {
 		return []IMSessionView{}
 	}
@@ -4569,17 +4575,50 @@ func (a *App) ListIMSessions(status string) []IMSessionView {
 // GetIMSession fetches a single IM session with its linked command. The
 // agent_session path (if any) lets the frontend load the agent transcript
 // that processed this IM command and render the execution trace.
+// Uses CallToolDirect for a direct Host→MCP path.
 func (a *App) GetIMSession(sessionID string) IMSessionDetailView {
 	ctrl := a.imCtrlLocked()
 	if ctrl == nil {
 		return IMSessionDetailView{}
 	}
-	args, _ := json.Marshal(map[string]any{"session_id": sessionID})
-	out, err := ctrl.CallTool(a.ctx, "mcp__im__get_im_session", args)
+	out, err := ctrl.CallToolDirect(a.ctx, "mcp__im__get_im_session", map[string]any{"session_id": sessionID})
 	if err != nil {
 		return IMSessionDetailView{}
 	}
 	return parseIMSessionDetail(out)
+}
+
+// DeleteIMSession deletes a single IM session by ID. Returns true on success.
+// Uses CallToolDirect to bypass the read-only check since this is a user-initiated
+// delete action from the UI panel.
+func (a *App) DeleteIMSession(sessionID string) bool {
+	ctrl := a.imCtrlLocked()
+	if ctrl == nil {
+		return false
+	}
+	_, err := ctrl.CallToolDirect(a.ctx, "mcp__im__delete_im_session", map[string]any{"session_id": sessionID})
+	return err == nil
+}
+
+// ClearIMSessions removes all IM session records. Returns the count cleared,
+// or -1 on error. Uses CallToolDirect to bypass the read-only check since this
+// is a user-initiated clear action from the UI panel.
+func (a *App) ClearIMSessions() int {
+	ctrl := a.imCtrlLocked()
+	if ctrl == nil {
+		return -1
+	}
+	out, err := ctrl.CallToolDirect(a.ctx, "mcp__im__clear_im_sessions", map[string]any{})
+	if err != nil {
+		return -1
+	}
+	var result struct {
+		Cleared int `json:"cleared"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		return -1
+	}
+	return result.Cleared
 }
 
 // imCtrlLocked returns the App-level IM controller under a short lock.

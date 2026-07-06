@@ -363,6 +363,8 @@ export interface AppBindings {
   // the active tab's controller. Returns empty when the IM plugin is absent.
   ListIMSessions(status: IMSessionStatus | ""): Promise<IMSessionView[]>;
   GetIMSession(sessionId: string): Promise<IMSessionDetailView>;
+  DeleteIMSession(sessionId: string): Promise<boolean>;
+  ClearIMSessions(): Promise<number>;
 
   // --- Clipboard bindings (for FloatingWindow) ---
   ReadClipboard(): Promise<string>;
@@ -2342,6 +2344,14 @@ function makeMockApp(): AppBindings {
     async GetIMSession(_sessionId: string): Promise<IMSessionDetailView> {
       // Browser mock: returns empty detail; the panel shows "not found".
       return { id: "", platform: "", commandId: "", status: "pending", createdAt: 0, updatedAt: 0 };
+    },
+    async DeleteIMSession(_sessionId: string): Promise<boolean> {
+      // Browser mock: no-op, return success.
+      return true;
+    },
+    async ClearIMSessions(): Promise<number> {
+      // Browser mock: no-op, return 0 cleared.
+      return 0;
     },
     async CreateTodo(_title: string, _description: string, _dueDate: string, _priority: string): Promise<void> {
       // no-op in mock
