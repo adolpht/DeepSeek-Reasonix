@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/proc"
+	"rexion/internal/proc"
 )
 
 var versionPathRegexp = regexp.MustCompile(`/(v\d+[a-z]*|v\d+\.\d+)(/)?$`)

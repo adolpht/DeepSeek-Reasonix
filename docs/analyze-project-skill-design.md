@@ -8,7 +8,7 @@
 - 目录、简介、项目结构、核心组件、架构总览（Mermaid 图）、详细组件分析、依赖分析、性能考量、故障排查、结论
 - 每个章节标注了源码行号来源
 
-目标：在 Reasonix Agent 中实现一个 **自动分析老旧项目并生成类似文档体系** 的能力，便于接手和分析老旧项目。
+目标：在 Rexion Agent 中实现一个 **自动分析老旧项目并生成类似文档体系** 的能力，便于接手和分析老旧项目。
 
 ---
 
@@ -83,7 +83,7 @@
 
 ## 二、实现路径：Skill + Subagent
 
-Reasonix 已有成熟的 Skill 扩展机制（`internal/skill/skill.go`），最佳路径是 **新增一个 `analyze-project` 内置 Skill**，以 subagent 模式运行，利用已有的 `explore`/`research` 子能力 + 工具链完成全流程。
+Rexion 已有成熟的 Skill 扩展机制（`internal/skill/skill.go`），最佳路径是 **新增一个 `analyze-project` 内置 Skill**，以 subagent 模式运行，利用已有的 `explore`/`research` 子能力 + 工具链完成全流程。
 
 ### 架构总览
 
@@ -438,7 +438,7 @@ analyze-project (主 subagent)
 
 **阶段 A — `analyze-project-scan`**（subagent，只读）：
 - 扫描项目，输出一个 JSON 格式的分析计划（模块划分、文件分配、依赖图）
-- 写入 `.reasonix/analysis-plan.json`
+- 写入 `.Rexion/analysis-plan.json`
 
 **阶段 B — `analyze-project-generate`**（inline，多轮）：
 - 读取分析计划
@@ -470,7 +470,7 @@ analyze-project (主 subagent)
 
 ```bash
 # CLI 方式
-reasonix run "/analyze-project /path/to/legacy-project"
+Rexion run "/analyze-project /path/to/legacy-project"
 
 # Chat 方式
 /analyze-project /path/to/legacy-project
@@ -559,7 +559,7 @@ grep -oP '\[.*?\]\(.*?#L\d+.*?\)' "$f" | wc -l
 
 **问题**：bash 脚本只能做结构化检查（章节数、引用格式），无法判断内容质量（伪代码是否准确、Mermaid 图是否反映真实架构、分析深度是否足够）。Go 校验器开发成本高且不够灵活。
 
-**方案**：利用 Reasonix 已有的 subagent 机制，在 Phase 5 阶段启动一个独立的 **校验修正子Agent**，对所有产出物逐篇审查并自动修正。
+**方案**：利用 Rexion 已有的 subagent 机制，在 Phase 5 阶段启动一个独立的 **校验修正子Agent**，对所有产出物逐篇审查并自动修正。
 
 #### 架构设计
 

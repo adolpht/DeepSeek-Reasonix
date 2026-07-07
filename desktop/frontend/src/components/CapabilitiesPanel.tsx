@@ -1631,7 +1631,7 @@ export function SkillsSettingsPage() {
 					{registryLoading && registryEntries.length === 0 ? (
 						<div className="mem-empty">{t("caps.loading")}</div>
 					) : registryEntries.length === 0 ? (
-						<div className="mem-empty">{t("caps.noRegistryEntries") ?? "No skills found in the marketplace. Check your network connection or add custom sources in reasonix.toml."}</div>
+						<div className="mem-empty">{t("caps.noRegistryEntries") ?? "No skills found in the marketplace. Check your network connection or add custom sources in Rexion.toml."}</div>
 					) : (
 						<div className="cap-skills">
 							{registryEntries.map((entry) => (
@@ -1707,8 +1707,8 @@ type OfficePluginEnvVar = {
 };
 
 type OfficePluginDef = {
-	id: string;        // plugin name in reasonix.toml [[plugins]].name
-	command: string;   // reasonix-plugin-<id>
+	id: string;        // plugin name in Rexion.toml [[plugins]].name
+	command: string;   // Rexion-plugin-<id>
 	icon: ReactNode;
 	color: string;     // accent class suffix for the left stripe
 	title: LocalizedText;
@@ -1720,7 +1720,7 @@ type OfficePluginDef = {
 const OFFICE_PLUGINS: OfficePluginDef[] = [
 	{
 		id: "im",
-		command: "reasonix-plugin-im",
+		command: "Rexion-plugin-im",
 		icon: <MessageSquare size={16} />,
 		color: "blue",
 		title: { zh: "IM 即时通讯", en: "IM Messaging" },
@@ -1769,7 +1769,7 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 	},
 	{
 		id: "dws",
-		command: "reasonix-plugin-dws",
+		command: "Rexion-plugin-dws",
 		icon: <Cloud size={16} />,
 		color: "blue",
 		title: { zh: "钉钉工作台 (dws)", en: "DingTalk Workspace (dws)" },
@@ -1789,7 +1789,7 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 	},
 	{
 		id: "mail",
-		command: "reasonix-plugin-mail",
+		command: "Rexion-plugin-mail",
 		icon: <Mail size={16} />,
 		color: "green",
 		title: { zh: "邮件", en: "Mail" },
@@ -1808,7 +1808,7 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 	},
 	{
 		id: "calendar",
-		command: "reasonix-plugin-calendar",
+		command: "Rexion-plugin-calendar",
 		icon: <Calendar size={16} />,
 		color: "purple",
 		title: { zh: "日历与待办", en: "Calendar & Todo" },
@@ -1820,7 +1820,7 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 	},
 	{
 		id: "office",
-		command: "reasonix-plugin-office",
+		command: "Rexion-plugin-office",
 		icon: <FileText size={16} />,
 		color: "orange",
 		title: { zh: "文档处理", en: "Documents" },
@@ -1832,7 +1832,7 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 	},
 	{
 		id: "sheet",
-		command: "reasonix-plugin-sheet",
+		command: "Rexion-plugin-sheet",
 		icon: <Table size={16} />,
 		color: "teal",
 		title: { zh: "表格处理", en: "Spreadsheets" },
@@ -1844,7 +1844,7 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 	},
 	{
 		id: "slides",
-		command: "reasonix-plugin-slides",
+		command: "Rexion-plugin-slides",
 		icon: <Presentation size={16} />,
 		color: "pink",
 		title: { zh: "幻灯片", en: "Slides" },
@@ -1856,7 +1856,7 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 	},
 	{
 		id: "search",
-		command: "reasonix-plugin-search",
+		command: "Rexion-plugin-search",
 		icon: <Search size={16} />,
 		color: "blue",
 		title: { zh: "网页搜索", en: "Web Search" },

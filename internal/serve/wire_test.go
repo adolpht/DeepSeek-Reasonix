@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"rexion/internal/event"
+	"rexion/internal/provider"
 )
 
 func TestToWire(t *testing.T) {

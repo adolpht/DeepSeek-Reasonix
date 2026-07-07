@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/checkpoint"
+	"rexion/internal/checkpoint"
 )
 
 func TestOneLine(t *testing.T) {

@@ -288,7 +288,7 @@ func (g *Gate) Check(ctx context.Context, toolName string, args json.RawMessage,
 
 // rememberRule builds the rule string persisted when the user picks "always
 // allow". It saves just the bare tool name so the rule covers every call to
-// that tool. The user can narrow it by hand in reasonix.toml later if they
+// that tool. The user can narrow it by hand in Rexion.toml later if they
 // want subject-specific granularity.
 func rememberRule(toolName, _ string) string {
 	return toolName

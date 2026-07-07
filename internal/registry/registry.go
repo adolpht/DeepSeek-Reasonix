@@ -17,7 +17,7 @@ import (
 
 // Source represents a skill registry source (e.g. a GitHub repo or JSON index).
 type Source struct {
-	Name        string `json:"name"`         // Display name, e.g. "Reasonix Official"
+	Name        string `json:"name"`         // Display name, e.g. "Rexion Official"
 	URL         string `json:"url"`          // Git repo URL or JSON index URL
 	Type        string `json:"type"`         // "git", "index", or "local"
 	Description string `json:"description"`  // One-line description
@@ -70,10 +70,10 @@ func BuiltinSources() []Source {
 			Trusted:     true,
 		},
 		{
-			Name:        "Reasonix Official",
-			URL:         "https://raw.githubusercontent.com/reasonix/skills/main/index.json",
+			Name:        "Rexion Official",
+			URL:         "https://raw.githubusercontent.com/Rexion/skills/main/index.json",
 			Type:        "index",
-			Description: "Reasonix 官方技能集合 — 编程、办公、生产力技能",
+			Description: "Rexion 官方技能集合 — 编程、办公、生产力技能",
 			Trusted:     true,
 		},
 	}
@@ -81,7 +81,7 @@ func BuiltinSources() []Source {
 
 // CacheDir returns the directory used for caching registry data.
 func CacheDir(homeDir string) string {
-	return filepath.Join(homeDir, ".reasonix", "registry-cache")
+	return filepath.Join(homeDir, ".rexion", "registry-cache")
 }
 
 // Registry provides skill discovery from multiple sources.

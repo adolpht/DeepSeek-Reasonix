@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/config"
-	"reasonix/internal/i18n"
-	"reasonix/internal/skill"
+	"rexion/internal/config"
+	"rexion/internal/i18n"
+	"rexion/internal/skill"
 )
 
 // SlashItem is one slash-completion suggestion. Insert is the token text placed

@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/jobs"
-	"reasonix/internal/sandbox"
-	"reasonix/internal/tool"
+	"rexion/internal/jobs"
+	"rexion/internal/sandbox"
+	"rexion/internal/tool"
 )
 
 const (
@@ -281,7 +281,7 @@ func defaultBashShellPATH(ctx context.Context) string {
 	if shell == "" {
 		return ""
 	}
-	const marker = "__REASONIX_BASH_PATH__="
+	const marker = "__REXION_BASH_PATH__="
 	script := "printf '\\n" + marker + "%s\\n' \"$PATH\""
 	for _, args := range [][]string{
 		{"-l", "-i", "-c", script},

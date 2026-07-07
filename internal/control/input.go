@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"reasonix/internal/skill"
+	"rexion/internal/skill"
 )
 
 // PlanModeMarker is prepended to every user turn while plan mode is on. It rides

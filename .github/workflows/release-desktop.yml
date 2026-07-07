@@ -154,7 +154,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          args=(--title "Reasonix Desktop ${{ steps.ver.outputs.version }}" --generate-notes)
+          args=(--title "Rexion Desktop ${{ steps.ver.outputs.version }}" --generate-notes)
           [ "${{ steps.ver.outputs.prerelease }}" = "true" ] && args+=(--prerelease)
           gh release create "${{ steps.ver.outputs.tag }}" dist/* "${args[@]}"
 

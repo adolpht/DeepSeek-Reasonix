@@ -1,16 +1,16 @@
-# Reasonix Workbench v3.0 设计规范
+# Rexion Workbench v3.0 设计规范
 
 > 版本：v3.0 | 日期：2026-07-02 | 状态：规划草案
 >
 > 定位：在 v0.1（办公插件）、v1.0（安全/引擎）、v2.0（ToC 三模式 + PPT/调研/IM）之上，
 > 聚焦「激活已搭好的骨架、闭环跨模块体验、深化个人助手能力、打磨日常使用细节」，
-> 把 Reasonix 从「功能堆砌完成度 80%」推进到「日常可用、离不开、能成长」的专属工作台。
+> 把 Rexion 从「功能堆砌完成度 80%」推进到「日常可用、离不开、能成长」的专属工作台。
 
 ---
 
 ## 0. 文档定位
 
-- **读者**：Reasonix 维护者、贡献者、个人 Agent 使用者
+- **读者**：Rexion 维护者、贡献者、个人 Agent 使用者
 - **状态**：规划草案（Draft）
 - **关联文档**：
   - [personal-agent-roadmap.md](../../../docs/personal-agent-roadmap.md) — v0.1，P1-P6 办公能力扩展（已完成）
@@ -30,7 +30,7 @@
 
 | 能力 | 关键证据 | 备注 |
 |------|----------|------|
-| PPT 插件（5 工具） | `cmd/reasonix-plugin-slides/slides.go:136-568` 真实 unioffice 实现 | 需 UNIDOC_LICENSE_API_KEY，缺失则加水印 |
+| PPT 插件（5 工具） | `cmd/Rexion-plugin-slides/slides.go:136-568` 真实 unioffice 实现 | 需 UNIDOC_LICENSE_API_KEY，缺失则加水印 |
 | 日历插件（5 工具） | `calendar.go:88-265` Windows Outlook COM + macOS AppleScript；`todo.go` SQLite | 跨平台真实可用 |
 | IM 插件（5 工具） | `bot.go:118-178` HTTP 服务器；WeCom/Feishu/DingTalk 真实 webhook | 钉钉含 HMAC-SHA256 签名 |
 | 定时任务调度 | `internal/scheduler/scheduler.go:14` robfig/cron 真实引擎；`desktop/app.go:4277-4347` 完整 CRUD | 前后端联动可用 |
@@ -43,7 +43,7 @@
 | 短板 | 证据 | 影响 |
 |------|------|------|
 | **个人知识库未激活** | `internal/memory/memory.go:175-245` 定义了 `people.md`/`projects.md`/`preferences.md`/`writing_style.md` 四个文件和 `EnsureMemoryDir()`，但**全仓库无调用者**；`memory.Load()` 也不读这些文件 | Agent 无法感知用户身份、写作风格、常联系人 → 「专属助手」无从谈起 |
-| **邮件 OAuth2 未闭环** | `cmd/reasonix-plugin-mail/oauth2.go:134-141` 的 `OAuth2IMAPAuthString`/`OAuth2SMTPAuthString`/`GetOAuth2AccessToken` 是死代码，`read_mail`/`send_mail` 仍走 `MAIL_IMAP_PASS` 环境变量密码 | Gmail/Outlook 用户必须用应用专用密码，无法用 OAuth2 |
+| **邮件 OAuth2 未闭环** | `cmd/Rexion-plugin-mail/oauth2.go:134-141` 的 `OAuth2IMAPAuthString`/`OAuth2SMTPAuthString`/`GetOAuth2AccessToken` 是死代码，`read_mail`/`send_mail` 仍走 `MAIL_IMAP_PASS` 环境变量密码 | Gmail/Outlook 用户必须用应用专用密码，无法用 OAuth2 |
 | **ProgressStepper 联动不足** | `ProgressStepper.tsx` 的 `onStepClick` 是 planned future enhancement；AgentCanvas 仅靠 ToolDispatch/Result `parentId` 嵌套，不渲染 step 节点 | 用户看不到任务全貌，无法跳转回看某步骤 |
 | **信息流被删后无替代** | 上次会话从 Sidebar 移除了 `feed` 导航项（无后端实现） | 助手模式缺少「日常信息聚合」入口 |
 | **跨会话任务状态丢失** | 历史会话恢复后，ProgressStepper 不会重新加载该会话的步骤状态 | 长任务断点续看体验差 |
@@ -91,7 +91,7 @@
 └──────────────────────────────────┬───────────────────────────────────┘
                                    │ Wails Bound Methods
 ┌──────────────────────────────────▼───────────────────────────────────┐
-│                     Reasonix Core (Go) — v3.0 增强                    │
+│                     Rexion Core (Go) — v3.0 增强                    │
 │                                                                      │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │
 │  │  Agent   │ │ Provider │ │   Tool   │ │  Skill   │ │Permission│   │
@@ -145,10 +145,10 @@
 
 ### Requirement: 个人知识库激活（PKM Activation）
 
-系统 SHALL 在 Reasonix 启动时调用 `memory.EnsureMemoryDir()` 创建 `~/.reasonix/memory/` 目录及四个默认文件（`people.md`、`projects.md`、`preferences.md`、`writing_style.md`），并在 `memory.Set.Load()` 时把这四个文件的内容作为 `Docs` 的一部分注入到系统提示前缀。
+系统 SHALL 在 Rexion 启动时调用 `memory.EnsureMemoryDir()` 创建 `~/.Rexion/memory/` 目录及四个默认文件（`people.md`、`projects.md`、`preferences.md`、`writing_style.md`），并在 `memory.Set.Load()` 时把这四个文件的内容作为 `Docs` 的一部分注入到系统提示前缀。
 
 #### Scenario: 首次启动创建默认 PKM
-- **WHEN** 用户首次启动 Reasonix 且 `~/.reasonix/memory/` 不存在
+- **WHEN** 用户首次启动 Rexion 且 `~/.Rexion/memory/` 不存在
 - **THEN** 系统创建目录并写入四个默认模板文件（含中文示例提示）
 - **AND** Agent 在首轮对话的系统提示中包含这四个文件内容
 - **AND** 前端 MemoryPanel 显示「个人知识库」分区，可切换编辑这四个文件
@@ -167,7 +167,7 @@
 
 ### Requirement: 邮件 OAuth2 闭环
 
-系统 SHALL 在 `reasonix-plugin-mail` 的 `read_mail` 和 `send_mail` 工具中支持 XOAUTH2 认证，复用 `oauth2_authorize`/`oauth2_callback` 已持久化的 token，使 Gmail/Outlook 用户无需应用专用密码。
+系统 SHALL 在 `Rexion-plugin-mail` 的 `read_mail` 和 `send_mail` 工具中支持 XOAUTH2 认证，复用 `oauth2_authorize`/`oauth2_callback` 已持久化的 token，使 Gmail/Outlook 用户无需应用专用密码。
 
 #### Scenario: Gmail OAuth2 收邮件
 - **WHEN** 用户已通过 `oauth2_authorize` 完成 Gmail 授权且 token 已持久化
@@ -272,7 +272,7 @@
 - **THEN** 桌面端自动新建一个 Tab，标题为「定时任务：weekly-report YYYY-MM-DD」
 - **AND** 该 Tab 切换到前台
 - **AND** Tab 内显示 Agent 执行过程（ProgressStepper + Transcript）
-- **AND** 如果 Reasonix 窗口最小化到托盘，则弹出系统通知「定时任务已启动」
+- **AND** 如果 Rexion 窗口最小化到托盘，则弹出系统通知「定时任务已启动」
 
 #### Scenario: 任务完成通知
 - **WHEN** 定时任务执行的 Skill 完成
@@ -289,7 +289,7 @@
 - **WHEN** 用户在对话中说「我写报告喜欢用要点式，不要客套话」
 - **THEN** Agent 识别为写作偏好声明
 - **AND** 弹出 ApprovalModal：「检测到写作偏好，是否写入 `preferences.md`？」
-- **AND** 用户确认后追加到 `~/.reasonix/memory/preferences.md` 的「写作风格」段落
+- **AND** 用户确认后追加到 `~/.Rexion/memory/preferences.md` 的「写作风格」段落
 
 #### Scenario: 识别联系人
 - **WHEN** 用户说「张三是我领导，李四负责财务」
@@ -310,7 +310,7 @@
 #### Scenario: 保存会话为 Recipe
 - **WHEN** 用户在一个成功的会话结束后点击「保存为 Recipe」
 - **THEN** 弹出表单：名称、描述、参数模板（从对话中提取）、可选触发条件（手动/定时/事件）
-- **AND** 保存到 `~/.reasonix/recipes/<name>.json`
+- **AND** 保存到 `~/.Rexion/recipes/<name>.json`
 
 #### Scenario: 从 Recipe 创建定时任务
 - **WHEN** 用户在 SchedulerPanel 点击「新建定时任务」
@@ -332,7 +332,7 @@
 #### Scenario: 记录剪贴板
 - **WHEN** 用户复制任意内容到系统剪贴板
 - **THEN** FloatingWindow 后台记录该条目（文本/图片/文件路径）
-- **AND** 持久化到 `~/.reasonix/clipboard_history.db`（SQLite）
+- **AND** 持久化到 `~/.Rexion/clipboard_history.db`（SQLite）
 
 #### Scenario: 搜索历史
 - **WHEN** 用户在 FloatingWindow 中输入关键词搜索剪贴板历史
@@ -414,8 +414,8 @@
 **P8 激活与修补**：
 - `internal/memory/memory.go` — `Load()` 注入 PKM 四文件；新增 `EnsureMemoryDir()` 调用点
 - `internal/boot/boot.go` — 启动时调用 `EnsureMemoryDir()`
-- `cmd/reasonix-plugin-mail/oauth2.go` — 死代码激活，接入 `imap.go`/`smtp.go`
-- `cmd/reasonix-plugin-mail/imap.go` + `smtp.go` — 增加 XOAUTH2 认证路径
+- `cmd/Rexion-plugin-mail/oauth2.go` — 死代码激活，接入 `imap.go`/`smtp.go`
+- `cmd/Rexion-plugin-mail/imap.go` + `smtp.go` — 增加 XOAUTH2 认证路径
 - `desktop/frontend/src/components/ProgressStepper.tsx` — `onStepClick` 实现
 - `desktop/frontend/src/components/AgentCanvas.tsx` + `lib/agentGraph.ts` — step 节点渲染
 - `desktop/frontend/src/components/DailyBriefPanel.tsx` — 新增
@@ -445,13 +445,13 @@
 - `internal/agent/task.go` — 升级为完整子 Agent
 - `internal/event/event.go` — AgentSpawned/Progress/Completed 事件
 - `desktop/frontend/src/components/AgentCanvas.tsx` — 子图渲染
-- `.reasonix/skills/generate-tests.md` — 新增 Skill
-- `.reasonix/skills/review-pr.md` — 新增 Skill
+- `.Rexion/skills/generate-tests.md` — 新增 Skill
+- `.Rexion/skills/review-pr.md` — 新增 Skill
 
 ### 6.3 配置扩展
 
 ```toml
-# ~/.reasonix/config.toml（新增节）
+# ~/.Rexion/config.toml（新增节）
 
 [pkm]
 enabled = true                 # 默认 true
@@ -470,7 +470,7 @@ hotkey = "Ctrl+Shift+V"
 
 [recipe]
 enabled = true
-storage_dir = "~/.reasonix/recipes"
+storage_dir = "~/.Rexion/recipes"
 
 [agents]
 max_threads = 6
@@ -497,7 +497,7 @@ job_timeout = "5m"
 1. **零回归** — 编码模式所有现有功能不因 P8-P11 降级
 2. **本地优先** — PKM、Recipe、剪贴板历史、语音转写全部本地，不上云
 3. **`CGO_ENABLED=0`** — 所有新增依赖必须纯 Go（whisper 通过子进程调用，非 cgo）
-4. **插件隔离** — 邮件 OAuth2 修补只在 `cmd/reasonix-plugin-mail/` 内，不侵入主仓 `internal/`
+4. **插件隔离** — 邮件 OAuth2 修补只在 `cmd/Rexion-plugin-mail/` 内，不侵入主仓 `internal/`
 5. **配置驱动** — 所有新功能可通过配置开关，禁用后行为与改造前一致
 6. **缓存友好** — PKM 注入系统提示时，位置和顺序固定，编辑后才失效
 
@@ -518,7 +518,7 @@ job_timeout = "5m"
 
 | 编号 | 验收项 | Phase |
 |------|--------|-------|
-| V1 | 首次启动创建 `~/.reasonix/memory/` 四个默认文件 | P8 |
+| V1 | 首次启动创建 `~/.Rexion/memory/` 四个默认文件 | P8 |
 | V2 | Agent 系统提示包含 PKM 四文件内容 | P8 |
 | V3 | MemoryPanel 可编辑 PKM，保存后下轮生效 | P8 |
 | V4 | Gmail OAuth2 收发邮件成功（无应用专用密码） | P8 |

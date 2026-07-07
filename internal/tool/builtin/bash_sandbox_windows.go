@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"reasonix/internal/sandbox"
+	"rexion/internal/sandbox"
 )
 
 // startWithSandbox starts the command and assigns it to a Windows Job Object

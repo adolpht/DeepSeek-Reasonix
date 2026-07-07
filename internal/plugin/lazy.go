@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/tool"
+	"rexion/internal/tool"
 )
 
 // DefaultStartupBudget is the per-plugin latency budget used by boot when

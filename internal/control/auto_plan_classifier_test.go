@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/provider"
+	"rexion/internal/provider"
 )
 
 type classifierProvider struct {

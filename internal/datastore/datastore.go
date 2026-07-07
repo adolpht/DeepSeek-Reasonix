@@ -1,5 +1,5 @@
 // Package datastore provides persistent storage for scheduled tasks, todos,
-// and notifications in the user's ~/.reasonix/data/ directory, backed by
+// and notifications in the user's ~/.rexion/data/ directory, backed by
 // SQLite (pure Go via modernc.org/sqlite).
 package datastore
 
@@ -57,13 +57,13 @@ type Store struct {
 	db *sql.DB
 }
 
-// DataDir returns the path to ~/.reasonix/data/, creating it if needed.
+// DataDir returns the path to ~/.rexion/data/, creating it if needed.
 func DataDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("data dir: %w", err)
 	}
-	dir := filepath.Join(home, ".reasonix", "data")
+	dir := filepath.Join(home, ".rexion", "data")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create data dir: %w", err)
 	}
@@ -76,7 +76,7 @@ func Open() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	dbPath := filepath.Join(dir, "reasonix.db")
+	dbPath := filepath.Join(dir, "Rexion.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("open datastore: %w", err)

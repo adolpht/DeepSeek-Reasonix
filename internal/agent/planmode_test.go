@@ -2,12 +2,12 @@ package agent
 
 import (
 	"context"
-	"reasonix/internal/event"
+	"rexion/internal/event"
 	"strings"
 	"testing"
 
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 // TestPlanModeBlocksWriters proves the read-only gate refuses non-ReadOnly

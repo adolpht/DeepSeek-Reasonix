@@ -4,11 +4,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/agent"
+	"rexion/internal/control"
+	"rexion/internal/event"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 func carryingController(carried []provider.Message, path string) *control.Controller {

@@ -4,12 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reasonix/internal/event"
+	"rexion/internal/event"
 	"strings"
 	"testing"
 
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 // fakeProvider returns a fixed reply and records the messages it was asked to

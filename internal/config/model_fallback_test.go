@@ -7,15 +7,15 @@ import (
 
 func testModelFallbackConfig(t *testing.T) *Config {
 	t.Helper()
-	t.Setenv("REASONIX_TEST_KEY", "sk-test")
-	t.Setenv("REASONIX_TEST_EMPTY", "")
+	t.Setenv("REXION_TEST_KEY", "sk-test")
+	t.Setenv("REXION_TEST_EMPTY", "")
 
 	c := Default()
 	c.DefaultModel = "prov-a"
 	c.Providers = []ProviderEntry{
-		{Name: "prov-a", Kind: "openai", BaseURL: "https://a.example.com", Model: "model-a1", Models: []string{"model-a1", "model-a2"}, APIKeyEnv: "REASONIX_TEST_KEY"},
-		{Name: "prov-b", Kind: "openai", BaseURL: "https://b.example.com", Model: "model-b1", Models: []string{"model-b1", "model-b2"}, APIKeyEnv: "REASONIX_TEST_KEY"},
-		{Name: "prov-nokey", Kind: "openai", BaseURL: "https://nk.example.com", Model: "model-nk", APIKeyEnv: "REASONIX_TEST_EMPTY"},
+		{Name: "prov-a", Kind: "openai", BaseURL: "https://a.example.com", Model: "model-a1", Models: []string{"model-a1", "model-a2"}, APIKeyEnv: "REXION_TEST_KEY"},
+		{Name: "prov-b", Kind: "openai", BaseURL: "https://b.example.com", Model: "model-b1", Models: []string{"model-b1", "model-b2"}, APIKeyEnv: "REXION_TEST_KEY"},
+		{Name: "prov-nokey", Kind: "openai", BaseURL: "https://nk.example.com", Model: "model-nk", APIKeyEnv: "REXION_TEST_EMPTY"},
 	}
 	return c
 }
@@ -57,7 +57,7 @@ func TestResolveModelWithFallbackSkipsKeylessProvider(t *testing.T) {
 	// Make the first provider keyless. A fallback must skip it and pick the next
 	// configured provider, rather than booting a tab onto a provider with no API
 	// key (which just fails on first use).
-	c.Providers[0].APIKeyEnv = "REASONIX_TEST_EMPTY"
+	c.Providers[0].APIKeyEnv = "REXION_TEST_EMPTY"
 
 	got, fallback, ok := c.ResolveModelWithFallback("")
 	if !ok || !fallback {
@@ -70,7 +70,7 @@ func TestResolveModelWithFallbackSkipsKeylessProvider(t *testing.T) {
 
 func TestResolveModelWithFallbackSkipsSelectedKeylessProvider(t *testing.T) {
 	c := testModelFallbackConfig(t)
-	c.Providers[0].APIKeyEnv = "REASONIX_TEST_EMPTY"
+	c.Providers[0].APIKeyEnv = "REXION_TEST_EMPTY"
 
 	got, fallback, ok := c.ResolveModelWithFallback("prov-a")
 	if !ok || !fallback {
@@ -136,7 +136,7 @@ func TestRemoveProviderMigratesDanglingRefs(t *testing.T) {
 func TestRemoveProviderBlocksDefaultWithoutFallback(t *testing.T) {
 	c := testModelFallbackConfig(t)
 	c.DefaultModel = "prov-a/model-a1"
-	c.Providers[1].APIKeyEnv = "REASONIX_TEST_EMPTY"
+	c.Providers[1].APIKeyEnv = "REXION_TEST_EMPTY"
 
 	err := c.RemoveProvider("prov-a")
 	if err == nil {
@@ -156,7 +156,7 @@ func TestRemoveProviderClearsOptionalRefsWithoutFallback(t *testing.T) {
 	c.Agent.PlannerModel = "prov-a/model-a1"
 	c.Agent.SubagentModel = "prov-a"
 	c.Agent.SubagentModels = map[string]string{"review": "prov-a/model-a2"}
-	c.Providers[1].APIKeyEnv = "REASONIX_TEST_EMPTY"
+	c.Providers[1].APIKeyEnv = "REXION_TEST_EMPTY"
 
 	if err := c.RemoveProvider("prov-a"); err != nil {
 		t.Fatalf("RemoveProvider: %v", err)

@@ -29,25 +29,25 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/billing"
-	"reasonix/internal/boot"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/datastore"
-	"reasonix/internal/event"
-	"reasonix/internal/fileref"
-	fileenc "reasonix/internal/fileutil/encoding"
-	"reasonix/internal/i18n"
-	"reasonix/internal/mcpdiag"
-	"reasonix/internal/memory"
-	"reasonix/internal/plugin"
-	"reasonix/internal/provider"
-	"reasonix/internal/recipe"
-	"reasonix/internal/registry"
-	"reasonix/internal/scheduler"
-	"reasonix/internal/skill"
-	"reasonix/internal/workflow"
+	"rexion/internal/agent"
+	"rexion/internal/billing"
+	"rexion/internal/boot"
+	"rexion/internal/config"
+	"rexion/internal/control"
+	"rexion/internal/datastore"
+	"rexion/internal/event"
+	"rexion/internal/fileref"
+	fileenc "rexion/internal/fileutil/encoding"
+	"rexion/internal/i18n"
+	"rexion/internal/mcpdiag"
+	"rexion/internal/memory"
+	"rexion/internal/plugin"
+	"rexion/internal/provider"
+	"rexion/internal/recipe"
+	"rexion/internal/registry"
+	"rexion/internal/scheduler"
+	"rexion/internal/skill"
+	"rexion/internal/workflow"
 )
 
 // eventChannel is the Wails runtime event name the frontend subscribes to for the
@@ -59,7 +59,7 @@ const eventChannel = "agent:event"
 // singleInstanceID is used by Wails to route a second desktop launch back to the
 // running instance. Keep it stable across releases so launcher/Dock/taskbar
 // reopen behavior remains predictable on every platform.
-const singleInstanceID = "com.reasonix.desktop"
+const singleInstanceID = "com.Rexion.desktop"
 
 // App is the Wails-bound application object: the desktop frontend's command
 // surface. Its exported methods (Submit/Cancel/Approve/…) are generated into JS
@@ -258,13 +258,13 @@ func (a *App) ensureMediaTokenStore() *mediaTokenStore {
 }
 
 // workspaceMediaMiddleware returns an HTTP middleware that intercepts
-// /__reasonix_workspace_media/{token}/{filename} requests and serves the
+// /__Rexion_workspace_media/{token}/{filename} requests and serves the
 // corresponding workspace file. All other paths pass through to the Wails
 // default asset handler unchanged.
 func (a *App) workspaceMediaMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			prefix := "/__reasonix_workspace_media/"
+			prefix := "/__Rexion_workspace_media/"
 			if !strings.HasPrefix(r.URL.Path, prefix) {
 				next.ServeHTTP(w, r)
 				return
@@ -380,7 +380,7 @@ func (a *App) startup(ctx context.Context) {
 	installSystemQuitHook()
 	a.startTray()
 
-	// Scaffold ~/.reasonix/memory/ (the PKM files) on the Wails startup path so
+	// Scaffold ~/.rexion/memory/ (the PKM files) on the Wails startup path so
 	// the desktop app is independent of the CLI boot path. Best-effort: a failure
 	// (e.g. read-only home) is logged but never blocks startup, since memory.Load
 	// silently skips missing PKM files and the rest of memory still works.
@@ -1963,7 +1963,7 @@ type CommandInfo struct {
 }
 
 // Commands lists the slash commands available this session — built-in actions,
-// custom commands (.reasonix/commands), and MCP prompts — for the composer's "/"
+// custom commands (.rexion/commands), and MCP prompts — for the composer's "/"
 // autocomplete menu.
 func (a *App) Commands() []CommandInfo {
 	out := []CommandInfo{
@@ -2593,11 +2593,11 @@ func (a *App) InstallSkillFromRegistry(name string, global bool) error {
 	}
 
 	home, _ := os.UserHomeDir()
-	installDir := filepath.Join(home, ".reasonix", "skills")
+	installDir := filepath.Join(home, ".rexion", "skills")
 	if !global {
 		wsRoot := a.activeWorkspaceRoot()
 		if wsRoot != "" {
-			installDir = filepath.Join(wsRoot, ".reasonix", "skills")
+			installDir = filepath.Join(wsRoot, ".rexion", "skills")
 		}
 	}
 
@@ -3962,7 +3962,7 @@ func (a *App) ReadFile(rel string) FilePreview {
 		token := a.ensureMediaTokenStore().create(path, info.Name(), mime, kind, info.Size(), info.ModTime())
 		out.Kind = kind
 		out.Mime = mime
-		out.URL = "/__reasonix_workspace_media/" + token + "/" + url.PathEscape(info.Name())
+		out.URL = "/__Rexion_workspace_media/" + token + "/" + url.PathEscape(info.Name())
 		return out
 	}
 	// Office documents (docx/xlsx/csv): parse to HTML and serve via inline
@@ -3988,7 +3988,7 @@ func (a *App) ReadFile(rel string) FilePreview {
 		token := a.ensureMediaTokenStore().createInline(htmlName, "text/html; charset=utf-8", kind, []byte(htmlStr))
 		out.Kind = kind
 		out.Mime = "text/html; charset=utf-8"
-		out.URL = "/__reasonix_workspace_media/" + token + "/" + url.PathEscape(htmlName)
+		out.URL = "/__Rexion_workspace_media/" + token + "/" + url.PathEscape(htmlName)
 		return out
 	}
 	f, err := os.Open(path)
@@ -4180,13 +4180,13 @@ func (a *App) currentProviderEntryForTab(tabID string) (*config.ProviderEntry, e
 }
 
 // SavePastedImage stores a browser clipboard image data URL under
-// .reasonix/attachments and returns the relative @-reference path.
+// .rexion/attachments and returns the relative @-reference path.
 func (a *App) SavePastedImage(dataURL string) (string, error) {
 	return control.SaveImageDataURL(dataURL)
 }
 
 // SavePastedFile stores a dropped non-image file (the browser exposes its bytes
-// as a data URL but not a real path) under .reasonix/attachments and returns the
+// as a data URL but not a real path) under .rexion/attachments and returns the
 // relative @-reference path.
 func (a *App) SavePastedFile(name, dataURL string) (string, error) {
 	return control.SaveAttachmentDataURL(name, dataURL)
@@ -4199,7 +4199,7 @@ func (a *App) AttachmentDataURL(path string) (string, error) {
 
 // DroppedItem is one OS-dropped file resolved into a composer context entry: an
 // in-tree file becomes a workspace @reference (read in place, no copy), while an
-// image or out-of-tree file is copied into .reasonix/attachments.
+// image or out-of-tree file is copied into .rexion/attachments.
 type DroppedItem struct {
 	Kind       string `json:"kind"` // "workspace" | "attachment"
 	Path       string `json:"path"`
@@ -4210,7 +4210,7 @@ type DroppedItem struct {
 // AttachDropped turns an absolute path from the native file-drop bridge into a
 // composer context entry. Images are stored as attachments so the chip shows a
 // thumbnail; other in-workspace files are referenced relatively (no copy); files
-// outside the workspace are copied into .reasonix/attachments.
+// outside the workspace are copied into .rexion/attachments.
 func (a *App) AttachDropped(path string) (DroppedItem, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -4283,7 +4283,7 @@ type MemoryScope struct {
 }
 
 // MemoryPKMFile is one personal-knowledge-base file (people.md / projects.md /
-// preferences.md / writing_style.md under ~/.reasonix/memory/), surfaced for the
+// preferences.md / writing_style.md under ~/.rexion/memory/), surfaced for the
 // panel's PKM editor. Name is the bare filename; Path is absolute; Body is the
 // trimmed file contents (empty when the file exists but is whitespace-only).
 type MemoryPKMFile struct {
@@ -4306,7 +4306,7 @@ type MemoryView struct {
 // writableScopes are the quick-add targets the panel offers, broad → specific.
 var writableScopes = []memory.Scope{memory.ScopeUser, memory.ScopeProject, memory.ScopeLocal}
 
-// Memory returns the loaded memory for the panel: the REASONIX.md hierarchy, the
+// Memory returns the loaded memory for the panel: the Rexion.md hierarchy, the
 // saved auto-memories, the writable scopes, and the PKM files. Read-only;
 // mutations go through Remember / SaveDoc / SavePKMFile.
 func (a *App) Memory() MemoryView {
@@ -4360,7 +4360,7 @@ func (a *App) Memory() MemoryView {
 	return view
 }
 
-// pkmFilesView reads the four PKM files from ~/.reasonix/memory/ directly, for
+// pkmFilesView reads the four PKM files from ~/.rexion/memory/ directly, for
 // the panel. It always returns the full four-file list (in the fixed
 // writing_style → preferences → people → projects order) so the editor can
 // render every tab even when a file is missing — Body is "" for a missing or
@@ -4418,10 +4418,10 @@ func (a *App) SaveDoc(path, body string) (string, error) {
 
 // SavePKMFile overwrites one of the four personal-knowledge-base files
 // (people.md / projects.md / preferences.md / writing_style.md) under
-// ~/.reasonix/memory/ with the panel editor's contents. name must be one of the
+// ~/.rexion/memory/ with the panel editor's contents. name must be one of the
 // recognized filenames — anything else is refused so the panel can't be used to
 // write arbitrary paths. The file is written directly (the controller's SaveDoc
-// path only knows the REASONIX.md / AGENTS.md hierarchy), then the controller is
+// path only knows the Rexion.md / AGENTS.md hierarchy), then the controller is
 // rebuilt so the new PKM content folds into the cache-stable system prompt on
 // the next turn. Returns the absolute path written.
 func (a *App) SavePKMFile(name, content string) error {
@@ -4453,7 +4453,7 @@ func (a *App) SavePKMFile(name, content string) error {
 }
 
 // AppendPKMFile appends a learned preference snippet to one of the four PKM
-// files under ~/.reasonix/memory/. Used by the AutoLearn approval flow: when
+// files under ~/.rexion/memory/. Used by the AutoLearn approval flow: when
 // the user accepts a detected preference proposal, the frontend calls this
 // method with the proposal's TargetFile and Content. The controller is rebuilt
 // so the new PKM content folds into the cache-stable system prompt next turn.
@@ -4799,7 +4799,7 @@ func (a *App) stopIMProcessor() {
 
 // restartIMProcessor stops the current IM background processor (if any) and
 // starts a fresh one that picks up the latest IM configuration from
-// reasonix.toml. Called when the user saves / updates / removes IM plugin
+// Rexion.toml. Called when the user saves / updates / removes IM plugin
 // configuration so new credentials take effect without restarting the app.
 func (a *App) restartIMProcessor() {
 	slog.Info("im-processor: restarting (stop + start) to pick up new config...")

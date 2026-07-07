@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"reasonix/internal/tool"
+	"rexion/internal/tool"
 )
 
 // SpawnAgentTool spawns a child agent with a specified role.

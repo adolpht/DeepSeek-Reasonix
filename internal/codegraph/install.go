@@ -24,16 +24,21 @@ const (
 	Version = "v0.9.7"
 	cgRepo  = "colbymchenry/codegraph"
 
+	// defaultMirror is a GitHub Release mirror reachable from mainland China.
+	// It prefixes the original GitHub URL: mirror + original_url.
+	// Users can override via REXION_CODEGRAPH_MIRROR (set to "" to disable).
+	defaultMirror = "https://ghproxy.net"
+
 	renameAttempts = 5
 	renameBackoff  = 200 * time.Millisecond
 )
 
 // CacheDir is where the CodeGraph bundle is unpacked on first use:
-// <user cache>/reasonix/codegraph/<Version>. Versioned so a bump installs cleanly
-// beside the old one. REASONIX_CACHE_DIR overrides the base (relocate the cache,
+// <user cache>/Rexion/codegraph/<Version>. Versioned so a bump installs cleanly
+// beside the old one. REXION_CACHE_DIR overrides the base (relocate the cache,
 // or isolate it in tests). Empty when no cache/config dir resolves.
 func CacheDir() string {
-	base := os.Getenv("REASONIX_CACHE_DIR")
+	base := os.Getenv("REXION_CACHE_DIR")
 	if base == "" {
 		var err error
 		if base, err = os.UserCacheDir(); err != nil {
@@ -41,7 +46,7 @@ func CacheDir() string {
 				return ""
 			}
 		}
-		base = filepath.Join(base, "reasonix")
+		base = filepath.Join(base, "Rexion")
 	}
 	return filepath.Join(base, "codegraph", Version)
 }
@@ -88,7 +93,7 @@ func Install(ctx context.Context, log func(string)) (string, error) {
 	return InstallWithClient(ctx, http.DefaultClient, log)
 }
 
-// InstallWithClient is Install with an explicit HTTP client, used when Reasonix
+// InstallWithClient is Install with an explicit HTTP client, used when Rexion
 // network proxy settings should apply.
 func InstallWithClient(ctx context.Context, client *http.Client, log func(string)) (string, error) {
 	if client == nil {
@@ -104,8 +109,10 @@ func InstallWithClient(ctx context.Context, client *http.Client, log func(string
 	asset := assetName()
 	logf(log, "codegraph: downloading %s (%s, one-time)…", asset, Version)
 
-	base := fmt.Sprintf("https://github.com/%s/releases/download/%s", cgRepo, Version)
-	sums, err := httpGet(ctx, client, base+"/SHA256SUMS")
+	githubBase := fmt.Sprintf("https://github.com/%s/releases/download/%s", cgRepo, Version)
+	mirror := mirrorURL()
+
+	sums, err := downloadWithMirror(ctx, client, mirror, githubBase+"/SHA256SUMS")
 	if err != nil {
 		return "", fmt.Errorf("codegraph: fetch checksums: %w", err)
 	}
@@ -113,7 +120,7 @@ func InstallWithClient(ctx context.Context, client *http.Client, log func(string
 	if err != nil {
 		return "", err
 	}
-	data, err := httpGet(ctx, client, base+"/"+asset)
+	data, err := downloadWithMirror(ctx, client, mirror, githubBase+"/"+asset)
 	if err != nil {
 		return "", fmt.Errorf("codegraph: download %s: %w", asset, err)
 	}
@@ -152,7 +159,7 @@ func InstallWithClient(ctx context.Context, client *http.Client, log func(string
 		if p, ok := cached(); ok {
 			return p, nil // a concurrent winner landed during our retries
 		}
-		return "", fmt.Errorf("codegraph: install to %s failed: %w — the cache directory may be read-only or locked by antivirus; set REASONIX_CACHE_DIR to a writable location to relocate it", dir, err)
+		return "", fmt.Errorf("codegraph: install to %s failed: %w — the cache directory may be read-only or locked by antivirus; set REXION_CACHE_DIR to a writable location to relocate it", dir, err)
 	}
 	p, ok := cached()
 	if !ok {
@@ -177,6 +184,34 @@ func promote(root, dir string) error {
 		time.Sleep(renameBackoff)
 	}
 	return err
+}
+
+// mirrorURL returns the GitHub Release mirror prefix from the
+// REXION_CODEGRAPH_MIRROR environment variable. When unset, it defaults to
+// defaultMirror ("https://ghproxy.net") for mainland China accessibility.
+// Set REXION_CODEGRAPH_MIRROR="" to disable the mirror and download directly
+// from GitHub, or set it to another mirror prefix (e.g. "https://gh-proxy.com").
+func mirrorURL() string {
+	if v, ok := os.LookupEnv("REXION_CODEGRAPH_MIRROR"); ok {
+		return strings.TrimRight(v, "/")
+	}
+	return defaultMirror
+}
+
+// downloadWithMirror fetches url through the mirror prefix when mirror is
+// non-empty, falling back to a direct GitHub download on mirror failure.
+// The mirror URL is constructed as mirror + "/" + originalURL (the convention
+// used by ghproxy.net and similar services).
+func downloadWithMirror(ctx context.Context, client *http.Client, mirror, githubURL string) ([]byte, error) {
+	if mirror != "" {
+		mirrorURL := mirror + "/" + githubURL
+		data, err := httpGet(ctx, client, mirrorURL)
+		if err == nil {
+			return data, nil
+		}
+		// Mirror failed — fall back to direct GitHub download.
+	}
+	return httpGet(ctx, client, githubURL)
 }
 
 func httpGet(ctx context.Context, client *http.Client, url string) ([]byte, error) {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/sandbox"
-	"reasonix/internal/tool"
+	"rexion/internal/sandbox"
+	"rexion/internal/tool"
 )
 
 // ConfineBash returns the bash built-in bound to an OS-sandbox spec, overriding
@@ -75,7 +75,7 @@ func confine(roots []string, target string) error {
 		}
 	}
 	return fmt.Errorf("path %q is outside the workspace (writes are confined to %s); "+
-		"write inside it, or widen [sandbox] workspace_root / allow_write in reasonix.toml",
+		"write inside it, or widen [sandbox] workspace_root / allow_write in Rexion.toml",
 		target, strings.Join(roots, ", "))
 }
 

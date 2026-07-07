@@ -38,8 +38,8 @@ const STEP_TASK = 3;
 const TOTAL_STEPS = 4;
 
 // ── LocalStorage helpers ─────────────────────────────────────
-const USER_ROLE_KEY = "reasonix.userRole";
-const ONBOARDING_TASK_PENDING_KEY = "reasonix.onboarding_task_pending";
+const USER_ROLE_KEY = "Rexion.userRole";
+const ONBOARDING_TASK_PENDING_KEY = "Rexion.onboarding_task_pending";
 
 function saveUserRole(role: UserRole): void {
   try {
@@ -148,7 +148,7 @@ export function OnboardingOverlay({ onComplete }: { onComplete: () => void }) {
     return (
       <div className="onboarding">
         <div className="onboarding__card onboarding__card--welcome">
-          <img src={logo} className="onboarding__logo onboarding__logo--large" alt="Reasonix" />
+          <img src={logo} className="onboarding__logo onboarding__logo--large" alt="Rexion" />
           <div className="onboarding__title onboarding__title--welcome">{t("onboarding.welcome")}</div>
           <div className="onboarding__tag">{t("onboarding.welcomeDesc")}</div>
           {stepIndicator}
@@ -210,7 +210,7 @@ export function OnboardingOverlay({ onComplete }: { onComplete: () => void }) {
     return (
       <div className="onboarding">
         <div className="onboarding__card">
-          <img src={logo} className="onboarding__logo" alt="Reasonix" />
+          <img src={logo} className="onboarding__logo" alt="Rexion" />
           <div className="onboarding__title">{t("onboarding.title")}</div>
           <div className="onboarding__tag">{t("onboarding.tagline")}</div>
           {stepIndicator}

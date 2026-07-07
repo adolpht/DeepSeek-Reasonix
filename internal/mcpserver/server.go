@@ -1,5 +1,5 @@
 // Package mcpserver implements an MCP (Model Context Protocol) tool server that
-// exposes Reasonix as a callable tool server for other agents (Claude Code,
+// exposes Rexion as a callable tool server for other agents (Claude Code,
 // Cursor, Copilot, etc.). It supports both stdio and HTTP transports and
 // follows the MCP specification version 2024-11-05.
 package mcpserver
@@ -8,12 +8,12 @@ import (
 	"context"
 	"sync"
 
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/sandbox"
+	"rexion/internal/control"
+	"rexion/internal/event"
+	"rexion/internal/sandbox"
 )
 
-// Server is an MCP tool server that exposes Reasonix capabilities.
+// Server is an MCP tool server that exposes Rexion capabilities.
 type Server struct {
 	controller *control.Controller
 	transport  string // "stdio" | "http"
@@ -65,7 +65,7 @@ type ToolDef struct {
 // tools are the MCP tool definitions this server exposes.
 var tools = []ToolDef{
 	{
-		Name:        "reasonix_code",
+		Name:        "Rexion_code",
 		Description: "Execute a coding task: write, edit, or refactor code. The agent has full access to file writing and shell commands within the workspace.",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -84,7 +84,7 @@ var tools = []ToolDef{
 		},
 	},
 	{
-		Name:        "reasonix_explore",
+		Name:        "Rexion_explore",
 		Description: "Explore and analyze code without making changes. Read-only: can search, read files, and run read-only commands.",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -98,7 +98,7 @@ var tools = []ToolDef{
 		},
 	},
 	{
-		Name:        "reasonix_review",
+		Name:        "Rexion_review",
 		Description: "Review code for quality, correctness, and best practices. Read-only analysis with structured feedback.",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -116,7 +116,7 @@ var tools = []ToolDef{
 		},
 	},
 	{
-		Name:        "reasonix_test",
+		Name:        "Rexion_test",
 		Description: "Run tests and optionally fix failures. Can execute test commands and repair failing tests.",
 		InputSchema: map[string]any{
 			"type": "object",
@@ -179,14 +179,14 @@ func resolveSandboxMode(toolName string, params map[string]any) sandbox.SandboxM
 		}
 	}
 	switch toolName {
-	case "reasonix_explore", "reasonix_review":
+	case "Rexion_explore", "Rexion_review":
 		return sandbox.SandboxReadOnly
-	case "reasonix_test":
+	case "Rexion_test":
 		if fix, _ := params["fix"]; fix == true {
 			return sandbox.SandboxWorkspaceWrite
 		}
 		return sandbox.SandboxReadOnly
-	case "reasonix_code":
+	case "Rexion_code":
 		return sandbox.SandboxWorkspaceWrite
 	default:
 		return sandbox.SandboxWorkspaceWrite
@@ -196,20 +196,20 @@ func resolveSandboxMode(toolName string, params map[string]any) sandbox.SandboxM
 // buildPrompt constructs the controller prompt from tool name and params.
 func buildPrompt(toolName string, params map[string]any) string {
 	switch toolName {
-	case "reasonix_code":
+	case "Rexion_code":
 		prompt, _ := params["prompt"].(string)
 		return prompt
-	case "reasonix_explore":
+	case "Rexion_explore":
 		prompt, _ := params["prompt"].(string)
 		return "Explore and analyze the following (read-only, do not modify files): " + prompt
-	case "reasonix_review":
+	case "Rexion_review":
 		target, _ := params["target"].(string)
 		focus, _ := params["focus"].(string)
 		if focus != "" {
 			return "Review the following with focus on " + focus + " (read-only, do not modify files): " + target
 		}
 		return "Review the following (read-only, do not modify files): " + target
-	case "reasonix_test":
+	case "Rexion_test":
 		command, _ := params["command"].(string)
 		fix, _ := params["fix"].(bool)
 		if fix {

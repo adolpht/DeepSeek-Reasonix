@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/registry"
-	"reasonix/internal/skill"
+	"rexion/internal/registry"
+	"rexion/internal/skill"
 )
 
 const skillShowMaxLines = 80
@@ -77,7 +77,7 @@ func renderSkillPaths(width int, roots []skill.Root) string {
 		fmt.Fprintf(&b, "  %2d. %s %s %s\n",
 			r.Priority+1, scope, status, viewCompactPath(r.Dir, viewBudget(width, leftWidth)))
 	}
-	b.WriteString(viewHint(viewCompactText("priority: project > custom > global > builtin · configure [skills] paths in reasonix.toml", viewBudget(width, 2))))
+	b.WriteString(viewHint(viewCompactText("priority: project > custom > global > builtin · configure [skills] paths in Rexion.toml", viewBudget(width, 2))))
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -120,6 +120,6 @@ func renderRegistrySources(width int, sources []registry.Source) string {
 		}
 		fmt.Fprintf(&b, "      %s\n", viewMeta(viewCompactPath(s.URL, viewBudget(width, 6))))
 	}
-	b.WriteString(viewHint(viewCompactText("add custom sources in reasonix.toml [registry] section · official sources are built-in", viewBudget(width, 2))))
+	b.WriteString(viewHint(viewCompactText("add custom sources in Rexion.toml [registry] section · official sources are built-in", viewBudget(width, 2))))
 	return strings.TrimRight(b.String(), "\n")
 }

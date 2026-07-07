@@ -14,18 +14,18 @@ type LayoutPreferences = {
   sizes?: Partial<Record<LayoutSizeKey, number>>;
 };
 
-const STORAGE_KEY = "reasonix.layoutPreferences.v1";
+const STORAGE_KEY = "Rexion.layoutPreferences.v1";
 
 const LEGACY_SIZE_KEYS: Record<LayoutSizeKey, string[]> = {
-  sidebarWidth: ["reasonix.sidebar.width"],
+  sidebarWidth: ["Rexion.sidebar.width"],
   rightDockWidth: [],
   rightDockTreeWidth: [],
   rightDockPreviewWidth: [],
   workspaceFileTreePanelWidth: [],
-  workspaceTreeWidth: ["reasonix.workspaceTree.width"],
-  composerHeight: ["reasonix.composerHeight"],
-  drawerWidth: ["reasonix.drawer.width"],
-  settingsDrawerWidth: ["reasonix.settingsDrawer.width"],
+  workspaceTreeWidth: ["Rexion.workspaceTree.width"],
+  composerHeight: ["Rexion.composerHeight"],
+  drawerWidth: ["Rexion.drawer.width"],
+  settingsDrawerWidth: ["Rexion.settingsDrawer.width"],
   terminalDockHeight: [],
 };
 

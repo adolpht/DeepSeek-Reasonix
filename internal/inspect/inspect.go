@@ -15,10 +15,10 @@ import (
 	"encoding/json"
 	"strings"
 
-	"reasonix/internal/command"
-	"reasonix/internal/config"
-	"reasonix/internal/plugin"
-	"reasonix/internal/tool"
+	"rexion/internal/command"
+	"rexion/internal/config"
+	"rexion/internal/plugin"
+	"rexion/internal/tool"
 )
 
 // Snapshot bundles every capability surface so a front-end can populate its
@@ -254,7 +254,7 @@ func Resources(host *plugin.Host) []ResourceInfo {
 	return out
 }
 
-// CommandInfo is one custom slash command loaded from .reasonix/commands. Name
+// CommandInfo is one custom slash command loaded from .rexion/commands. Name
 // has no leading slash (e.g. "review" or "git:commit").
 type CommandInfo struct {
 	Name        string `json:"name"`

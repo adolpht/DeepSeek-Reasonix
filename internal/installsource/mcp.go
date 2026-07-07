@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/config"
+	"rexion/internal/config"
 )
 
 // mcpEntryAction assembles the DTO for a single MCP server install. The

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"rexion/internal/event"
+	"rexion/internal/provider"
 )
 
 // notifier is the slice of Conn the dispatch sink depends on: it pushes

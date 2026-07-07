@@ -19,13 +19,13 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/boot"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/nilutil"
-	"reasonix/internal/provider"
+	"rexion/internal/agent"
+	"rexion/internal/boot"
+	"rexion/internal/config"
+	"rexion/internal/control"
+	"rexion/internal/event"
+	"rexion/internal/nilutil"
+	"rexion/internal/provider"
 )
 
 //go:embed index.html

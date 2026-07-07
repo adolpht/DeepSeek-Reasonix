@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/event"
+	"rexion/internal/event"
 )
 
 // MCP protocol version supported by this server.
@@ -88,7 +88,7 @@ func (s *Server) handleInitialize(req Request) Response {
 			},
 		},
 		"serverInfo": map[string]any{
-			"name":    "reasonix",
+			"name":    "Rexion",
 			"version": "1.0.0",
 		},
 	}

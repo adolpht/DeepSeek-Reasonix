@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/event"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 // TestFailedCallsSurfaceError guards the bug where a failed tool call (an unknown

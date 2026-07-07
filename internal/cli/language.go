@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/config"
-	"reasonix/internal/i18n"
+	"rexion/internal/config"
+	"rexion/internal/i18n"
 )
 
 func (m *chatTUI) runLanguageSubcommand(input string) {

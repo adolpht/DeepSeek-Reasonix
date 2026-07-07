@@ -315,7 +315,7 @@ export interface AppBindings {
   GitGenerateCommitMessage(): Promise<string>;
 
   // --- Phase 5: personal-agent template library & doc preview ---
-  // ListTemplates scans <workspace>/.reasonix/templates/ for the library grid.
+  // ListTemplates scans <workspace>/.Rexion/templates/ for the library grid.
   // kind filters by file type ("docx" | "xlsx" | "md" | "tmpl" | "txt" | "csv");
   // pass "" to list all known kinds. Newest-first ordering.
   ListTemplates(kind: string): Promise<TemplateMeta[]>;
@@ -332,9 +332,9 @@ export interface AppBindings {
   // download chip (docx/pdf). `page` is forward-compat for future pagination.
   RenderDocPreview(absPath: string, page: number): Promise<DocPreviewPage[]>;
   // UploadTemplate opens a native file-picker and copies the selected file into
-  // .reasonix/templates/. Returns the absolute path of the written file.
+  // .Rexion/templates/. Returns the absolute path of the written file.
   UploadTemplate(): Promise<string>;
-  // UploadTemplateDataURL writes a base64 data-URL into .reasonix/templates/.
+  // UploadTemplateDataURL writes a base64 data-URL into .Rexion/templates/.
   // Used for drag-and-drop / paste uploads into the template library.
   UploadTemplateDataURL(name: string, dataURL: string): Promise<string>;
 
@@ -579,9 +579,9 @@ function makeMockApp(): AppBindings {
   let cancelled = false;
   let pendingAskPreview = false;
   let pendingApprovalPreview = false;
-  const globalWorkspaceRoot = "~/Library/Application Support/reasonix/global-workspace";
+  const globalWorkspaceRoot = "~/Library/Application Support/Rexion/global-workspace";
   let cwd = freshMock ? globalWorkspaceRoot : "~/projects/joyquant-db"; // mutable so PickWorkspace is visible in dev
-  let workspaces = freshMock ? [] : ["~/projects/joyquant-db", "~/projects/joyquant-sys", "~/projects/reasonix", "~/projects/blade"];
+  let workspaces = freshMock ? [] : ["~/projects/joyquant-db", "~/projects/joyquant-sys", "~/projects/Rexion", "~/projects/blade"];
   let mockEffort = "auto";
   const day = 86_400_000;
   const t0 = Date.now();
@@ -635,10 +635,10 @@ function makeMockApp(): AppBindings {
   const capSkills: SkillView[] = [
     { name: "explore", description: "Investigate the codebase in an isolated subagent", scope: "builtin", runAs: "subagent", enabled: true },
     { name: "review", description: "Review the staged diff", scope: "project", runAs: "inline", enabled: false },
-    { name: "init", description: "Scaffold a REASONIX.md for this repo", scope: "builtin", runAs: "inline", enabled: true },
+    { name: "init", description: "Scaffold a Rexion.md for this repo", scope: "builtin", runAs: "inline", enabled: true },
   ];
   let capSkillRoots: SkillRootView[] = [
-    { dir: "~/projects/reasonix/.reasonix/skills", scope: "project", priority: 1, status: "missing", configured: false, removable: true, skills: 0 },
+    { dir: "~/projects/Rexion/.Rexion/skills", scope: "project", priority: 1, status: "missing", configured: false, removable: true, skills: 0 },
     {
       dir: "~/my-skills",
       scope: "custom",
@@ -650,7 +650,7 @@ function makeMockApp(): AppBindings {
       skillItems: [{ name: "review", description: "Review the staged diff", scope: "custom", runAs: "inline" }],
     },
     {
-      dir: "~/.reasonix/skills",
+      dir: "~/.Rexion/skills",
       scope: "global",
       priority: 6,
       status: "ok",
@@ -659,7 +659,7 @@ function makeMockApp(): AppBindings {
       skills: 2,
       skillItems: [
         { name: "explore", description: "Investigate the codebase in an isolated subagent", scope: "global", runAs: "subagent" },
-        { name: "init", description: "Scaffold a REASONIX.md for this repo", scope: "global", runAs: "inline" },
+        { name: "init", description: "Scaffold a Rexion.md for this repo", scope: "global", runAs: "inline" },
       ],
     },
   ];
@@ -761,12 +761,12 @@ function makeMockApp(): AppBindings {
       noProxy: "",
       proxy: { type: "socks5", server: "127.0.0.1", port: 7890, username: "", password: "" },
     },
-    agent: { temperature: 0.2, maxSteps: 0, systemPrompt: "You are Reasonix, a coding agent." },
+    agent: { temperature: 0.2, maxSteps: 0, systemPrompt: "You are Rexion, a coding agent." },
     desktopLanguage: "",
     desktopTheme: "dark",
     desktopThemeStyle: "graphite",
     closeBehavior: "background",
-    configPath: "~/projects/reasonix/reasonix.toml",
+    configPath: "~/projects/Rexion/Rexion.toml",
     providerKinds: ["openai"],
     bypass: false,
     codingOpenSpec: false,
@@ -775,7 +775,7 @@ function makeMockApp(): AppBindings {
     provider.apiKeyEnv === "DEEPSEEK_API_KEY" ? { ...provider, keySet: !freshMock } : provider,
   );
   if (freshMock) {
-    settings.configPath = "~/.config/reasonix/config.toml";
+    settings.configPath = "~/.config/Rexion/config.toml";
   }
   const mockProjectTree: ProjectNode[] = freshMock ? [] : [
     {
@@ -1276,7 +1276,7 @@ function makeMockApp(): AppBindings {
     async PickWorkspace() {
       // Browser dev has no native dialog; simulate picking a folder and re-root so
       // the topbar folder chip visibly changes.
-      return mockSwitchWorkspace(cwd.endsWith("another-project") ? "~/projects/reasonix" : "~/projects/another-project");
+      return mockSwitchWorkspace(cwd.endsWith("another-project") ? "~/projects/Rexion" : "~/projects/another-project");
     },
     async SwitchWorkspace(path: string) {
       return mockSwitchWorkspace(path);
@@ -1452,7 +1452,7 @@ function makeMockApp(): AppBindings {
     async UninstallSkill(_name: string): Promise<void> {},
     async RegistrySources(): Promise<RegistrySourceView[]> {
       return [
-        { name: "Reasonix Official", url: "https://raw.githubusercontent.com/reasonix/skills/main/index.json", type: "index", description: "Official Reasonix skill collection", trusted: true },
+        { name: "Rexion Official", url: "https://raw.githubusercontent.com/Rexion/skills/main/index.json", type: "index", description: "Official Rexion skill collection", trusted: true },
       ];
     },
     async AddRegistrySource(_name: string, _url: string, _srcType: string, _description: string, _trusted: boolean): Promise<void> {},
@@ -1540,8 +1540,8 @@ function makeMockApp(): AppBindings {
     },
     async ReadFile(rel: string) {
       const samples: Record<string, string> = {
-        "README.md": "# Reasonix\n\nBrowser-dev workspace preview.\n\n- Chat in the center\n- Browse files on the right\n- Keep sessions on the left\n",
-        "go.mod": "module reasonix\n\ngo 1.23\n",
+        "README.md": "# Rexion\n\nBrowser-dev workspace preview.\n\n- Chat in the center\n- Browse files on the right\n- Keep sessions on the left\n",
+        "go.mod": "module Rexion\n\ngo 1.23\n",
         "desktop/file.go": "package desktop\n\nfunc main() {\n\tprintln(\"workspace preview\")\n}\n",
         "internal/event.go": "package internal\n\n// mock file used by the browser dev seam\n",
       };
@@ -1580,14 +1580,14 @@ function makeMockApp(): AppBindings {
       console.info("mock RevealPath", path);
     },
     async SavePastedImage(_dataUrl: string) {
-      return ".reasonix/attachments/mock.png";
+      return ".Rexion/attachments/mock.png";
     },
     async SavePastedFile(name: string, _dataUrl: string) {
-      return `.reasonix/attachments/mock-${name}`;
+      return `.Rexion/attachments/mock-${name}`;
     },
     async AttachDropped(path: string) {
       const name = path.split(/[/\\]/).filter(Boolean).pop() ?? path;
-      return { kind: "attachment" as const, path: `.reasonix/attachments/mock-${name}` };
+      return { kind: "attachment" as const, path: `.Rexion/attachments/mock-${name}` };
     },
     async AttachmentDataURL(_path: string) {
       return "data:image/png;base64,iVBORw0KGgo=";
@@ -1620,15 +1620,15 @@ function makeMockApp(): AppBindings {
     async Memory() {
       return {
         available: true,
-        storeDir: "~/.config/reasonix/projects/-mock/memory",
+        storeDir: "~/.config/Rexion/projects/-mock/memory",
         docs: [
           {
-            path: "REASONIX.md",
+            path: "Rexion.md",
             scope: "project",
-            body: "# Reasonix project memory\n\nMock doc shown in the browser dev seam.\n\n## Notes\n\n- prefers concise replies",
+            body: "# Rexion project memory\n\nMock doc shown in the browser dev seam.\n\n## Notes\n\n- prefers concise replies",
           },
           {
-            path: "~/.config/reasonix/REASONIX.md",
+            path: "~/.config/Rexion/Rexion.md",
             scope: "user",
             body: t("mock.memoryBody"),
           },
@@ -1642,21 +1642,21 @@ function makeMockApp(): AppBindings {
           },
         ],
         scopes: [
-          { scope: "user", path: "~/.config/reasonix/REASONIX.md" },
-          { scope: "project", path: "REASONIX.md" },
-          { scope: "local", path: "REASONIX.local.md" },
+          { scope: "user", path: "~/.config/Rexion/Rexion.md" },
+          { scope: "project", path: "Rexion.md" },
+          { scope: "local", path: "Rexion.local.md" },
         ],
         pkmFiles: [
-          { name: "writing_style.md", path: "~/.reasonix/memory/writing_style.md", body: "# 写作风格\n\n简洁、技术性。" },
-          { name: "preferences.md", path: "~/.reasonix/memory/preferences.md", body: "# 个人偏好\n\n中文沟通。" },
-          { name: "people.md", path: "~/.reasonix/memory/people.md", body: "# 常联系人\n\n- 张三 | 同事 | ..." },
-          { name: "projects.md", path: "~/.reasonix/memory/projects.md", body: "# 在跟项目\n\n- Reasonix | 进行中" },
+          { name: "writing_style.md", path: "~/.Rexion/memory/writing_style.md", body: "# 写作风格\n\n简洁、技术性。" },
+          { name: "preferences.md", path: "~/.Rexion/memory/preferences.md", body: "# 个人偏好\n\n中文沟通。" },
+          { name: "people.md", path: "~/.Rexion/memory/people.md", body: "# 常联系人\n\n- 张三 | 同事 | ..." },
+          { name: "projects.md", path: "~/.Rexion/memory/projects.md", body: "# 在跟项目\n\n- Rexion | 进行中" },
         ],
       };
     },
     async Remember(scope: string, note: string) {
       emit({ kind: "notice", level: "info", text: `remembered → ${scope}` });
-      return `${scope} REASONIX.md (mock): ${note}`;
+      return `${scope} Rexion.md (mock): ${note}`;
     },
     async Forget(name: string) {
       emit({ kind: "notice", level: "info", text: `forgot → ${name}` });
@@ -1892,7 +1892,7 @@ function makeMockApp(): AppBindings {
     },
     async OpenDownloadPage() {
       if (typeof window !== "undefined") {
-        window.open("https://github.com/esengine/reasonix/releases/latest", "_blank", "noopener");
+        window.open("https://github.com/esengine/Rexion/releases/latest", "_blank", "noopener");
       }
     },
     // Dev seam: drives the overlay flow in the browser until any provider has a key.
@@ -2058,7 +2058,7 @@ function makeMockApp(): AppBindings {
         sessionCurrency: "¥",
         sessionCostUsd: 0.018,
         readFiles: [
-          { path: "REASONIX.md", turn: 2, time: now - 34 * 60 * 1000 },
+          { path: "Rexion.md", turn: 2, time: now - 34 * 60 * 1000 },
           { path: "pyproject.toml", turn: 3, time: now - 30 * 60 * 1000 },
           { path: "docs/dev-standard.md", turn: 5, time: now - 13 * 60 * 1000, offset: 0, limit: 180 },
           { path: "scripts/db_migrate.sh", turn: 6, time: now - 4 * 60 * 1000, offset: 120, limit: 80, truncated: true },
@@ -2113,7 +2113,7 @@ function makeMockApp(): AppBindings {
       return { path, content: staged ? `diff --cached a/src/App.tsx\n+++ b/src/App.tsx\n@@ -1,3 +1,4 @@\n+import { GitBranch } from "lucide-react";\n` : `diff a/src/StatusBar.tsx\n+++ b/src/StatusBar.tsx\n@@ -55,3 +55,5 @@\n+// added cache avg\n` };
     },
     async GitRemotes(): Promise<Record<string, string>> {
-      return { origin: "https://github.com/esengine/DeepSeek-Reasonix.git" };
+      return { origin: "https://github.com/esengine/DeepSeek-Rexion.git" };
     },
     async GitAdd(_paths: string[]): Promise<GitOperationResult> {
       return { success: true };
@@ -2225,8 +2225,8 @@ function makeMockApp(): AppBindings {
         {
           name: "weekly-report",
           kind: "md",
-          path: "~/projects/joyquant-db/.reasonix/templates/weekly-report.md",
-          relPath: ".reasonix/templates/weekly-report.md",
+          path: "~/projects/joyquant-db/.Rexion/templates/weekly-report.md",
+          relPath: ".Rexion/templates/weekly-report.md",
           description: "Weekly status report skeleton — fill the {{week}} placeholder.",
           size: 412,
           modTime: now - 3_600,
@@ -2234,8 +2234,8 @@ function makeMockApp(): AppBindings {
         {
           name: "service-contract",
           kind: "docx",
-          path: "~/projects/joyquant-db/.reasonix/templates/service-contract.docx",
-          relPath: ".reasonix/templates/service-contract.docx",
+          path: "~/projects/joyquant-db/.Rexion/templates/service-contract.docx",
+          relPath: ".Rexion/templates/service-contract.docx",
           description: "",
           size: 18_245,
           modTime: now - 86_400,
@@ -2243,8 +2243,8 @@ function makeMockApp(): AppBindings {
         {
           name: "cover-letter",
           kind: "tmpl",
-          path: "~/projects/joyquant-db/.reasonix/templates/cover-letter.tmpl",
-          relPath: ".reasonix/templates/cover-letter.tmpl",
+          path: "~/projects/joyquant-db/.Rexion/templates/cover-letter.tmpl",
+          relPath: ".Rexion/templates/cover-letter.tmpl",
           description: "Dear {{.name}}, I am writing to apply for…",
           size: 286,
           modTime: now - 7_200,
@@ -2270,7 +2270,7 @@ function makeMockApp(): AppBindings {
       const isImage = /\.(png|jpe?g|gif|svg|webp)$/i.test(name);
       const kind = isImage ? "image" : "binary";
       return [{
-        url: `/__reasonix_workspace_media/mock-${kind}-${name}/${encodeURIComponent(name)}`,
+        url: `/__Rexion_workspace_media/mock-${kind}-${name}/${encodeURIComponent(name)}`,
         page: 1,
         total: 1,
       }];

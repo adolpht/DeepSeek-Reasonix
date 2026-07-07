@@ -1,8 +1,8 @@
-# Reasonix dws 插件配置引导
+# Rexion dws 插件配置引导
 
 ## 概述
 
-`reasonix-plugin-dws` 是 Reasonix 的钉钉工作台集成插件,通过封装 [dws CLI](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli) 将钉钉全产品能力暴露为 MCP 工具,使 AI 可以通过自然语言操作钉钉的 20+ 产品。
+`Rexion-plugin-dws` 是 Rexion 的钉钉工作台集成插件,通过封装 [dws CLI](https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli) 将钉钉全产品能力暴露为 MCP 工具,使 AI 可以通过自然语言操作钉钉的 20+ 产品。
 
 ### 与 IM 插件的关系
 
@@ -38,7 +38,7 @@ dws CLI 覆盖以下产品能力(持续扩展中):
 
 ## 一、前置条件
 
-> **一键体验**:如果你已安装 dws CLI,在 Reasonix 中启用 dws 插件即可自动完成认证检测和授权——无需手动执行任何命令。详见下方第二节。
+> **一键体验**:如果你已安装 dws CLI,在 Rexion 中启用 dws 插件即可自动完成认证检测和授权——无需手动执行任何命令。详见下方第二节。
 
 ### 1.1 安装 dws CLI
 
@@ -72,7 +72,7 @@ dws 使用 OAuth 认证。有两种方式完成登录:
 
 **方式一:自动授权(推荐)**
 
-在 Reasonix 中启用 dws 插件后,插件会自动检测认证状态。如果未认证,会自动执行 `dws auth login` 打开浏览器授权页面——与 WorkBuddy 的体验一致:管理员审批后即可直接使用。
+在 Rexion 中启用 dws 插件后,插件会自动检测认证状态。如果未认证,会自动执行 `dws auth login` 打开浏览器授权页面——与 WorkBuddy 的体验一致:管理员审批后即可直接使用。
 
 **方式二:手动授权**
 
@@ -92,11 +92,11 @@ dws auth status --format json
 
 ---
 
-## 二、配置 Reasonix
+## 二、配置 Rexion
 
 ### 2.1 GUI 配置
 
-1. 启动 Reasonix 桌面端
+1. 启动 Rexion 桌面端
 2. 侧边栏 → 「设置」(齿轮图标)
 3. 进入「办公插件」标签页
 4. 找到「钉钉工作台 (dws)」卡片,点击「配置」展开
@@ -107,12 +107,12 @@ dws auth status --format json
 
 ### 2.2 TOML 配置
 
-在 `reasonix.toml` 中添加:
+在 `Rexion.toml` 中添加:
 
 ```toml
 [[plugins]]
 name           = "dws"
-command        = "reasonix-plugin-dws"
+command        = "Rexion-plugin-dws"
 auto_start_tool = "dws_check"
 
 # 可选:指定 dws 二进制路径(默认从 PATH 查找)
@@ -125,7 +125,7 @@ DWS_PATH = "/usr/local/bin/dws"
 ```toml
 [[plugins]]
 name           = "dws"
-command        = "reasonix-plugin-dws"
+command        = "Rexion-plugin-dws"
 auto_start_tool = "dws_check"
 ```
 
@@ -228,7 +228,7 @@ mcp__dws__dws_auth(action="logout")
 配置了 `auto_start_tool = "dws_check"` 后,首次使用流程被极大简化:
 
 ```
-# 1. 在 Reasonix 中启用 dws 插件
+# 1. 在 Rexion 中启用 dws 插件
 # → 插件自动调用 dws_check:
 #   - 检测 dws 是否安装
 #   - 如未安装,返回安装指引

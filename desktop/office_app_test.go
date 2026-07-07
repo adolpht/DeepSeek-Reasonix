@@ -9,7 +9,7 @@ import (
 )
 
 // TestListTemplatesEmptyDir verifies the bound-method contract: a workspace
-// without .reasonix/templates/ returns an empty (not nil) slice and no error,
+// without .rexion/templates/ returns an empty (not nil) slice and no error,
 // so the frontend's `templates.length` access never crashes.
 func TestListTemplatesEmptyDir(t *testing.T) {
 	a := NewApp()
@@ -32,7 +32,7 @@ func TestListTemplatesEmptyDir(t *testing.T) {
 }
 
 // TestListTemplatesScansAndFilters verifies:
-//   - files under .reasonix/templates/ are picked up
+//   - files under .rexion/templates/ are picked up
 //   - unknown extensions (.png, .zip) are skipped
 //   - the `kind` filter narrows the list
 //   - Name/Kind/RelPath/Description are populated correctly
@@ -40,7 +40,7 @@ func TestListTemplatesEmptyDir(t *testing.T) {
 func TestListTemplatesScansAndFilters(t *testing.T) {
 	a := NewApp()
 	ws := t.TempDir()
-	tmplDir := filepath.Join(ws, ".reasonix", "templates")
+	tmplDir := filepath.Join(ws, ".rexion", "templates")
 	if err := os.MkdirAll(tmplDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestListTemplatesScansAndFilters(t *testing.T) {
 	if out[0].Kind != "md" {
 		t.Errorf("weekly kind = %q, want md", out[0].Kind)
 	}
-	if out[0].RelPath != ".reasonix/templates/weekly.md" {
+	if out[0].RelPath != ".rexion/templates/weekly.md" {
 		t.Errorf("RelPath = %q", out[0].RelPath)
 	}
 	if out[0].Description == "" {
@@ -119,7 +119,7 @@ func TestListTemplatesScansAndFilters(t *testing.T) {
 func TestListTemplatesSkipsHiddenAndDirs(t *testing.T) {
 	a := NewApp()
 	ws := t.TempDir()
-	tmplDir := filepath.Join(ws, ".reasonix", "templates")
+	tmplDir := filepath.Join(ws, ".rexion", "templates")
 	os.MkdirAll(tmplDir, 0o755)
 	os.WriteFile(filepath.Join(tmplDir, ".hidden.md"), []byte("hidden"), 0o644)
 	os.MkdirAll(filepath.Join(tmplDir, "subdir"), 0o755)
@@ -231,7 +231,7 @@ func TestOpenInOSDefaultRejectsEmpty(t *testing.T) {
 
 // TestRenderDocPreviewImageReturnsInlineURL verifies an image file is
 // registered with the media-token store and the returned URL is renderable
-// inline (starts with /__reasonix_workspace_media/).
+// inline (starts with /__Rexion_workspace_media/).
 func TestRenderDocPreviewImageReturnsInlineURL(t *testing.T) {
 	a := NewApp()
 	tmp := t.TempDir()
@@ -246,7 +246,7 @@ func TestRenderDocPreviewImageReturnsInlineURL(t *testing.T) {
 	if len(pages) != 1 {
 		t.Fatalf("expected 1 page, got %d", len(pages))
 	}
-	if !strings.HasPrefix(pages[0].URL, "/__reasonix_workspace_media/") {
+	if !strings.HasPrefix(pages[0].URL, "/__Rexion_workspace_media/") {
 		t.Errorf("URL = %q, want media-token URL", pages[0].URL)
 	}
 	if pages[0].Total != 1 || pages[0].Page != 1 {
@@ -271,7 +271,7 @@ func TestRenderDocPreviewDocxReturnsDownloadURL(t *testing.T) {
 	if len(pages) != 1 {
 		t.Fatalf("expected 1 page entry, got %d", len(pages))
 	}
-	if !strings.HasPrefix(pages[0].URL, "/__reasonix_workspace_media/") {
+	if !strings.HasPrefix(pages[0].URL, "/__Rexion_workspace_media/") {
 		t.Errorf("URL = %q, want media-token URL", pages[0].URL)
 	}
 	if !strings.HasSuffix(pages[0].URL, "report.docx") {

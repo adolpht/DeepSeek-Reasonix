@@ -3,7 +3,7 @@ package control
 import (
 	"testing"
 
-	"reasonix/internal/skill"
+	"rexion/internal/skill"
 )
 
 func labelsOf(items []SlashItem) []string {

@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reasonix/internal/event"
+	"rexion/internal/event"
 	"strings"
 	"testing"
 
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 // mockProvider replays preset chunks and records the last request it received.
@@ -132,7 +132,7 @@ func (t coordinatorTestTool) ReadOnly() bool { return t.readOnly }
 func TestCoordinatorPlannerUsesReadOnlyResearchTools(t *testing.T) {
 	planner := &mockProvider{name: "planner", streams: [][]provider.Chunk{
 		{
-			{Type: provider.ChunkToolCall, ToolCall: &provider.ToolCall{ID: "call-1", Name: "read_file", Arguments: `{"path":"REASONIX.md"}`}},
+			{Type: provider.ChunkToolCall, ToolCall: &provider.ToolCall{ID: "call-1", Name: "read_file", Arguments: `{"path":"Rexion.md"}`}},
 			{Type: provider.ChunkDone},
 		},
 		{

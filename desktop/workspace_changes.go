@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/proc"
+	"rexion/internal/proc"
 )
 
 type gitStatusEntry struct {

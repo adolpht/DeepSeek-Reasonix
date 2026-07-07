@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/term"
 
-	"reasonix/internal/i18n"
+	"rexion/internal/i18n"
 )
 
 // errCancelled is returned by selectOne when the user aborts (q or Ctrl-C).

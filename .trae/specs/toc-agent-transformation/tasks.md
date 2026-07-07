@@ -86,8 +86,8 @@
 
 ### P5-4: PPT 生成插件
 
-- [x] Task 12: PPT 生成 MCP 插件（reasonix-plugin-slides）
-  - [x] SubTask 12.1: 创建 `cmd/reasonix-plugin-slides/` 目录和 main.go 入口
+- [x] Task 12: PPT 生成 MCP 插件（Rexion-plugin-slides）
+  - [x] SubTask 12.1: 创建 `cmd/Rexion-plugin-slides/` 目录和 main.go 入口
   - [x] SubTask 12.2: 实现 MCP 服务器框架（stdio JSON-RPC）
   - [x] SubTask 12.3: 实现 `create_ppt` 工具：从 Markdown 大纲生成 PPT
   - [x] SubTask 12.4: 实现 `add_slide` 工具：添加单页幻灯片
@@ -110,8 +110,8 @@
 
 ### P5-5: 搜索调研插件
 
-- [x] Task 15: 搜索调研 MCP 插件（reasonix-plugin-search）
-  - [x] SubTask 15.1: 创建 `cmd/reasonix-plugin-search/` 目录和 main.go 入口
+- [x] Task 15: 搜索调研 MCP 插件（Rexion-plugin-search）
+  - [x] SubTask 15.1: 创建 `cmd/Rexion-plugin-search/` 目录和 main.go 入口
   - [x] SubTask 15.2: 实现 MCP 服务器框架（stdio JSON-RPC）
   - [x] SubTask 15.3: 实现 `web_search` 工具：集成搜索 API（SerpAPI/Bing）
   - [x] SubTask 15.4: 实现 `web_extract` 工具：从网页提取结构化信息
@@ -166,8 +166,8 @@
 
 ### P6-1: 日程与待办管理
 
-- [x] Task 23: 日程管理 MCP 插件（reasonix-plugin-calendar）
-  - [x] SubTask 23.1: 创建 `cmd/reasonix-plugin-calendar/` 目录和 main.go 入口
+- [x] Task 23: 日程管理 MCP 插件（Rexion-plugin-calendar）
+  - [x] SubTask 23.1: 创建 `cmd/Rexion-plugin-calendar/` 目录和 main.go 入口
   - [x] SubTask 23.2: 实现 `read_event` 工具：读取系统日历事件
   - [x] SubTask 23.3: 实现 `add_event` 工具：创建日历事件
   - [x] SubTask 23.4: 实现 `list_todo` 工具：查看待办列表
@@ -182,8 +182,8 @@
 
 ### P6-2: 邮件处理
 
-- [x] Task 25: 邮件处理 MCP 插件（reasonix-plugin-mail）
-  - [x] SubTask 25.1: 创建 `cmd/reasonix-plugin-mail/` 目录和 main.go 入口
+- [x] Task 25: 邮件处理 MCP 插件（Rexion-plugin-mail）
+  - [x] SubTask 25.1: 创建 `cmd/Rexion-plugin-mail/` 目录和 main.go 入口
   - [x] SubTask 25.2: 实现 IMAP 客户端（`go-imap` 纯 Go 库）
   - [x] SubTask 25.3: 实现 SMTP 发送
   - [x] SubTask 25.4: 实现 `read_mail` 工具：读取收件箱
@@ -199,8 +199,8 @@
 
 ### P6-3: IM 远程控制
 
-- [x] Task 27: IM 远程控制 MCP 插件（reasonix-plugin-im）
-  - [x] SubTask 27.1: 创建 `cmd/reasonix-plugin-im/` 目录和 main.go 入口
+- [x] Task 27: IM 远程控制 MCP 插件（Rexion-plugin-im）
+  - [x] SubTask 27.1: 创建 `cmd/Rexion-plugin-im/` 目录和 main.go 入口
   - [x] SubTask 27.2: 实现本地 HTTP Bot 服务框架
   - [x] SubTask 27.3: 实现企业微信机器人 Webhook 对接
   - [x] SubTask 27.4: 实现飞书机器人 API 对接
@@ -235,7 +235,7 @@
 ### P6-6: 长期记忆增强
 
 - [x] Task 31: 个人知识库
-  - [x] SubTask 31.1: 实现 `~/.reasonix/memory/` 目录初始化
+  - [x] SubTask 31.1: 实现 `~/.Rexion/memory/` 目录初始化
   - [x] SubTask 31.2: 创建默认记忆文件（people.md / projects.md / preferences.md / writing_style.md）
   - [x] SubTask 31.3: 在 Agent 上下文中自动引用记忆文件
   - [x] SubTask 31.4: 创建 `MemoryPanel.tsx` 组件，支持多文件切换和编辑

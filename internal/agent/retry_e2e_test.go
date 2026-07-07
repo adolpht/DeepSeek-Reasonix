@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
-	"reasonix/internal/provider/openai"
-	"reasonix/internal/tool"
+	"rexion/internal/event"
+	"rexion/internal/provider"
+	"rexion/internal/provider/openai"
+	"rexion/internal/tool"
 )
 
 type recordSink struct {

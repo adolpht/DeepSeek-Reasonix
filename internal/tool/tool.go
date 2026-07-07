@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"reasonix/internal/diff"
-	"reasonix/internal/provider"
+	"rexion/internal/diff"
+	"rexion/internal/provider"
 )
 
 // Tool is a capability the model can invoke.

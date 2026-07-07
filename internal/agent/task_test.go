@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 // TestTaskToolReturnsSubAgentFinalAnswer runs a task against a mock provider

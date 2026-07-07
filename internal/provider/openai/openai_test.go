@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/provider"
+	"rexion/internal/provider"
 )
 
 // TestStreamRetriesThenSucceeds drives the real retry path end-to-end: the

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/provider"
+	"rexion/internal/config"
+	"rexion/internal/control"
+	"rexion/internal/provider"
 )
 
 // fakeRunner stands in for an agent.Runner: it records the composed input and

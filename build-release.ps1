@@ -1,4 +1,4 @@
-# build-release.ps1 - Reasonix production build script
+# build-release.ps1 - Rexion production build script
 param(
     [string]$Version = ""
 )
@@ -13,7 +13,7 @@ if (-not $Version) {
     if (-not $Version) { $Version = "dev" }
 }
 $LDFLAGS = "-s -w -X main.version=$Version"
-Write-Host "`n=== Reasonix Production Build v$Version ===" -ForegroundColor Cyan
+Write-Host "`n=== Rexion Production Build v$Version ===" -ForegroundColor Cyan
 
 # 0. Ensure NSIS in PATH
 $nsisDir = "C:\Program Files (x86)\NSIS"
@@ -30,14 +30,14 @@ if ((Get-Command makensis -ErrorAction SilentlyContinue) -eq $null) {
 Write-Host "`n[1/5] Building CLI and main-module plugins..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path "$Root\bin" | Out-Null
 $env:CGO_ENABLED = "0"
-go build -ldflags $LDFLAGS -o "$Root\bin\reasonix.exe" ./cmd/reasonix
+go build -ldflags $LDFLAGS -o "$Root\bin\Rexion.exe" ./cmd/Rexion
 $mainPlugins = @(
-    "reasonix-plugin-example",
-    "reasonix-plugin-office",
-    "reasonix-plugin-sheet",
-    "reasonix-plugin-mail",
-    "reasonix-plugin-im",
-    "reasonix-plugin-dws"
+    "Rexion-plugin-example",
+    "Rexion-plugin-office",
+    "Rexion-plugin-sheet",
+    "Rexion-plugin-mail",
+    "Rexion-plugin-im",
+    "Rexion-plugin-dws"
 )
 foreach ($p in $mainPlugins) {
     go build -ldflags $LDFLAGS -o "$Root\bin\$p.exe" "./cmd/$p"
@@ -47,9 +47,9 @@ Write-Host "  CLI + main-module plugins done" -ForegroundColor Green
 # 2. Build standalone-module plugins
 Write-Host "`n[2/5] Building standalone-module plugins..." -ForegroundColor Yellow
 $standalonePlugins = @(
-    "reasonix-plugin-calendar",
-    "reasonix-plugin-slides",
-    "reasonix-plugin-search"
+    "Rexion-plugin-calendar",
+    "Rexion-plugin-slides",
+    "Rexion-plugin-search"
 )
 foreach ($p in $standalonePlugins) {
     Push-Location "$Root\cmd\$p"
@@ -57,13 +57,13 @@ foreach ($p in $standalonePlugins) {
     Pop-Location
 }
 # Copy python helper scripts (slides plugin requires ppt_gen.py)
-Copy-Item "$Root\cmd\reasonix-plugin-slides\ppt_gen.py" "$Root\bin\ppt_gen.py" -Force
+Copy-Item "$Root\cmd\Rexion-plugin-slides\ppt_gen.py" "$Root\bin\ppt_gen.py" -Force
 Write-Host "  Standalone-module plugins done" -ForegroundColor Green
 
 # 3. Build frontend
 Write-Host "`n[3/5] Building frontend..." -ForegroundColor Yellow
 Push-Location "$Root\desktop\frontend"
-$nodeDir = "c:\Users\tianxb\AppData\Local\nvm\v22.16.0"
+$nodeDir = "c:\Users\tianxb\AppData\Local\nvm\v22.15.0"
 if (Test-Path $nodeDir) { $env:PATH = "$nodeDir;$env:PATH" }
 pnpm install
 pnpm build
@@ -75,14 +75,14 @@ Write-Host "`n[4/5] Staging plugins for NSIS..." -ForegroundColor Yellow
 $pluginsDir = "$Root\desktop\build\bin\plugins"
 New-Item -ItemType Directory -Force -Path $pluginsDir | Out-Null
 $allPlugins = @(
-    "reasonix-plugin-office",
-    "reasonix-plugin-sheet",
-    "reasonix-plugin-search",
-    "reasonix-plugin-calendar",
-    "reasonix-plugin-slides",
-    "reasonix-plugin-mail",
-    "reasonix-plugin-im",
-    "reasonix-plugin-dws"
+    "Rexion-plugin-office",
+    "Rexion-plugin-sheet",
+    "Rexion-plugin-search",
+    "Rexion-plugin-calendar",
+    "Rexion-plugin-slides",
+    "Rexion-plugin-mail",
+    "Rexion-plugin-im",
+    "Rexion-plugin-dws"
 )
 foreach ($p in $allPlugins) {
     Copy-Item "$Root\bin\$p.exe" $pluginsDir -Force
@@ -103,11 +103,11 @@ if ($installer) {
     Write-Host "`n=== BUILD SUCCESS ===" -ForegroundColor Green
     Write-Host "  Installer: $($installer.FullName)" -ForegroundColor White
     Write-Host "  Size: $([math]::Round($installer.Length/1MB, 1)) MB" -ForegroundColor White
-    Write-Host "  Portable: $Root\desktop\build\bin\reasonix-desktop.exe" -ForegroundColor White
+    Write-Host "  Portable: $Root\desktop\build\bin\Rexion-desktop.exe" -ForegroundColor White
 } else {
     Write-Host "`n=== BUILD DONE (no installer, NSIS may not be installed) ===" -ForegroundColor Yellow
-    Write-Host "  Portable: $Root\desktop\build\bin\reasonix-desktop.exe" -ForegroundColor White
+    Write-Host "  Portable: $Root\desktop\build\bin\Rexion-desktop.exe" -ForegroundColor White
 }
 
-Write-Host "`n  CLI: $Root\bin\reasonix.exe" -ForegroundColor White
-Write-Host "  Plugins: $Root\bin\reasonix-plugin-*.exe" -ForegroundColor White
+Write-Host "`n  CLI: $Root\bin\Rexion.exe" -ForegroundColor White
+Write-Host "  Plugins: $Root\bin\Rexion-plugin-*.exe" -ForegroundColor White

@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/event"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 // Pool manages concurrent child agents.

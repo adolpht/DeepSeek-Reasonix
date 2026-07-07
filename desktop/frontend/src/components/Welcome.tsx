@@ -56,7 +56,7 @@ export function Welcome({ onPrompt, workspaceType = "coding" }: { onPrompt: (tex
       </div>
 
       {/* Brand logo */}
-      <img src={logoWordmark} className="welcome__logo" alt="Reasonix" />
+      <img src={logoWordmark} className="welcome__logo" alt="Rexion" />
 
       {/* Tagline */}
       <div className="welcome__tag">{tagline}</div>

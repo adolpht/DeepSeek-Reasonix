@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"reasonix/internal/diff"
-	"reasonix/internal/tool"
+	"rexion/internal/diff"
+	"rexion/internal/tool"
 )
 
 func init() { tool.RegisterBuiltin(notebookEdit{}) }

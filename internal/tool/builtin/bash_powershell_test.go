@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/sandbox"
+	"rexion/internal/sandbox"
 )
 
 func powershellPath(t *testing.T) string {
@@ -33,12 +33,12 @@ func TestBashPowerShellRunsNativeCommand(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("powershell e2e is windows-only")
 	}
-	out, err := runPS(t, "Write-Output reasonix-ok")
+	out, err := runPS(t, "Write-Output Rexion-ok")
 	if err != nil {
 		t.Fatalf("powershell command failed: %v (out=%q)", err, out)
 	}
-	if !strings.Contains(out, "reasonix-ok") {
-		t.Fatalf("output = %q, want it to contain reasonix-ok", out)
+	if !strings.Contains(out, "Rexion-ok") {
+		t.Fatalf("output = %q, want it to contain Rexion-ok", out)
 	}
 }
 

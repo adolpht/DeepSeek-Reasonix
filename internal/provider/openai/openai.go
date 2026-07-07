@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/netclient"
-	"reasonix/internal/provider"
+	"rexion/internal/netclient"
+	"rexion/internal/provider"
 )
 
 func init() {

@@ -10,7 +10,7 @@ import (
 
 	"github.com/signintech/gopdf"
 
-	"reasonix/internal/tool"
+	"rexion/internal/tool"
 )
 
 func init() { tool.RegisterBuiltin(writePdf{}) }
@@ -108,7 +108,7 @@ func generatePDF(path, content, title string) error {
 	if title != "" {
 		pdf.SetInfo(gopdf.PdfInfo{
 			Title:  title,
-			Author: "Reasonix",
+			Author: "Rexion",
 		})
 	}
 

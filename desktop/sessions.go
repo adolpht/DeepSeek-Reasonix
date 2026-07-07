@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/fileutil"
+	"rexion/internal/fileutil"
 )
 
 // errActiveSession is returned when a delete targets the session in use.

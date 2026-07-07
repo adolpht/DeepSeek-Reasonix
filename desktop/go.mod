@@ -1,4 +1,4 @@
-module reasonix/desktop
+module rexion/desktop
 
 go 1.25.0
 
@@ -6,10 +6,10 @@ toolchain go1.26.4
 
 // The desktop shell is a nested module so its CGO/WebKit build never touches the
 // CLI's CGO_ENABLED=0 single-static-binary guarantee. The replace lets it import
-// the same reasonix/internal/* kernel (the import path stays under reasonix/, so
+// the same rexion/internal/* kernel (the import path stays under rexion/, so
 // the internal rule still permits it). `go mod tidy` here resolves Wails + its
 // transitive deps; the parent module's go build/test ./... skips this directory.
-require reasonix v0.0.0
+require rexion v0.0.0
 
 require (
 	aead.dev/minisign v0.3.0
@@ -76,4 +76,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 )
 
-replace reasonix => ../
+replace rexion => ../

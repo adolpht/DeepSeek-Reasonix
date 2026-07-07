@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/sandbox"
+	"rexion/internal/sandbox"
 )
 
 func TestBashForegroundTimeoutConfig(t *testing.T) {

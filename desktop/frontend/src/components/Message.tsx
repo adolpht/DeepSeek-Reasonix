@@ -19,7 +19,7 @@ export function UserMessage({
   turn?: number;
   anchorId?: string;
 }) {
-  const displayText = text.replace(/@\.reasonix\/attachments\/[^\s]+/g, "[image]");
+  const displayText = text.replace(/@\.Rexion\/attachments\/[^\s]+/g, "[image]");
   return (
     <div className="msg msg--user" id={anchorId} data-question-anchor={anchorId} data-turn={turn}>
       <div className="msg__body">

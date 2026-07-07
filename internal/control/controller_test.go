@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/checkpoint"
-	"reasonix/internal/event"
-	"reasonix/internal/plugin"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/agent"
+	"rexion/internal/checkpoint"
+	"rexion/internal/event"
+	"rexion/internal/plugin"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 type typedNilControllerSink struct{}
@@ -184,7 +184,7 @@ func TestDisconnectMCPServerRemovesLazyPlaceholder(t *testing.T) {
 func TestRemoveMCPServerRemovesUnconnectedLazyPlaceholder(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	if err := os.WriteFile("reasonix.toml", []byte(`
+	if err := os.WriteFile("Rexion.toml", []byte(`
 [[plugins]]
 name = "mock"
 command = "mock-mcp"

@@ -11,10 +11,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/config"
-	"reasonix/internal/hook"
-	"reasonix/internal/registry"
-	"reasonix/internal/skill"
+	"rexion/internal/config"
+	"rexion/internal/hook"
+	"rexion/internal/registry"
+	"rexion/internal/skill"
 )
 
 func (m *chatTUI) runSkillSubcommand(input string) {
@@ -83,7 +83,7 @@ func (m *chatTUI) skillList() {
 		skills = m.ctrl.AllSkills()
 	}
 	if len(skills) == 0 {
-		m.notice("no skills found. Add SKILL.md / <name>.md under .reasonix/skills (project) or ~/.reasonix/skills (global); .agents/.agent/.claude skills dirs also work. Invoke with /<name> or run_skill.")
+		m.notice("no skills found. Add SKILL.md / <name>.md under .rexion/skills (project) or ~/.rexion/skills (global); .agents/.agent/.claude skills dirs also work. Invoke with /<name> or run_skill.")
 		return
 	}
 	m.commitLine(renderSkillList(m.width, sortedSkills(skills), m.disabledSkillNames()))
@@ -349,10 +349,10 @@ func (m *chatTUI) skillInstallFromRegistry(name string, global bool) {
 
 	// Determine install directory
 	home, _ := os.UserHomeDir()
-	installDir := filepath.Join(home, ".reasonix", "skills")
+	installDir := filepath.Join(home, ".rexion", "skills")
 	if !global {
 		cwd, _ := os.Getwd()
-		projectDir := filepath.Join(cwd, ".reasonix", "skills")
+		projectDir := filepath.Join(cwd, ".rexion", "skills")
 		if _, err := os.Stat(filepath.Dir(cwd)); err == nil {
 			installDir = projectDir
 		}

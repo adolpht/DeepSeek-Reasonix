@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"reasonix/internal/config"
+	"rexion/internal/config"
 )
 
 var (
@@ -54,7 +54,7 @@ func (a *App) TranscribeAudio(wavBytes []byte) (string, error) {
 		return "", fmt.Errorf("voice input not available: whisper not found")
 	}
 
-	tmpDir, err := os.MkdirTemp("", "reasonix-voice")
+	tmpDir, err := os.MkdirTemp("", "Rexion-voice")
 	if err != nil {
 		return "", fmt.Errorf("create temp dir: %w", err)
 	}

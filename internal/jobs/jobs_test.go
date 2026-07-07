@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/event"
+	"rexion/internal/event"
 )
 
 func waitFor(t *testing.T, cond func() bool) {

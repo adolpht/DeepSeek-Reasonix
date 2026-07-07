@@ -173,7 +173,7 @@ func writeHTTPResponse(w http.ResponseWriter, resp Response, sessionID string) {
 
 // generateSessionID creates a new unique session identifier.
 func generateSessionID() string {
-	return fmt.Sprintf("reasonix-%d", sessionCounter.Add(1))
+	return fmt.Sprintf("Rexion-%d", sessionCounter.Add(1))
 }
 
 var sessionCounter atomic.Int64

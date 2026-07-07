@@ -23,7 +23,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// TemplateMeta describes one user template from .reasonix/templates/.
+// TemplateMeta describes one user template from .rexion/templates/.
 type TemplateMeta struct {
 	Name        string `json:"name"`        // file stem, e.g. "weekly-report"
 	Kind        string `json:"kind"`        // "docx" | "xlsx" | "md" | "tmpl" | "txt" | "csv"
@@ -36,7 +36,7 @@ type TemplateMeta struct {
 
 // DocPreviewPage is one page of a rendered document preview.
 type DocPreviewPage struct {
-	URL   string `json:"url"`   // media token URL, e.g. /__reasonix_workspace_media/<tok>/<name>
+	URL   string `json:"url"`   // media token URL, e.g. /__Rexion_workspace_media/<tok>/<name>
 	Page  int    `json:"page"`  // 1-based
 	Total int    `json:"total"` // total pages available
 }
@@ -85,7 +85,7 @@ func previewKindForExt(ext string) (kind, mime string, ok bool) {
 	return "", "", false
 }
 
-// ListTemplates lists user templates under <workspace>/.reasonix/templates/.
+// ListTemplates lists user templates under <workspace>/.rexion/templates/.
 // kind filters by file type ("docx", "xlsx", "md", "tmpl", "txt", "csv"); pass
 // "" to list all known kinds. The library is scanned fresh on every call so
 // newly added templates appear without a restart.
@@ -95,7 +95,7 @@ func (a *App) ListTemplates(kind string) ([]TemplateMeta, error) {
 	if err != nil {
 		return out, err
 	}
-	root := filepath.Join(base, ".reasonix", "templates")
+	root := filepath.Join(base, ".rexion", "templates")
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -274,7 +274,7 @@ func (a *App) RenderDocPreview(absPath string, page int) ([]DocPreviewPage, erro
 	if kind, mime, ok := previewKindForExt(ext); ok {
 		tok := a.ensureMediaTokenStore().create(absPath, name, mime, kind, info.Size(), info.ModTime())
 		return []DocPreviewPage{{
-			URL:   "/__reasonix_workspace_media/" + tok + "/" + url.PathEscape(name),
+			URL:   "/__Rexion_workspace_media/" + tok + "/" + url.PathEscape(name),
 			Page:  1,
 			Total: 1,
 		}}, nil
@@ -285,7 +285,7 @@ func (a *App) RenderDocPreview(absPath string, page int) ([]DocPreviewPage, erro
 	if ext == "pdf" {
 		tok := a.ensureMediaTokenStore().create(absPath, name, "application/pdf", "pdf", info.Size(), info.ModTime())
 		return []DocPreviewPage{{
-			URL:   "/__reasonix_workspace_media/" + tok + "/" + url.PathEscape(name),
+			URL:   "/__Rexion_workspace_media/" + tok + "/" + url.PathEscape(name),
 			Page:  1,
 			Total: 1,
 		}}, nil
@@ -301,7 +301,7 @@ func (a *App) RenderDocPreview(absPath string, page int) ([]DocPreviewPage, erro
 		htmlName := strings.TrimSuffix(name, filepath.Ext(name)) + ".html"
 		tok := a.ensureMediaTokenStore().createInline(htmlName, "text/html; charset=utf-8", "docx", []byte(htmlStr))
 		return []DocPreviewPage{{
-			URL:   "/__reasonix_workspace_media/" + tok + "/" + url.PathEscape(htmlName),
+			URL:   "/__Rexion_workspace_media/" + tok + "/" + url.PathEscape(htmlName),
 			Page:  1,
 			Total: 1,
 		}}, nil
@@ -348,7 +348,7 @@ func (a *App) RenderDocPreview(absPath string, page int) ([]DocPreviewPage, erro
 	if ext == "html" || ext == "htm" {
 		tok := a.ensureMediaTokenStore().create(absPath, name, "text/html; charset=utf-8", "html", info.Size(), info.ModTime())
 		return []DocPreviewPage{{
-			URL:   "/__reasonix_workspace_media/" + tok + "/" + url.PathEscape(name),
+			URL:   "/__Rexion_workspace_media/" + tok + "/" + url.PathEscape(name),
 			Page:  1,
 			Total: 1,
 		}}, nil
@@ -358,7 +358,7 @@ func (a *App) RenderDocPreview(absPath string, page int) ([]DocPreviewPage, erro
 	mime := "application/octet-stream"
 	tok := a.ensureMediaTokenStore().create(absPath, name, mime, "binary", info.Size(), info.ModTime())
 	return []DocPreviewPage{{
-		URL:   "/__reasonix_workspace_media/" + tok + "/" + url.PathEscape(name),
+		URL:   "/__Rexion_workspace_media/" + tok + "/" + url.PathEscape(name),
 		Page:  1,
 		Total: 1,
 	}}, nil
@@ -398,7 +398,7 @@ func (a *App) WorkspaceType() string {
 }
 
 // UploadTemplate opens a native file-picker and copies the selected file into
-// <workspace>/.reasonix/templates/. Only files with recognised template
+// <workspace>/.rexion/templates/. Only files with recognised template
 // extensions (.docx/.xlsx/.xlsm/.csv/.md/.markdown/.tmpl/.tpl/.gotmpl/.txt)
 // are accepted. Returns the absolute path of the written file so the frontend
 // can refresh the list and highlight the new entry.
@@ -430,7 +430,7 @@ func (a *App) UploadTemplate() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tmplDir := filepath.Join(base, ".reasonix", "templates")
+	tmplDir := filepath.Join(base, ".rexion", "templates")
 	if err := os.MkdirAll(tmplDir, 0o755); err != nil {
 		return "", fmt.Errorf("create templates dir: %w", err)
 	}
@@ -455,7 +455,7 @@ func (a *App) UploadTemplate() (string, error) {
 }
 
 // UploadTemplateDataURL receives a file name and a data-URL (base64-encoded)
-// and writes it into <workspace>/.reasonix/templates/. This is the
+// and writes it into <workspace>/.rexion/templates/. This is the
 // drag-and-drop / paste counterpart to UploadTemplate (which uses the native
 // file picker). Returns the absolute path of the written file.
 func (a *App) UploadTemplateDataURL(name, dataURL string) (string, error) {
@@ -480,7 +480,7 @@ func (a *App) UploadTemplateDataURL(name, dataURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tmplDir := filepath.Join(base, ".reasonix", "templates")
+	tmplDir := filepath.Join(base, ".rexion", "templates")
 	if err := os.MkdirAll(tmplDir, 0o755); err != nil {
 		return "", fmt.Errorf("create templates dir: %w", err)
 	}

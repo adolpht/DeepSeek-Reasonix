@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"reasonix/internal/sandbox"
-	"reasonix/internal/tool"
+	"rexion/internal/sandbox"
+	"rexion/internal/tool"
 )
 
 // Workspace builds a built-in tool set bound to a working directory, so several

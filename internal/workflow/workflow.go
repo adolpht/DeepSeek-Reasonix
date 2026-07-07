@@ -78,21 +78,21 @@ type Workflow struct {
 // them as Version 1. Bump when a breaking change needs an explicit migration.
 const CurrentWorkflowVersion = 1
 
-// Store manages workflow persistence in ~/.reasonix/workflows/.
+// Store manages workflow persistence in ~/.rexion/workflows/.
 type Store struct {
 	dir string
 	mu  sync.RWMutex
 }
 
 // NewStore creates a workflow store backed by the given directory.
-// If dir is empty, it defaults to ~/.reasonix/workflows/.
+// If dir is empty, it defaults to ~/.rexion/workflows/.
 func NewStore(dir string) (*Store, error) {
 	if dir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("resolve home dir: %w", err)
 		}
-		dir = filepath.Join(home, ".reasonix", "workflows")
+		dir = filepath.Join(home, ".rexion", "workflows")
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("create workflows dir: %w", err)

@@ -22,18 +22,18 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/x/ansi"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/command"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/hook"
-	"reasonix/internal/i18n"
-	"reasonix/internal/memory"
-	"reasonix/internal/outputstyle"
-	"reasonix/internal/plugin"
-	"reasonix/internal/provider"
-	"reasonix/internal/skill"
-	"reasonix/internal/tool"
+	"rexion/internal/agent"
+	"rexion/internal/command"
+	"rexion/internal/control"
+	"rexion/internal/event"
+	"rexion/internal/hook"
+	"rexion/internal/i18n"
+	"rexion/internal/memory"
+	"rexion/internal/outputstyle"
+	"rexion/internal/plugin"
+	"rexion/internal/provider"
+	"rexion/internal/skill"
+	"rexion/internal/tool"
 )
 
 // chatTUI is a bubbletea Model that runs a chat session in the terminal's
@@ -228,7 +228,7 @@ type chatTUI struct {
 	// (/mcp) from it.
 	host *plugin.Host
 
-	// commands are custom slash commands loaded from .reasonix/commands; each renders
+	// commands are custom slash commands loaded from .rexion/commands; each renders
 	// its template with the typed args and sends the result as a turn.
 	commands []command.Command
 
@@ -3233,7 +3233,7 @@ func replaySectionsFor(history []provider.Message, width int, renderer *mdRender
 // at the top of the session.
 func renderTUIBanner(label, missing string, width int) string {
 	var b strings.Builder
-	b.WriteString(accent("◆") + " " + bold("reasonix chat") + "  " + dim("· "+label) + "\n")
+	b.WriteString(accent("◆") + " " + bold("Rexion chat") + "  " + dim("· "+label) + "\n")
 	b.WriteString(dim("  "+i18n.M.ChatTip) + "\n")
 	if missing != "" {
 		b.WriteString(wrapForViewport("  ! "+missing, width, activeCLITheme.warn) + "\n")
@@ -3264,7 +3264,7 @@ func renderUserBubble(line string, width int, planMode bool) string {
 	return "  " + accent(prefix+line)
 }
 
-var cliImageRefRe = regexp.MustCompile(`(?:^|\s)@\.reasonix/attachments/clipboard-\d{8}-\d{6}\.\d+(?:-(?:\d{6}|[a-f0-9]{8}))?\.(?:png|jpg|jpeg|gif|webp)`)
+var cliImageRefRe = regexp.MustCompile(`(?:^|\s)@\.rexion/attachments/clipboard-\d{8}-\d{6}\.\d+(?:-(?:\d{6}|[a-f0-9]{8}))?\.(?:png|jpg|jpeg|gif|webp)`)
 
 func displayLineForImageRefs(line string) string {
 	idx := 0

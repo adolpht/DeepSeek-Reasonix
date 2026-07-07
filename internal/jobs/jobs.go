@@ -20,8 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/event"
-	"reasonix/internal/nilutil"
+	"rexion/internal/event"
+	"rexion/internal/nilutil"
 )
 
 // Status is a job's lifecycle state.

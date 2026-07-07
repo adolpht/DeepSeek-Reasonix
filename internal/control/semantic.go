@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/provider"
+	"rexion/internal/agent"
+	"rexion/internal/provider"
 )
 
 // wrapSemanticError classifies a runner error into a SemanticError with an

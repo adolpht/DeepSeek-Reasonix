@@ -7,10 +7,10 @@ import (
 	"io"
 	"strings"
 
-	"reasonix/internal/event"
-	"reasonix/internal/jobs"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/event"
+	"rexion/internal/jobs"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 // DefaultTaskSystemPrompt steers a sub-agent toward focused, terse delivery —

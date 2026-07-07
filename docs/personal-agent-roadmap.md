@@ -1,6 +1,6 @@
-# Reasonix 个人 Agent 改造计划
+# Rexion 个人 Agent 改造计划
 
-> 将 Reasonix 从「DeepSeek 原生编码 Agent」扩展为「既支持编码、又支持日常工作（文档生成、表格分析、桌面办公）」的个人 Agent。
+> 将 Rexion 从「DeepSeek 原生编码 Agent」扩展为「既支持编码、又支持日常工作（文档生成、表格分析、桌面办公）」的个人 Agent。
 >
 > 本文档是改造契约：先改契约，再改代码。所有新增能力**默认走插件与配置**，主仓保持纯净。
 
@@ -8,7 +8,7 @@
 
 ## 0. 文档定位
 
-- **读者**：Reasonix 维护者、贡献者、个人 Agent 使用者
+- **读者**：Rexion 维护者、贡献者、个人 Agent 使用者
 - **状态**：规划草案（Draft）
 - **关联文档**：
   - [SPEC.md](./SPEC.md) — 工程契约，本文档不违背其设计原则
@@ -21,7 +21,7 @@
 
 ### 1.1 目标
 
-将 Reasonix 扩展为个人 Agent，支持两类工作场景：
+将 Rexion 扩展为个人 Agent，支持两类工作场景：
 
 | 场景 | 现状 | 目标 |
 |------|------|------|
@@ -40,7 +40,7 @@
 ### 1.3 成功标准
 
 1. **零侵入**：主仓 `internal/` 不为办公能力新增任何 `*.go` 文件
-2. **可裁剪**：禁用所有办公插件后，Reasonix 行为与改造前完全一致
+2. **可裁剪**：禁用所有办公插件后，Rexion 行为与改造前完全一致
 3. **闭环验证**：以下三个端到端任务可由 Skill 完成
    - 周报生成（git log + 待办 → docx）
    - 销售表格分析（xlsx 读取 → 筛选聚合 → 图表 → 结论）
@@ -56,7 +56,7 @@
 |--------|------|----------|
 | Tool 接口与注册表 | `internal/tool` | `type Tool interface` + `RegisterBuiltin(t)`；内置工具 `init()` 自注册 |
 | MCP 插件客户端 | `internal/plugin` | stdio JSON-RPC，`tools/list` + `tools/call`，命名空间 `mcp__<server>__<tool>` |
-| Skill 声明式工作流 | `.reasonix/commands/*.md` + `internal/skill` | 支持 `runAs=subagent`，单独会话执行 |
+| Skill 声明式工作流 | `.Rexion/commands/*.md` + `internal/skill` | 支持 `runAs=subagent`，单独会话执行 |
 | Provider 注册表 | `internal/provider` | OpenAI 兼容；支持 `executor + planner` 双模型 |
 | 桌面 Wails 应用 | [`desktop/app.go`](../desktop/app.go) | 多 Tab、`AssetServer` 中间件、`mediaTokenStore` |
 | 桌面前端组件 | `desktop/frontend/src/components/` | 已有 `Markdown.tsx`、`HljsCode.tsx`、`PromptShelf.tsx`、`CommandPalette.tsx`、`ApprovalModal.tsx`、`MemoryPanel.tsx` 等 |
@@ -86,7 +86,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Reasonix Core                            │
+│                        Rexion Core                            │
 │  (internal/ — 不改动)                                            │
 │   provider · tool · plugin · agent · skill · permission        │
 └───────────────┬─────────────────────────────────┬──────────────┘
@@ -95,13 +95,13 @@
    ┌────────────┴──────────────┐    ┌────────────┴───────────────┐
    │   办公能力插件层（新增）    │    │   桌面交互层（增强）         │
    │                             │    │                            │
-   │  reasonix-plugin-sheet      │    │  app.go:                    │
+   │  Rexion-plugin-sheet      │    │  app.go:                    │
    │   - read_sheet              │    │   - ExportToWorkspace()      │
    │   - write_sheet             │    │   - OpenInOSDefault()        │
    │   - query_sheet             │    │   - RenderDocPreview()       │
    │   - chart_sheet             │    │                              │
    │                             │    │  frontend/components/:       │
-   │  reasonix-plugin-office     │    │   - DocPreviewer.tsx         │
+   │  Rexion-plugin-office     │    │   - DocPreviewer.tsx         │
    │   - read_docx               │    │   - SheetViewer.tsx          │
    │   - write_docx              │    │   - TemplateLibrary.tsx      │
    │   - md_to_pdf               │    │   - SchedulerPanel.tsx       │
@@ -111,7 +111,7 @@
                  └──────────────┬───────────────────┘
                                 │
                 ┌───────────────┴────────────────┐
-                │     Skill 库（.reasonix/commands/）│
+                │     Skill 库（.Rexion/commands/）│
                 │  weekly-report.md                  │
                 │  meeting-minutes.md                │
                 │  sheet-analysis.md                 │
@@ -128,9 +128,9 @@
 
 | Phase | 主题 | 工作量 | 侵入度 | 交付物 |
 |-------|------|--------|--------|--------|
-| P1 | 表格插件 | 1-2 周 | 零（独立仓） | `reasonix-plugin-sheet` 二进制 |
+| P1 | 表格插件 | 1-2 周 | 零（独立仓） | `Rexion-plugin-sheet` 二进制 |
 | P2 | 表格 Skill 闭环 | 1 周 | 配置 | `sheet-analysis.md` 等 Skill |
-| P3 | 文档插件 | 2 周 | 零（独立仓） | `reasonix-plugin-office` 二进制 |
+| P3 | 文档插件 | 2 周 | 零（独立仓） | `Rexion-plugin-office` 二进制 |
 | P4 | 文档 Skill 闭环 | 1 周 | 配置 | `weekly-report.md` 等 Skill |
 | P5 | 桌面预览/模板 UI | 3-4 周 | 改 app.go + 前端 | DocPreviewer / SheetViewer / TemplateLibrary |
 | P6 | 个人化与调度 | 4 周+ | 改 tray + cron | SchedulerPanel / 全局热键 / 长期记忆增强 |
@@ -139,7 +139,7 @@
 
 ---
 
-### Phase 1 · 表格插件 `reasonix-plugin-sheet`（1-2 周）
+### Phase 1 · 表格插件 `Rexion-plugin-sheet`（1-2 周）
 
 #### 1.1 目标
 
@@ -147,11 +147,11 @@
 
 #### 1.2 仓库结构
 
-新建独立仓 `reasonix-plugin-sheet`，参考 [`cmd/reasonix-plugin-example/main.go`](../cmd/reasonix-plugin-example/main.go)：
+新建独立仓 `Rexion-plugin-sheet`，参考 [`cmd/Rexion-plugin-example/main.go`](../cmd/Rexion-plugin-example/main.go)：
 
 ```
-reasonix-plugin-sheet/
-├── go.mod                      # module reasonix-plugin-sheet
+Rexion-plugin-sheet/
+├── go.mod                      # module Rexion-plugin-sheet
 ├── main.go                     # MCP server 入口
 ├── internal/
 │   ├── sheet/
@@ -246,12 +246,12 @@ reasonix-plugin-sheet/
 
 #### 1.4 配置接入
 
-在 `reasonix.toml`：
+在 `Rexion.toml`：
 
 ```toml
 [[plugins]]
 name = "sheet"
-command = ["reasonix-plugin-sheet"]
+command = ["Rexion-plugin-sheet"]
 # 可选：限制可见工具
 # tools = ["read_sheet", "query_sheet"]   # 只读模式
 ```
@@ -259,10 +259,10 @@ command = ["reasonix-plugin-sheet"]
 #### 1.5 验收
 
 - [ ] 插件可作为独立进程启动，`tools/list` 返回 4 个工具
-- [ ] 在 `reasonix chat` 中可调用 `read_sheet` 读取本地 xlsx
+- [ ] 在 `Rexion chat` 中可调用 `read_sheet` 读取本地 xlsx
 - [ ] `query_sheet` 对 1 万行 xlsx 的查询响应 < 2s
 - [ ] `chart_sheet` 返回的图片在桌面端能正常显示
-- [ ] 禁用插件后 Reasonix 行为与改造前一致
+- [ ] 禁用插件后 Rexion 行为与改造前一致
 
 #### 1.6 技术选型
 
@@ -283,7 +283,7 @@ command = ["reasonix-plugin-sheet"]
 
 #### 2.2 Skill 清单
 
-##### `.reasonix/commands/sheet-analysis.md`
+##### `.Rexion/commands/sheet-analysis.md`
 
 ```markdown
 ---
@@ -316,7 +316,7 @@ tools:
 - 结论必须引用具体数值，禁止「整体良好」这类空话
 ```
 
-##### `.reasonix/commands/sheet-clean.md`（可选）
+##### `.Rexion/commands/sheet-clean.md`（可选）
 
 数据清洗：去重、空值处理、类型转换、写入新 sheet。
 
@@ -328,7 +328,7 @@ tools:
 
 ---
 
-### Phase 3 · 文档插件 `reasonix-plugin-office`（2 周）
+### Phase 3 · 文档插件 `Rexion-plugin-office`（2 周）
 
 #### 3.1 目标
 
@@ -337,7 +337,7 @@ tools:
 #### 3.2 仓库结构
 
 ```
-reasonix-plugin-office/
+Rexion-plugin-office/
 ├── go.mod
 ├── main.go
 └── internal/
@@ -410,7 +410,7 @@ reasonix-plugin-office/
 ```toml
 [[plugins]]
 name = "office"
-command = ["reasonix-plugin-office"]
+command = ["Rexion-plugin-office"]
 env = { PANDOC_PATH = "/usr/local/bin/pandoc" }   # 可选
 ```
 
@@ -436,7 +436,7 @@ env = { PANDOC_PATH = "/usr/local/bin/pandoc" }   # 可选
 
 #### 4.1 Skill 清单
 
-##### `.reasonix/commands/weekly-report.md`
+##### `.Rexion/commands/weekly-report.md`
 
 ```markdown
 ---
@@ -468,11 +468,11 @@ tools:
 - 禁止臆造未发生的工作
 ```
 
-##### `.reasonix/commands/meeting-minutes.md`
+##### `.Rexion/commands/meeting-minutes.md`
 
 会议纪要：录音转写（外部）→ 结构化（要点/决议/待办）→ docx。
 
-##### `.reasonix/commands/contract-draft.md`
+##### `.Rexion/commands/contract-draft.md`
 
 合同起草：条款库 + 模板渲染。
 
@@ -503,7 +503,7 @@ func (a *App) OpenInOSDefault(absPath string) error
 // 用于前端 DocPreviewer 组件。
 func (a *App) RenderDocPreview(absPath string, page int) ([]string, error)
 
-// ListTemplates 列出用户模板库（.reasonix/templates/）。
+// ListTemplates 列出用户模板库（.Rexion/templates/）。
 func (a *App) ListTemplates(kind string) ([]TemplateMeta, error)
 ```
 
@@ -522,13 +522,13 @@ func (a *App) ListTemplates(kind string) ([]TemplateMeta, error)
 - [`desktop/frontend/src/components/`](../desktop/frontend/src/components/)：新增 4 个组件
 - [`desktop/frontend/src/lib/types.ts`](../desktop/frontend/src/lib/types.ts)：新增 `DocMeta`、`TemplateMeta` 类型
 - [`desktop/frontend/src/components/Composer.tsx`](../desktop/frontend/src/components/Composer.tsx)：在消息中支持 `doc_export` / `sheet_chart` 类型的内联渲染
-- `reasonix.example.toml`：补充 `[[plugins]]` 示例
+- `Rexion.example.toml`：补充 `[[plugins]]` 示例
 
 #### 5.4 验收
 
 - [ ] Agent 生成 docx 后，前端可内嵌预览前 5 页
 - [ ] 「导出到工作区」按钮触发审批弹窗（`ApprovalModal.tsx`）
-- [ ] 模板库可浏览 `.reasonix/templates/*.docx` 并一键套用
+- [ ] 模板库可浏览 `.Rexion/templates/*.docx` 并一键套用
 
 ---
 
@@ -537,9 +537,9 @@ func (a *App) ListTemplates(kind string) ([]TemplateMeta, error)
 #### 6.1 长期记忆增强
 
 扩展 `AGENTS.md` 机制为「个人知识库」：
-- `~/.reasonix/memory/people.md` — 常联系人/同事
-- `~/.reasonix/memory/projects.md` — 在跟进的项目
-- `~/.reasonix/memory/preferences.md` — 个人偏好（写作风格、术语）
+- `~/.Rexion/memory/people.md` — 常联系人/同事
+- `~/.Rexion/memory/projects.md` — 在跟进的项目
+- `~/.Rexion/memory/preferences.md` — 个人偏好（写作风格、术语）
 
 `MemoryPanel.tsx` 增加多文件切换。
 
@@ -559,7 +559,7 @@ func (a *App) ListTemplates(kind string) ([]TemplateMeta, error)
 
 #### 6.4 本地模型优先
 
-在 `reasonix.toml` 支持标记敏感任务：
+在 `Rexion.toml` 支持标记敏感任务：
 
 ```toml
 [agent]
@@ -572,9 +572,9 @@ sensitive_patterns = ["合同", "薪资", "身份证"]   # 命中则强制走本
 ## 6. 落地顺序（最小阻力路径）
 
 ```
-Week 1-2:  P1  reasonix-plugin-sheet          ← 立刻能用的表格能力
+Week 1-2:  P1  Rexion-plugin-sheet          ← 立刻能用的表格能力
 Week 3:    P2  sheet-analysis skill           ← 验证 Skill 闭环
-Week 4-5:  P3  reasonix-plugin-office         ← 文档能力
+Week 4-5:  P3  Rexion-plugin-office         ← 文档能力
 Week 6:    P4  weekly-report skill            ← 端到端文档闭环
 Week 7-10: P5  桌面预览/模板 UI                 ← 主仓改动
 Week 11+:  P6  调度/记忆/热键                   ← 长期演进
@@ -614,7 +614,7 @@ Week 11+:  P6  调度/记忆/热键                   ← 长期演进
 
 | 编号 | 验收项 | Phase |
 |------|--------|-------|
-| A1 | 独立仓 `reasonix-plugin-sheet` 可编译为单二进制 | P1 |
+| A1 | 独立仓 `Rexion-plugin-sheet` 可编译为单二进制 | P1 |
 | A2 | `read_sheet` 对 1 万行 xlsx 响应 < 2s | P1 |
 | A3 | `chart_sheet` 图片在桌面端正常显示 | P1 |
 | A4 | `sheet-analysis` Skill 完成 5000 行表格端到端分析 | P2 |
@@ -624,7 +624,7 @@ Week 11+:  P6  调度/记忆/热键                   ← 长期演进
 | A8 | `weekly-report` Skill 从 git log 生成 docx | P4 |
 | A9 | 桌面端可内嵌预览 docx 前 5 页 | P5 |
 | A10 | 「导出到工作区」触发 `ApprovalModal` | P5 |
-| A11 | 禁用所有办公插件后，Reasonix 行为与改造前一致 | 全局 |
+| A11 | 禁用所有办公插件后，Rexion 行为与改造前一致 | 全局 |
 | A12 | 主仓 `internal/` 不新增任何办公相关 `*.go` | 全局 |
 
 ---
@@ -642,7 +642,7 @@ Week 11+:  P6  调度/记忆/热键                   ← 长期演进
 
 | 文件 | 用途 |
 |------|------|
-| [`cmd/reasonix-plugin-example/main.go`](../cmd/reasonix-plugin-example/main.go) | MCP 插件参考实现 |
+| [`cmd/Rexion-plugin-example/main.go`](../cmd/Rexion-plugin-example/main.go) | MCP 插件参考实现 |
 | [`docs/SPEC.md`](./SPEC.md) | 工程契约 |
 | [`desktop/app.go`](../desktop/app.go) | 桌面 App bound method |
 | [`desktop/frontend/src/components/Markdown.tsx`](../desktop/frontend/src/components/Markdown.tsx) | 已有 Markdown 渲染器 |
@@ -652,10 +652,10 @@ Week 11+:  P6  调度/记忆/热键                   ← 长期演进
 | [`desktop/frontend/src/components/MemoryPanel.tsx`](../desktop/frontend/src/components/MemoryPanel.tsx) | 记忆面板 |
 | [`internal/plugin/`](../internal/plugin/) | MCP 客户端 |
 | [`internal/skill/`](../internal/skill/) | Skill 加载器 |
-| [`.reasonix/commands/review.md`](../.reasonix/commands/review.md) | 现有 Skill 示例 |
+| [`.Rexion/commands/review.md`](../.Rexion/commands/review.md) | 现有 Skill 示例 |
 
 ---
 
 **文档版本**：v0.1（Draft）
 **最后更新**：2026-06-28
-**维护者**：Reasonix 个人 Agent 改造负责人
+**维护者**：Rexion 个人 Agent 改造负责人

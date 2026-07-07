@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"os"
 
-	"reasonix/internal/event"
-	"reasonix/internal/evidence"
+	"rexion/internal/event"
+	"rexion/internal/evidence"
 )
 
 // RunMetrics is the machine-readable token/cache/cost summary `run --metrics`

@@ -5,8 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/control"
-	"reasonix/internal/event"
+	"rexion/internal/control"
+	"rexion/internal/event"
 )
 
 func TestInterjectQueuesWhileRunningWithoutOverwrite(t *testing.T) {

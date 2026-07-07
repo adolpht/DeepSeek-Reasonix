@@ -5,7 +5,7 @@ package agent
 import (
 	"sync"
 
-	"reasonix/internal/provider"
+	"rexion/internal/provider"
 )
 
 // Session holds the conversation history for one task. The run loop (one turn at

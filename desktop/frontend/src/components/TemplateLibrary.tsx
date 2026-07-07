@@ -61,7 +61,7 @@ function readFileAsDataURL(file: File): Promise<string> {
 }
 
 // TemplateLibrary is the personal-agent template browser drawer (roadmap §5.2).
-// It scans `.reasonix/templates/` via ListTemplates, shows a filterable grid,
+// It scans `.Rexion/templates/` via ListTemplates, shows a filterable grid,
 // and lets the user open a template in the OS default app, reveal it in the
 // file manager, or — for text kinds (md/tmpl/txt/csv) — apply it by inserting
 // the rendered body into the composer. The "apply" action is intentionally a

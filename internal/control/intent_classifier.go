@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode"
 
-	"reasonix/internal/skill"
+	"rexion/internal/skill"
 )
 
 // IntentType represents the classified workspace intent.

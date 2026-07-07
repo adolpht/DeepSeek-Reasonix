@@ -1,4 +1,4 @@
-# Reasonix 生产包构建指南
+# Rexion 生产包构建指南
 
 ## 前置条件
 
@@ -19,7 +19,7 @@ NSIS 安装后需确认 `makensis` 在 PATH 中，默认安装路径为 `C:\Prog
 将以下内容保存为 `build-release.ps1`，在项目根目录执行：
 
 ```powershell
-# build-release.ps1 - Reasonix 生产包一键构建脚本
+# build-release.ps1 - Rexion 生产包一键构建脚本
 param(
     [string]$Version = ""
 )
@@ -34,7 +34,7 @@ if (-not $Version) {
     if (-not $Version) { $Version = "dev" }
 }
 $LDFLAGS = "-s -w -X main.version=$Version"
-Write-Host "`n=== Reasonix 生产包构建 v$Version ===" -ForegroundColor Cyan
+Write-Host "`n=== Rexion 生产包构建 v$Version ===" -ForegroundColor Cyan
 
 # --- 0. 确保 NSIS 在 PATH ---
 $nsisDir = "C:\Program Files (x86)\NSIS"
@@ -51,13 +51,13 @@ if ((Get-Command makensis -ErrorAction SilentlyContinue) -eq $null) {
 Write-Host "`n[1/5] 构建 CLI 主程序和主模块插件..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path "$Root\bin" | Out-Null
 $env:CGO_ENABLED = "0"
-go build -ldflags $LDFLAGS -o "$Root\bin\reasonix.exe" ./cmd/reasonix
+go build -ldflags $LDFLAGS -o "$Root\bin\Rexion.exe" ./cmd/Rexion
 $mainPlugins = @(
-    "reasonix-plugin-example",
-    "reasonix-plugin-office",
-    "reasonix-plugin-sheet",
-    "reasonix-plugin-mail",
-    "reasonix-plugin-im"
+    "Rexion-plugin-example",
+    "Rexion-plugin-office",
+    "Rexion-plugin-sheet",
+    "Rexion-plugin-mail",
+    "Rexion-plugin-im"
 )
 foreach ($p in $mainPlugins) {
     go build -ldflags $LDFLAGS -o "$Root\bin\$p.exe" "./cmd/$p"
@@ -67,9 +67,9 @@ Write-Host "  CLI 主程序 + 主模块插件构建完成" -ForegroundColor Gree
 # --- 2. 构建独立模块插件 ---
 Write-Host "`n[2/5] 构建独立模块插件..." -ForegroundColor Yellow
 $standalonePlugins = @(
-    "reasonix-plugin-calendar",
-    "reasonix-plugin-slides",
-    "reasonix-plugin-search"
+    "Rexion-plugin-calendar",
+    "Rexion-plugin-slides",
+    "Rexion-plugin-search"
 )
 foreach ($p in $standalonePlugins) {
     Push-Location "$Root\cmd\$p"
@@ -93,13 +93,13 @@ Write-Host "`n[4/5] 准备插件到 NSIS 打包目录..." -ForegroundColor Yello
 $pluginsDir = "$Root\desktop\build\bin\plugins"
 New-Item -ItemType Directory -Force -Path $pluginsDir | Out-Null
 $allPlugins = @(
-    "reasonix-plugin-office",
-    "reasonix-plugin-sheet",
-    "reasonix-plugin-search",
-    "reasonix-plugin-calendar",
-    "reasonix-plugin-slides",
-    "reasonix-plugin-mail",
-    "reasonix-plugin-im"
+    "Rexion-plugin-office",
+    "Rexion-plugin-sheet",
+    "Rexion-plugin-search",
+    "Rexion-plugin-calendar",
+    "Rexion-plugin-slides",
+    "Rexion-plugin-mail",
+    "Rexion-plugin-im"
 )
 foreach ($p in $allPlugins) {
     Copy-Item "$Root\bin\$p.exe" $pluginsDir -Force
@@ -118,14 +118,14 @@ if ($installer) {
     Write-Host "`n=== 构建成功 ===" -ForegroundColor Green
     Write-Host "  安装包: $($installer.FullName)" -ForegroundColor White
     Write-Host "  大小: $([math]::Round($installer.Length/1MB, 1)) MB" -ForegroundColor White
-    Write-Host "  便携版: $Root\desktop\build\bin\reasonix-desktop.exe" -ForegroundColor White
+    Write-Host "  便携版: $Root\desktop\build\bin\Rexion-desktop.exe" -ForegroundColor White
 } else {
     Write-Host "`n=== 构建完成（无安装包，NSIS 可能未安装）===" -ForegroundColor Yellow
-    Write-Host "  便携版: $Root\desktop\build\bin\reasonix-desktop.exe" -ForegroundColor White
+    Write-Host "  便携版: $Root\desktop\build\bin\Rexion-desktop.exe" -ForegroundColor White
 }
 
-Write-Host "`n  CLI: $Root\bin\reasonix.exe" -ForegroundColor White
-Write-Host "  插件: $Root\bin\reasonix-plugin-*.exe" -ForegroundColor White
+Write-Host "`n  CLI: $Root\bin\Rexion.exe" -ForegroundColor White
+Write-Host "  插件: $Root\bin\Rexion-plugin-*.exe" -ForegroundColor White
 ```
 
 ---
@@ -141,10 +141,10 @@ $env:CGO_ENABLED = "0"
 New-Item -ItemType Directory -Force -Path bin | Out-Null
 
 # 主程序
-go build -ldflags $LDFLAGS -o bin/reasonix.exe ./cmd/reasonix
+go build -ldflags $LDFLAGS -o bin/Rexion.exe ./cmd/Rexion
 
 # 主模块插件（go.mod 在根模块内）
-foreach ($p in @("reasonix-plugin-example","reasonix-plugin-office","reasonix-plugin-sheet","reasonix-plugin-mail","reasonix-plugin-im")) {
+foreach ($p in @("Rexion-plugin-example","Rexion-plugin-office","Rexion-plugin-sheet","Rexion-plugin-mail","Rexion-plugin-im")) {
     go build -ldflags $LDFLAGS -o "bin/$p.exe" "./cmd/$p"
 }
 ```
@@ -154,7 +154,7 @@ foreach ($p in @("reasonix-plugin-example","reasonix-plugin-office","reasonix-pl
 独立模块有各自的 `go.mod`，需在其目录下构建：
 
 ```powershell
-foreach ($p in @("reasonix-plugin-calendar","reasonix-plugin-slides","reasonix-plugin-search")) {
+foreach ($p in @("Rexion-plugin-calendar","Rexion-plugin-slides","Rexion-plugin-search")) {
     Push-Location "cmd/$p"
     go build -o "../../bin/$p.exe" .
     Pop-Location
@@ -174,7 +174,7 @@ pnpm build   # CSS检查 + TypeScript检查 + Vite生产构建
 
 ```powershell
 New-Item -ItemType Directory -Force -Path desktop/build/bin/plugins | Out-Null
-Copy-Item bin/reasonix-plugin-*.exe desktop/build/bin/plugins/
+Copy-Item bin/Rexion-plugin-*.exe desktop/build/bin/plugins/
 ```
 
 > **关键**：此步骤必须在 `wails build` **之前**完成，因为 NSIS 的 `File` 指令在打包时读取这些文件。
@@ -189,8 +189,8 @@ wails build -platform windows/amd64 -nsis -ldflags "-X main.version=$VERSION"
 ```
 
 产物：
-- 安装包：`desktop/build/bin/reasonix-desktop-amd64-installer.exe` (~52 MB)
-- 便携版：`desktop/build/bin/reasonix-desktop.exe` (~30 MB)
+- 安装包：`desktop/build/bin/Rexion-desktop-amd64-installer.exe` (~52 MB)
+- 便携版：`desktop/build/bin/Rexion-desktop.exe` (~30 MB)
 
 ---
 
@@ -198,39 +198,39 @@ wails build -platform windows/amd64 -nsis -ldflags "-X main.version=$VERSION"
 
 | 产物 | 路径 | 说明 |
 |------|------|------|
-| CLI 主程序 | `bin/reasonix.exe` | 命令行版本 |
-| 插件 x7 | `bin/reasonix-plugin-*.exe` | MCP 工具服务器 |
-| Desktop 便携版 | `desktop/build/bin/reasonix-desktop.exe` | 免安装运行 |
-| Desktop 安装包 | `desktop/build/bin/reasonix-desktop-amd64-installer.exe` | NSIS 安装程序 |
+| CLI 主程序 | `bin/Rexion.exe` | 命令行版本 |
+| 插件 x7 | `bin/Rexion-plugin-*.exe` | MCP 工具服务器 |
+| Desktop 便携版 | `desktop/build/bin/Rexion-desktop.exe` | 免安装运行 |
+| Desktop 安装包 | `desktop/build/bin/Rexion-desktop-amd64-installer.exe` | NSIS 安装程序 |
 
 ## 安装包内容
 
-安装包会自动安装以下内容到 `%LOCALAPPDATA%\Programs\Reasonix\`：
+安装包会自动安装以下内容到 `%LOCALAPPDATA%\Programs\Rexion\`：
 
 ```
-Reasonix/
-├── reasonix-desktop.exe          # 主程序
+Rexion/
+├── Rexion-desktop.exe          # 主程序
 ├── plugins/
-│   ├── reasonix-plugin-office.exe
-│   ├── reasonix-plugin-sheet.exe
-│   ├── reasonix-plugin-search.exe
-│   ├── reasonix-plugin-calendar.exe
-│   ├── reasonix-plugin-slides.exe
-│   ├── reasonix-plugin-mail.exe
-│   └── reasonix-plugin-im.exe
+│   ├── Rexion-plugin-office.exe
+│   ├── Rexion-plugin-sheet.exe
+│   ├── Rexion-plugin-search.exe
+│   ├── Rexion-plugin-calendar.exe
+│   ├── Rexion-plugin-slides.exe
+│   ├── Rexion-plugin-mail.exe
+│   └── Rexion-plugin-im.exe
 └── uninstall.exe
 ```
 
-安装完成后，用户需在 `reasonix.toml` 中配置插件路径：
+安装完成后，用户需在 `Rexion.toml` 中配置插件路径：
 
 ```toml
 [[plugins]]
 name    = "office"
-command = "plugins/reasonix-plugin-office.exe"
+command = "plugins/Rexion-plugin-office.exe"
 
 [[plugins]]
 name    = "sheet"
-command = "plugins/reasonix-plugin-sheet.exe"
+command = "plugins/Rexion-plugin-sheet.exe"
 # ... 其他插件类似
 ```
 

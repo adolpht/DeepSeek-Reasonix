@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"rexion/internal/event"
+	"rexion/internal/provider"
 )
 
-// RunResult holds the structured result of a headless `reasonix run` execution.
+// RunResult holds the structured result of a headless `Rexion run` execution.
 type RunResult struct {
 	Status        string    `json:"status"`
 	ExitCode      int       `json:"exit_code"`

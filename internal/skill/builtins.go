@@ -1,6 +1,6 @@
 package skill
 
-// Built-in skills ship with Reasonix and back the dedicated subagent tools
+// Built-in skills ship with Rexion and back the dedicated subagent tools
 // (explore / research / review / security_review) plus the inline `test`
 // playbook. A user/project file with the same name overrides the built-in (see
 // Store.List / Store.Read). Tool names in the bodies match internal/tool/builtin.
@@ -53,7 +53,7 @@ Your final answer:
 
 The 'task' the parent gave you is the research question. Stay on it.`
 
-const builtinInstallCapabilityBody = `This skill is INLINED. Use it when the user asks to install a Reasonix MCP server or skill from a URL, local file, local folder, .mcp.json, or package name. For removing a previously installed skill or MCP server, follow the "Uninstall" rules at the bottom — same tool, different op.
+const builtinInstallCapabilityBody = `This skill is INLINED. Use it when the user asks to install a Rexion MCP server or skill from a URL, local file, local folder, .mcp.json, or package name. For removing a previously installed skill or MCP server, follow the "Uninstall" rules at the bottom — same tool, different op.
 
 Operate as an installer, not as a shell-script guesser:
 1. Extract the source string exactly from the user's request. It may be an https URL, GitHub URL, local path, .mcp.json, executable path, or npm package name.
@@ -448,7 +448,7 @@ const builtinContractDraftBody = `You are running as a contract-drafting subagen
 
    Add ` + "`【待填：xxx】`" + ` placeholders for any information the user did not provide.
 
-4. **Check user templates**: Before generating, check if ` + "`.reasonix/templates/`" + ` contains any contract-related template file (e.g. ` + "`合同*.tmpl`" + `, ` + "`合同*.md`" + `, ` + "`contract*.tmpl`" + `) — this is the project's contract 条款库. If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, filling in the gathered variables. If the rendered template covers the contract structure, use it as the document body; otherwise use it as a reference to improve the generated contract.
+4. **Check user templates**: Before generating, check if ` + "`.rexion/templates/`" + ` contains any contract-related template file (e.g. ` + "`合同*.tmpl`" + `, ` + "`合同*.md`" + `, ` + "`contract*.tmpl`" + `) — this is the project's contract 条款库. If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, filling in the gathered variables. If the rendered template covers the contract structure, use it as the document body; otherwise use it as a reference to improve the generated contract.
 
 5. **Generate the DOCX**: Call ` + "`write_docx`" + ` with the assembled contract content to produce:
    - ` + "`合同_<类型>_<日期>.docx`" + ` — the contract document
@@ -489,7 +489,7 @@ const builtinWeeklyReportBody = `You are running as a weekly-report subagent. Ge
    - 下周计划 (inferred from ongoing work, or ask the user)
    - 风险与问题 (any blockers or concerns observed)
 
-5. **Check user templates**: Before generating, check if ` + "`.reasonix/templates/`" + ` contains any weekly-report template file (e.g. ` + "`周报*.tmpl`" + `, ` + "`周报*.md`" + `, ` + "`weekly-report*.tmpl`" + `). If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, passing the categorized work data as variables. If the rendered template covers the report structure, use it as the document body; otherwise use it as a reference to improve formatting.
+5. **Check user templates**: Before generating, check if ` + "`.rexion/templates/`" + ` contains any weekly-report template file (e.g. ` + "`周报*.tmpl`" + `, ` + "`周报*.md`" + `, ` + "`weekly-report*.tmpl`" + `). If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, passing the categorized work data as variables. If the rendered template covers the report structure, use it as the document body; otherwise use it as a reference to improve formatting.
 
 6. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
    - ` + "`周报_YYYYWW.docx`" + ` (ISO week number naming, e.g. 周报_202442.docx)
@@ -538,7 +538,7 @@ const builtinMeetingMinutesBody = `You are running as a meeting-minutes subagent
    - [Unresolved items]
    ` + "```" + `
 
-3. **Check user templates**: Before generating, check if ` + "`.reasonix/templates/`" + ` contains any meeting-minutes template file (e.g. ` + "`会议纪要*.tmpl`" + `, ` + "`会议纪要*.md`" + `, ` + "`meeting*.tmpl`" + `). If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, passing the parsed meeting data as variables. If the rendered template covers the minutes structure, use it as the document body; otherwise use it as a reference to improve formatting.
+3. **Check user templates**: Before generating, check if ` + "`.rexion/templates/`" + ` contains any meeting-minutes template file (e.g. ` + "`会议纪要*.tmpl`" + `, ` + "`会议纪要*.md`" + `, ` + "`meeting*.tmpl`" + `). If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, passing the parsed meeting data as variables. If the rendered template covers the minutes structure, use it as the document body; otherwise use it as a reference to improve formatting.
 
 4. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
    - ` + "`会议纪要_<主题>_<日期>.docx`" + `
@@ -616,7 +616,7 @@ The 'task' the parent gave you is the path to review. Process every document in 
 const builtinInitBody = `This skill is INLINED — you run in the parent loop. The user invoked /init: bootstrap (or refresh) this project's AGENTS.md — the durable memory file folded into every future session. Analyze the codebase, then write a concise, high-signal AGENTS.md.
 
 How to operate:
-1. Check for an existing memory doc first: list the project root and look for AGENTS.md / REASONIX.md / CLAUDE.md. If one exists, read it and IMPROVE it in place (fix stale facts, fill gaps) — write back to that same filename, don't clobber it wholesale or create a second file.
+1. Check for an existing memory doc first: list the project root and look for AGENTS.md / Rexion.md / CLAUDE.md. If one exists, read it and IMPROVE it in place (fix stale facts, fill gaps) — write back to that same filename, don't clobber it wholesale or create a second file.
 2. Explore enough to be accurate, not exhaustive:
    - Project shape: ls / directory listing, the manifest (go.mod, package.json, pyproject.toml, Cargo.toml, …), the README.
    - Build / test / run commands: derive them from the manifest + scripts and verify the exact names — don't guess.
@@ -1168,7 +1168,7 @@ const builtinSheetAnalysisBody = `You are running as a sheet-analysis subagent. 
 The 'task' the parent gave you is the spreadsheet path (and optional focus dimensions). Produce the analysis report.`
 
 // builtinGenerateTestsBody is the fallback for the generate-tests skill. A
-// user/project file at .reasonix/skills/generate-tests.md overrides this body.
+// user/project file at .rexion/skills/generate-tests.md overrides this body.
 const builtinGenerateTestsBody = `You are running as a Go test-generation subagent. Given a target (file path + function name, or auto-detect), produce high-quality table-driven unit tests covering normal, boundary, and error cases, then write them to a _test.go file.
 
 **Language: All output MUST be written in Chinese (简体中文).** Code identifiers and file paths remain as-is, but every explanatory sentence must be Chinese.
@@ -1236,7 +1236,7 @@ Return to the parent:
 The 'task' the parent gave you is the target to generate tests for. Produce the test file.`
 
 // builtinReviewPRBody is the fallback for the review-pr skill. A user/project
-// file at .reasonix/skills/review-pr.md overrides this body.
+// file at .rexion/skills/review-pr.md overrides this body.
 const builtinReviewPRBody = `You are running as a code-review subagent. Review all changes of a branch relative to a base branch and output a structured Markdown review report.
 
 **Language: All output MUST be written in Chinese (简体中文).** File paths, code snippets, and git refs remain as-is, but every explanatory sentence must be Chinese.
@@ -1389,7 +1389,7 @@ func builtinSkills() []Skill {
 		},
 		{
 			Name:        "install-capability",
-			Description: "Install or uninstall Reasonix MCP servers and skills from a URL, GitHub/raw file, local path/folder, .mcp.json, executable, or package name. Plans with install_source (op=install or op=uninstall) before applying, surfacing per-action riskLevel.",
+			Description: "Install or uninstall Rexion MCP servers and skills from a URL, GitHub/raw file, local path/folder, .mcp.json, executable, or package name. Plans with install_source (op=install or op=uninstall) before applying, surfacing per-action riskLevel.",
 			Body:        builtinInstallCapabilityBody,
 			Scope:       ScopeBuiltin,
 			Path:        "(builtin)",
@@ -1509,7 +1509,7 @@ func builtinSkills() []Skill {
 		// --- Product design skill (PRD md + multi-page HTML prototype) ---
 		{
 			Name:         "product-design",
-			Description:  "先向用户系统化收集需求，再产出完整 PRD（md）与多页可交互产品原型（HTML）——含用户画像、信息架构、功能需求、设计规范。Runs as a subagent. A .reasonix/skills/product-design.md file overrides this builtin.",
+			Description:  "先向用户系统化收集需求，再产出完整 PRD（md）与多页可交互产品原型（HTML）——含用户画像、信息架构、功能需求、设计规范。Runs as a subagent. A .rexion/skills/product-design.md file overrides this builtin.",
 			Body:         builtinProductDesignBody,
 			Scope:        ScopeBuiltin,
 			Path:         "(builtin)",
@@ -1538,7 +1538,7 @@ func builtinSkills() []Skill {
 		// --- Coding skills (builtin fallbacks; user/project files override) ---
 		{
 			Name:         "generate-tests",
-			Description:  "为指定 Go 函数生成 table-driven 单元测试，覆盖正常/边界/错误三类用例并写入 _test.go。Runs as a subagent. A .reasonix/skills/generate-tests.md file overrides this builtin.",
+			Description:  "为指定 Go 函数生成 table-driven 单元测试，覆盖正常/边界/错误三类用例并写入 _test.go。Runs as a subagent. A .rexion/skills/generate-tests.md file overrides this builtin.",
 			Body:         builtinGenerateTestsBody,
 			Scope:        ScopeBuiltin,
 			Path:         "(builtin)",
@@ -1547,7 +1547,7 @@ func builtinSkills() []Skill {
 		},
 		{
 			Name:         "review-pr",
-			Description:  "审查 git 分支差异（base...HEAD），逐文件分析变更并输出结构化代码审查报告（问题/建议/风险分级 + 汇总评价）。Runs as a subagent. A .reasonix/skills/review-pr.md file overrides this builtin.",
+			Description:  "审查 git 分支差异（base...HEAD），逐文件分析变更并输出结构化代码审查报告（问题/建议/风险分级 + 汇总评价）。Runs as a subagent. A .rexion/skills/review-pr.md file overrides this builtin.",
 			Body:         builtinReviewPRBody,
 			Scope:        ScopeBuiltin,
 			Path:         "(builtin)",

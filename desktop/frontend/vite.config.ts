@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
-const devPort = Number(process.env.REASONIX_DESKTOP_VITE_PORT || "5173");
+const devPort = Number(process.env.REXION_DESKTOP_VITE_PORT || "5173");
 
 // On macOS ≤ 12 (Safari 15 WebKit) a crossorigin module/stylesheet fetched over the
 // wails:// scheme is CORS-blocked (no Access-Control-Allow-Origin from the handler),

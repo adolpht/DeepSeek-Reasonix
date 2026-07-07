@@ -44,21 +44,21 @@ type Recipe struct {
 	UpdatedAt     int64         `json:"updatedAt"`     // Unix milliseconds
 }
 
-// Store manages recipe persistence in ~/.reasonix/recipes/.
+// Store manages recipe persistence in ~/.rexion/recipes/.
 type Store struct {
 	dir string
 	mu  sync.RWMutex
 }
 
 // NewStore creates a recipe store backed by the given directory.
-// If dir is empty, it defaults to ~/.reasonix/recipes/.
+// If dir is empty, it defaults to ~/.rexion/recipes/.
 func NewStore(dir string) (*Store, error) {
 	if dir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("resolve home dir: %w", err)
 		}
-		dir = filepath.Join(home, ".reasonix", "recipes")
+		dir = filepath.Join(home, ".rexion", "recipes")
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("create recipes dir: %w", err)

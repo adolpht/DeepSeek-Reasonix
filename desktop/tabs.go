@@ -18,12 +18,12 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/boot"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"rexion/internal/agent"
+	"rexion/internal/boot"
+	"rexion/internal/config"
+	"rexion/internal/control"
+	"rexion/internal/event"
+	"rexion/internal/provider"
 )
 
 // --- WorkspaceTab -----------------------------------------------------------
@@ -413,7 +413,7 @@ func (a *App) OpenProjectTab(workspaceRoot, topicID string) (TabMeta, error) {
 }
 
 // OpenGlobalTab opens a new global-scope tab (no project root). The global
-// workspace root is the reasonix user config directory.
+// workspace root is the Rexion user config directory.
 func (a *App) OpenGlobalTab(topicID string) (TabMeta, error) {
 	globalRoot := globalWorkspaceRoot()
 	if err := os.MkdirAll(globalRoot, 0o755); err != nil {
@@ -970,9 +970,9 @@ func desktopConfigDir() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".reasonix")
+		return filepath.Join(home, ".rexion")
 	}
-	return filepath.Join(dir, "reasonix")
+	return filepath.Join(dir, "Rexion")
 }
 
 func (a *App) saveTabsLocked() {
@@ -1306,14 +1306,14 @@ func topicTitlesPath(workspaceRoot string) string {
 	if workspaceRoot == "" {
 		return filepath.Join(desktopConfigDir(), "global", topicTitlesFile)
 	}
-	return filepath.Join(workspaceRoot, ".reasonix", topicTitlesFile)
+	return filepath.Join(workspaceRoot, ".rexion", topicTitlesFile)
 }
 
 func topicTitleSourcesPath(workspaceRoot string) string {
 	if workspaceRoot == "" {
 		return filepath.Join(desktopConfigDir(), "global", topicTitleSourcesFile)
 	}
-	return filepath.Join(workspaceRoot, ".reasonix", topicTitleSourcesFile)
+	return filepath.Join(workspaceRoot, ".rexion", topicTitleSourcesFile)
 }
 
 func loadTopicTitles(workspaceRoot string) map[string]string {
@@ -2421,9 +2421,9 @@ func globalWorkspaceRoot() string {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".reasonix", "global-workspace")
+		return filepath.Join(home, ".rexion", "global-workspace")
 	}
-	return filepath.Join(dir, "reasonix", "global-workspace")
+	return filepath.Join(dir, "Rexion", "global-workspace")
 }
 
 func ensureGlobalWorkspaceRoot() (string, error) {

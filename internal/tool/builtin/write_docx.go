@@ -11,7 +11,7 @@ import (
 	"github.com/nineya/wordZero/pkg/document"
 	"github.com/nineya/wordZero/pkg/markdown"
 
-	"reasonix/internal/tool"
+	"rexion/internal/tool"
 )
 
 func init() { tool.RegisterBuiltin(writeDocx{}) }

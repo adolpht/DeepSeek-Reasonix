@@ -1,8 +1,8 @@
-# Reasonix ToC 个人 Agent 改造 Spec
+# Rexion ToC 个人 Agent 改造 Spec
 
 ## Why
 
-Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用户。为扩大用户群体至产品/运营、行政/HR、自由职业者等普通办公人群，需将产品从开发者工具升级为面向普通用户的桌面 AI 工作台——既能完成编码任务，又能处理文档、表格、PPT、信息调研、日程管理等日常办公与个人需求。
+Rexion 当前定位为「开发者专用编码 Agent」，仅服务技术用户。为扩大用户群体至产品/运营、行政/HR、自由职业者等普通办公人群，需将产品从开发者工具升级为面向普通用户的桌面 AI 工作台——既能完成编码任务，又能处理文档、表格、PPT、信息调研、日程管理等日常办公与个人需求。
 
 ## What Changes
 
@@ -17,8 +17,8 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 - 新增亮色主题 + 办公风格预设，办公/助手模式默认亮色
 - 新增新手引导流程（OnboardingFlow），3 分钟完成首次任务
 - 新增意图分类器（IntentClassifier），自动识别用户意图路由到对应模式
-- 新增 PPT 生成 MCP 插件 `reasonix-plugin-slides`（5 个工具）
-- 新增搜索调研 MCP 插件 `reasonix-plugin-search`（3 个工具）
+- 新增 PPT 生成 MCP 插件 `Rexion-plugin-slides`（5 个工具）
+- 新增搜索调研 MCP 插件 `Rexion-plugin-search`（3 个工具）
 - 新增 PPT 生成 Skill `generate-ppt`
 - 新增竞品调研 Skill `research-report`
 - 增强 Composer 输入框：附件上传、拖拽文件引用
@@ -26,9 +26,9 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 
 ### P6：个人化 + 自动化 + 远程
 
-- 新增日程管理 MCP 插件 `reasonix-plugin-calendar`
-- 新增邮件处理 MCP 插件 `reasonix-plugin-mail`（IMAP/SMTP）
-- 新增 IM 远程控制 MCP 插件 `reasonix-plugin-im`（企业微信/飞书/钉钉）
+- 新增日程管理 MCP 插件 `Rexion-plugin-calendar`
+- 新增邮件处理 MCP 插件 `Rexion-plugin-mail`（IMAP/SMTP）
+- 新增 IM 远程控制 MCP 插件 `Rexion-plugin-im`（企业微信/飞书/钉钉）
 - 新增剪贴板助手：全局热键 Ctrl+Shift+R + 悬浮窗
 - 新增定时任务调度器 + SchedulerPanel UI
 - 新增长期记忆增强：个人知识库（people/projects/preferences/writing_style）
@@ -62,7 +62,7 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 - **THEN** 侧边栏内容切换为办公模式专属内容（模板库、最近文档、文件整理），右侧面板切换为文档预览视图，主题自动切换为亮色（用户未手动覆盖时）
 
 #### Scenario: 首次启动默认模式
-- **WHEN** 新用户首次启动 Reasonix
+- **WHEN** 新用户首次启动 Rexion
 - **THEN** 根据新手引导中选择的身份决定默认模式（开发者→编码，办公人员→办公，自由职业者→助手）
 
 #### Scenario: 编码模式零回归
@@ -94,7 +94,7 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 系统 SHALL 提供首页面板，作为用户启动后的默认视图，包含问候语、快捷操作、最近任务、常用 Skill。
 
 #### Scenario: 首页展示
-- **WHEN** 用户点击侧边栏「首页」或启动 Reasonix
+- **WHEN** 用户点击侧边栏「首页」或启动 Rexion
 - **THEN** 显示时间感知问候语、3-4 个基于身份推荐的快捷操作卡片、最近任务列表（含状态和时间）、常用 Skill 快捷入口、每日提示
 
 #### Scenario: 快捷操作触发
@@ -166,12 +166,12 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 系统 SHALL 提供新手引导，使新用户 3 分钟内完成首次任务。
 
 #### Scenario: 首次启动引导
-- **WHEN** 用户首次启动 Reasonix（无历史配置）
+- **WHEN** 用户首次启动 Rexion（无历史配置）
 - **THEN** 显示欢迎页 → 身份选择（开发者/办公人员/自由职业者/其他）→ API Key 配置（支持扫码/粘贴，可选本地模型跳过）→ 引导式首次任务 → 进入首页
 
 #### Scenario: 身份关联引导任务
 - **WHEN** 用户选择「办公人员」身份
-- **THEN** 引导任务为「让 Reasonix 帮你分析一个表格」，预置示例文件
+- **THEN** 引导任务为「让 Rexion 帮你分析一个表格」，预置示例文件
 
 #### Scenario: 跳过引导
 - **WHEN** 用户点击「跳过」
@@ -201,7 +201,7 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 
 ---
 
-### Requirement: PPT 生成插件（reasonix-plugin-slides）
+### Requirement: PPT 生成插件（Rexion-plugin-slides）
 
 系统 SHALL 提供 PPT 生成 MCP 插件，支持从 Markdown 大纲生成专业 PPT。
 
@@ -231,7 +231,7 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 
 ---
 
-### Requirement: 搜索调研插件（reasonix-plugin-search）
+### Requirement: 搜索调研插件（Rexion-plugin-search）
 
 系统 SHALL 提供搜索调研 MCP 插件，支持自动搜索、整理、分析信息。
 
@@ -303,7 +303,7 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 
 ---
 
-### Requirement: 日程管理插件（reasonix-plugin-calendar）【P6】
+### Requirement: 日程管理插件（Rexion-plugin-calendar）【P6】
 
 系统 SHALL 提供日程管理 MCP 插件，支持通过对话管理日程和待办。
 
@@ -321,7 +321,7 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 
 ---
 
-### Requirement: 邮件处理插件（reasonix-plugin-mail）【P6】
+### Requirement: 邮件处理插件（Rexion-plugin-mail）【P6】
 
 系统 SHALL 提供邮件处理 MCP 插件，支持 IMAP/SMTP 协议。
 
@@ -339,9 +339,9 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 
 ---
 
-### Requirement: IM 远程控制插件（reasonix-plugin-im）【P6】
+### Requirement: IM 远程控制插件（Rexion-plugin-im）【P6】
 
-系统 SHALL 提供 IM 远程控制 MCP 插件，支持通过企业微信/飞书/钉钉远程操控 Reasonix。
+系统 SHALL 提供 IM 远程控制 MCP 插件，支持通过企业微信/飞书/钉钉远程操控 Rexion。
 
 #### Scenario: 微信远程执行
 - **WHEN** 用户通过企业微信机器人发送「帮我生成今天的周报」
@@ -395,7 +395,7 @@ Reasonix 当前定位为「开发者专用编码 Agent」，仅服务技术用�
 
 ### Requirement: 长期记忆增强【P6】
 
-系统 SHALL 提供个人知识库，存储在 `~/.reasonix/memory/` 目录下。
+系统 SHALL 提供个人知识库，存储在 `~/.Rexion/memory/` 目录下。
 
 #### Scenario: 记忆文件
 - **WHEN** 系统初始化

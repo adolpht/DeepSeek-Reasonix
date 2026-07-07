@@ -19,27 +19,27 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/codegraph"
-	"reasonix/internal/command"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/hook"
-	"reasonix/internal/installsource"
-	"reasonix/internal/instruction"
-	"reasonix/internal/jobs"
-	"reasonix/internal/lsp"
-	"reasonix/internal/memory"
-	"reasonix/internal/netclient"
-	"reasonix/internal/outputstyle"
-	"reasonix/internal/permission"
-	"reasonix/internal/plugin"
-	"reasonix/internal/provider"
-	"reasonix/internal/sandbox"
-	"reasonix/internal/skill"
-	"reasonix/internal/tool"
-	"reasonix/internal/tool/builtin"
+	"rexion/internal/agent"
+	"rexion/internal/codegraph"
+	"rexion/internal/command"
+	"rexion/internal/config"
+	"rexion/internal/control"
+	"rexion/internal/event"
+	"rexion/internal/hook"
+	"rexion/internal/installsource"
+	"rexion/internal/instruction"
+	"rexion/internal/jobs"
+	"rexion/internal/lsp"
+	"rexion/internal/memory"
+	"rexion/internal/netclient"
+	"rexion/internal/outputstyle"
+	"rexion/internal/permission"
+	"rexion/internal/plugin"
+	"rexion/internal/provider"
+	"rexion/internal/sandbox"
+	"rexion/internal/skill"
+	"rexion/internal/tool"
+	"rexion/internal/tool/builtin"
 )
 
 // ErrUnknownModel is returned by Build when the configured model can't be
@@ -48,10 +48,10 @@ import (
 var ErrUnknownModel = errors.New("unknown model")
 
 // opspecBuiltinSkillNames lists the 10 OpenSpec SDD skills shipped under
-// .reasonix/skills/opsx-*.md. They are appended to the skill store's disabled
+// .rexion/skills/opsx-*.md. They are appended to the skill store's disabled
 // list when [desktop].coding.openspec_enabled is false (the default), so the
 // coding-mode SDD workflow stays opt-in. Keep the names in sync with the
-// filenames in .reasonix/skills/.
+// filenames in .rexion/skills/.
 var opspecBuiltinSkillNames = []string{
 	"opsx-propose",
 	"opsx-apply",
@@ -111,7 +111,7 @@ type Options struct {
 	WorkspaceRoot string
 	// ExtraPlugins are session-scoped MCP servers supplied by a host transport
 	// (for example ACP session/new). They are connected eagerly for this
-	// controller but are not persisted to reasonix.toml.
+	// controller but are not persisted to Rexion.toml.
 	ExtraPlugins []plugin.Spec
 	// SandboxMode overrides the config-based sandbox mode when set. Empty means
 	// use the value derived from config.
@@ -138,6 +138,11 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			root = wd
 		}
 	}
+	// Brand migration: rename ~/.reasonix/ → ~/.rexion/ and config dir
+	// Reasonix/ → Rexion/ on first launch after the rename. Must run before
+	// MigrateLegacyIfNeeded so the latter finds data under the new paths.
+	config.MigrateReasonixIfNeeded()
+
 	// One-time import of v1/v0.5 legacy config — runs before Load so the freshly
 	// written config + ~/.env are picked up this same boot. CLI Run also calls this
 	// before config-only commands; this call stays as the shared frontend fallback.
@@ -152,7 +157,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	}
 	entry, ok := cfg.ResolveModel(modelName)
 	if !ok {
-		return nil, fmt.Errorf("%w %q (configured: %s); note: defining [[providers]] replaces the built-in presets, so add a [[providers]] entry for it or use a configured name, or run `reasonix setup` to reconfigure", ErrUnknownModel, modelName, providerNames(cfg))
+		return nil, fmt.Errorf("%w %q (configured: %s); note: defining [[providers]] replaces the built-in presets, so add a [[providers]] entry for it or use a configured name, or run `Rexion setup` to reconfigure", ErrUnknownModel, modelName, providerNames(cfg))
 	}
 	if opts.EffortOverride != nil {
 		entry.Effort = *opts.EffortOverride
@@ -173,7 +178,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	sink := event.Sync(opts.Sink)
 
 	if migErr != nil {
-		sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: "config migration from ~/.reasonix failed: " + migErr.Error()})
+		sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: "config migration from ~/.rexion failed: " + migErr.Error()})
 	} else if migrated != nil {
 		sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: migrated.Notice()})
 	}
@@ -213,13 +218,13 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	}
 	sysPrompt += "\n\n" + config.LanguagePolicy
 
-	// Persistent memory (REASONIX.md / AGENTS.md hierarchy + auto-memory index)
+	// Persistent memory (Rexion.md / AGENTS.md hierarchy + auto-memory index)
 	// folds into the system prompt exactly here, once: it becomes part of the
 	// durable, cache-stable prefix every turn reuses, so memory costs nothing per
 	// turn. Mid-session changes never touch this prefix — they ride the
 	// controller's transient turn-injection and fold in on the next session.
 	//
-	// EnsureMemoryDir scaffolds ~/.reasonix/memory/ (the PKM files) on first
+	// EnsureMemoryDir scaffolds ~/.rexion/memory/ (the PKM files) on first
 	// boot so Load can pick them up; it is best-effort — a failure (e.g. a
 	// read-only home) is logged but never blocks boot, since Load silently
 	// skips missing PKM files and the rest of memory still works.
@@ -404,7 +409,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			}
 		default:
 			sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
-				Text: "codegraph: not installed — run `reasonix codegraph install` to enable symbol-graph tools"})
+				Text: "codegraph: not installed — run `Rexion codegraph install` to enable symbol-graph tools"})
 		}
 	}
 	eagerSpecs = append(eagerSpecs, opts.ExtraPlugins...)
@@ -548,7 +553,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	}
 
 	// Permission policy gates every tool call. The headless gate (no Approver)
-	// resolves "ask" to allow — preserving `reasonix run` autonomy — while deny
+	// resolves "ask" to allow — preserving `Rexion run` autonomy — while deny
 	// rules hard-block in every mode. Interactive frontends (chat, desktop) swap
 	// in an interactive gate later via Controller.EnableInteractiveApproval.
 	// Sub-agents always run headless: they have no UI to answer a prompt, so they
@@ -766,7 +771,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		cleanup = func() { agentPool.CloseAll(); prev() }
 	}
 
-	// Custom slash commands (.reasonix/commands + user dir). Best-effort: a malformed
+	// Custom slash commands (.rexion/commands + user dir). Best-effort: a malformed
 	// file is skipped, and a load error never blocks the session.
 	cmds, _ := command.Load(config.CommandDirsForRoot(root)...)
 
@@ -908,8 +913,8 @@ func migrateLegacySessionSources(sink event.Sink) {
 	var sources []legacySource
 	if home, herr := os.UserHomeDir(); herr == nil {
 		sources = append(sources, legacySource{
-			dir:     filepath.Join(home, ".reasonix", "sessions"),
-			label:   "~/.reasonix/sessions",
+			dir:     filepath.Join(home, ".rexion", "sessions"),
+			label:   "~/.rexion/sessions",
 			migrate: agent.MigrateLegacySessions,
 		})
 	}
@@ -953,11 +958,11 @@ func rememberPermissionRule(workspaceRoot, rule string) {
 func rememberPermissionConfigPath(workspaceRoot string) string {
 	workspaceRoot = strings.TrimSpace(workspaceRoot)
 	if workspaceRoot != "" {
-		return filepath.Join(workspaceRoot, "reasonix.toml")
+		return filepath.Join(workspaceRoot, "Rexion.toml")
 	}
 	path := config.SourcePath()
 	if path == "" {
-		path = "reasonix.toml" // match Config.Save() fallback
+		path = "Rexion.toml" // match Config.Save() fallback
 	}
 	return path
 }

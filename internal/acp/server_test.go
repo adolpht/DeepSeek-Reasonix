@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"reasonix/internal/control"
-	"reasonix/internal/event"
+	"rexion/internal/control"
+	"rexion/internal/event"
 )
 
 // --- fakes: a Factory wrapping a behavior-driven runner in a real Controller ---
@@ -138,7 +138,7 @@ func startServer(t *testing.T, factory Factory) (*rpcClient, func()) {
 	outR, outW := io.Pipe()
 	done := make(chan struct{})
 	go func() {
-		_ = Serve(context.Background(), inR, outW, factory, AgentInfo{Name: "reasonix-test", Version: "0"})
+		_ = Serve(context.Background(), inR, outW, factory, AgentInfo{Name: "Rexion-test", Version: "0"})
 		close(done)
 	}()
 	client := newRPCClient(inW, outR)

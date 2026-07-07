@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/fileutil"
-	"reasonix/internal/provider"
+	"rexion/internal/fileutil"
+	"rexion/internal/provider"
 )
 
 // Save writes the session's messages to path in JSONL — one provider.Message

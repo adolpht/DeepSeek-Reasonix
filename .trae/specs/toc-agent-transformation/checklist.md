@@ -1,4 +1,4 @@
-# Reasonix ToC 个人 Agent 改造验收检查清单
+# Rexion ToC 个人 Agent 改造验收检查清单
 
 ## Phase 5 验收
 
@@ -44,7 +44,7 @@
 ### P5-5: 新手引导
 
 - [ ] OnboardingFlow 组件已创建
-- [ ] 欢迎页展示「Reasonix 是你的 AI 工作伙伴」
+- [ ] 欢迎页展示「Rexion 是你的 AI 工作伙伴」
 - [ ] 身份选择页支持：开发者/办公人员/自由职业者/其他
 - [ ] API Key 配置引导支持扫码/粘贴/跳过（本地模型）
 - [ ] 引导式首次任务根据身份推荐不同任务
@@ -62,7 +62,7 @@
 
 ### P5-7: PPT 生成插件
 
-- [ ] reasonix-plugin-slides 独立二进制已创建
+- [ ] Rexion-plugin-slides 独立二进制已创建
 - [ ] create_ppt 工具：从 Markdown 大纲生成 PPT，每页文字不超过 100 字
 - [ ] add_slide 工具：添加单页幻灯片
 - [ ] apply_theme 工具：应用主题模板（professional/creative/minimal）
@@ -74,7 +74,7 @@
 
 ### P5-8: 搜索调研插件
 
-- [ ] reasonix-plugin-search 独立二进制已创建
+- [ ] Rexion-plugin-search 独立二进制已创建
 - [ ] web_search 工具：返回搜索结果列表（标题、摘要、URL），至少 5 个来源
 - [ ] web_extract 工具：从网页提取结构化信息
 - [ ] compare_table 工具：生成对比表格，可选导出 xlsx
@@ -131,7 +131,7 @@
 
 ### P6-1: 日程与待办管理
 
-- [ ] reasonix-plugin-calendar 插件已创建
+- [ ] Rexion-plugin-calendar 插件已创建
 - [ ] read_event 工具：读取系统日历事件（macOS/Windows）
 - [ ] add_event 工具：创建日历事件
 - [ ] list_todo / add_todo / update_todo 工具功能正常
@@ -140,7 +140,7 @@
 
 ### P6-2: 邮件处理
 
-- [ ] reasonix-plugin-mail 插件已创建
+- [ ] Rexion-plugin-mail 插件已创建
 - [ ] IMAP 客户端已实现（go-imap 纯 Go 库）
 - [ ] SMTP 发送已实现
 - [ ] read_mail / send_mail / search_mail / classify_mail 工具功能正常
@@ -149,7 +149,7 @@
 
 ### P6-3: IM 远程控制
 
-- [ ] reasonix-plugin-im 插件已创建
+- [ ] Rexion-plugin-im 插件已创建
 - [ ] 本地 HTTP Bot 服务框架已实现
 - [ ] 企业微信机器人 Webhook 对接正常
 - [ ] 飞书机器人 API 对接正常
@@ -178,7 +178,7 @@
 
 ### P6-6: 长期记忆增强
 
-- [ ] ~/.reasonix/memory/ 目录初始化正常
+- [ ] ~/.Rexion/memory/ 目录初始化正常
 - [ ] 默认记忆文件已创建（people.md / projects.md / preferences.md / writing_style.md）
 - [ ] Agent 自动引用记忆文件作为上下文
 - [ ] MemoryPanel 组件已创建，支持多文件切换和编辑

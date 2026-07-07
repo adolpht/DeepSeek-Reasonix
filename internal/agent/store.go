@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"reasonix/internal/provider"
+	"rexion/internal/provider"
 )
 
 // Thread represents a conversation thread (session).

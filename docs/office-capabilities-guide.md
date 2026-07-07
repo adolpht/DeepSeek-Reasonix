@@ -1,8 +1,8 @@
-# Reasonix 办公能力使用手册
+# Rexion 办公能力使用手册
 
 ## 概述
 
-Reasonix 通过两个 MCP 插件（`reasonix-plugin-office` 和 `reasonix-plugin-sheet`）扩展了办公能力，覆盖文档处理、表格分析、模板渲染、图表生成等场景。配合 5 个内置 Skill 工作流，可实现周报生成、会议纪要、合同起草、表格清洗、数据分析等自动化任务。
+Rexion 通过两个 MCP 插件（`Rexion-plugin-office` 和 `Rexion-plugin-sheet`）扩展了办公能力，覆盖文档处理、表格分析、模板渲染、图表生成等场景。配合 5 个内置 Skill 工作流，可实现周报生成、会议纪要、合同起草、表格清洗、数据分析等自动化任务。
 
 ---
 
@@ -61,7 +61,7 @@ mcp__office__write_docx(
 ```
 mcp__office__render_template(
   template="尊敬的 {{.name}}：\n\n感谢您参与 {{.project}} 项目。",
-  variables={"name": "张三", "project": "Reasonix"}
+  variables={"name": "张三", "project": "Rexion"}
 )
 ```
 
@@ -296,7 +296,7 @@ mcp__sheet__chart_sheet(
 **位置**：侧边栏「模板库」图标
 
 **功能**：
-- 浏览 `.reasonix/templates/` 下的模板文件
+- 浏览 `.Rexion/templates/` 下的模板文件
 - 按类型筛选（Word / 表格 / Markdown / 模板 / 文本 / CSV）
 - 点击「套用」将模板路径插入 composer
 - 点击「打开」用默认应用打开模板
@@ -322,16 +322,16 @@ mcp__sheet__chart_sheet(
 
 ### 4.1 启用插件
 
-在 `reasonix.toml` 中添加：
+在 `Rexion.toml` 中添加：
 
 ```toml
 [[plugins]]
 name    = "office"
-command = "reasonix-plugin-office"
+command = "Rexion-plugin-office"
 
 [[plugins]]
 name    = "sheet"
-command = "reasonix-plugin-sheet"
+command = "Rexion-plugin-sheet"
 ```
 
 ### 4.2 可选依赖
@@ -345,10 +345,10 @@ command = "reasonix-plugin-sheet"
 
 ```
 desktop/build/bin/
-├── reasonix-desktop.exe              # 主程序
-├── reasonix-desktop-amd64-installer.exe  # 安装程序
-├── reasonix-plugin-office.exe        # Office 插件
-└── reasonix-plugin-sheet.exe         # Sheet 插件
+├── Rexion-desktop.exe              # 主程序
+├── Rexion-desktop-amd64-installer.exe  # 安装程序
+├── Rexion-plugin-office.exe        # Office 插件
+└── Rexion-plugin-sheet.exe         # Sheet 插件
 ```
 
 ---
@@ -405,7 +405,7 @@ Agent：
 | 问题 | 原因 | 解决 |
 |------|------|------|
 | `md_to_pdf` 不可用 | pandoc 未安装或未加入 PATH | 安装 pandoc 并重启 |
-| 模板库为空 | `.reasonix/templates/` 不存在或无文件 | 创建目录并放入模板 |
+| 模板库为空 | `.Rexion/templates/` 不存在或无文件 | 创建目录并放入模板 |
 | 文档预览显示「无法预览」 | docx 页级渲染未实现 | 点击「用默认应用打开」 |
 | `read_sheet` 返回空 | 文件路径错误或格式不支持 | 检查路径，确认是 xlsx/csv |
 | `query_sheet` 报错 | SQL 语法错误或字段不存在 | 检查字段名和语法 |
@@ -434,12 +434,12 @@ Agent：
 ┌─────────────────────────────────────────────────────────┐
 │                   MCP 插件层                             │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │  reasonix-plugin-office                          │  │
+│  │  Rexion-plugin-office                          │  │
 │  │  - read_docx / write_docx / render_template      │  │
 │  │  - md_to_pdf (需 pandoc)                         │  │
 │  └──────────────────────────────────────────────────┘  │
 │  ┌──────────────────────────────────────────────────┐  │
-│  │  reasonix-plugin-sheet                           │  │
+│  │  Rexion-plugin-sheet                           │  │
 │  │  - read_sheet / write_sheet                      │  │
 │  │  - query_sheet / chart_sheet                     │  │
 │  └──────────────────────────────────────────────────┘  │
@@ -454,10 +454,10 @@ Agent：
 
 | 路径 | 用途 |
 |------|------|
-| `.reasonix/skills/` | Skill 工作流定义 |
-| `.reasonix/templates/` | 用户模板库 |
-| `cmd/reasonix-plugin-office/` | Office 插件源码 |
-| `cmd/reasonix-plugin-sheet/` | Sheet 插件源码 |
+| `.Rexion/skills/` | Skill 工作流定义 |
+| `.Rexion/templates/` | 用户模板库 |
+| `cmd/Rexion-plugin-office/` | Office 插件源码 |
+| `cmd/Rexion-plugin-sheet/` | Sheet 插件源码 |
 | `desktop/preview_app.go` | 桌面端预览/模板绑定方法 |
 
 ### 8.2 相关文档

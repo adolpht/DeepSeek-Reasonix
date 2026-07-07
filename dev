@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 desktop_dir="$root/desktop"
 
-vite_port="${REASONIX_DESKTOP_VITE_PORT:-}"
+vite_port="${REXION_DESKTOP_VITE_PORT:-}"
 if [[ $# -gt 0 && "$1" =~ ^[0-9]+$ ]]; then
   vite_port="$1"
   shift
@@ -25,12 +25,12 @@ if (( vite_port < 1024 || vite_port > 36000 )); then
   exit 2
 fi
 
-wails_port="${REASONIX_DESKTOP_WAILS_PORT:-$((vite_port + 29000))}"
+wails_port="${REXION_DESKTOP_WAILS_PORT:-$((vite_port + 29000))}"
 
-export REASONIX_DESKTOP_VITE_PORT="$vite_port"
-export REASONIX_DEV=1
+export REXION_DESKTOP_VITE_PORT="$vite_port"
+export REXION_DEV=1
 
-echo "Reasonix desktop dev"
+echo "REXION desktop dev"
 echo "  worktree: $root"
 echo "  vite:     http://127.0.0.1:$vite_port"
 echo "  wails:    127.0.0.1:$wails_port"

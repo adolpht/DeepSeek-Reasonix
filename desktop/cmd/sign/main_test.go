@@ -9,7 +9,7 @@ import (
 
 	"aead.dev/minisign"
 
-	"reasonix/desktop/internal/update"
+	"rexion/desktop/internal/update"
 )
 
 // TestSignFiles signs a file with a throwaway key pair (injected via env, exactly
@@ -28,7 +28,7 @@ func TestSignFiles(t *testing.T) {
 	t.Setenv("MINISIGN_PASSWORD", "pw")
 
 	dir := t.TempDir()
-	artifact := filepath.Join(dir, "Reasonix-linux-amd64.tar.gz")
+	artifact := filepath.Join(dir, "Rexion-linux-amd64.tar.gz")
 	payload := []byte("pretend this is a release tarball")
 	if err := os.WriteFile(artifact, payload, 0o644); err != nil {
 		t.Fatal(err)
@@ -52,12 +52,12 @@ func TestSignFiles(t *testing.T) {
 func TestGenManifest(t *testing.T) {
 	dir := t.TempDir()
 	names := []string{
-		"Reasonix-darwin-arm64.zip",
-		"Reasonix-darwin-amd64.zip",
-		"Reasonix-windows-amd64-installer.exe",
-		"Reasonix-windows-amd64.zip", // portable download, not the updater channel
-		"Reasonix-linux-amd64.tar.gz",
-		"Reasonix-linux-amd64.tar.gz.minisig", // must be skipped
+		"Rexion-darwin-arm64.zip",
+		"Rexion-darwin-amd64.zip",
+		"Rexion-windows-amd64-installer.exe",
+		"Rexion-windows-amd64.zip", // portable download, not the updater channel
+		"Rexion-linux-amd64.tar.gz",
+		"Rexion-linux-amd64.tar.gz.minisig", // must be skipped
 		"README.txt",                          // unmatched, must be skipped
 	}
 	for _, n := range names {
@@ -65,7 +65,7 @@ func TestGenManifest(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("GITHUB_REPOSITORY", "esengine/reasonix")
+	t.Setenv("GITHUB_REPOSITORY", "esengine/Rexion")
 
 	if err := genManifest(dir, "v1.2.0", "desktop-v1.2.0"); err != nil {
 		t.Fatalf("genManifest: %v", err)
@@ -88,7 +88,7 @@ func TestGenManifest(t *testing.T) {
 	if !ok {
 		t.Fatal("windows-amd64 missing")
 	}
-	wantURL := "https://github.com/esengine/reasonix/releases/download/desktop-v1.2.0/Reasonix-windows-amd64-installer.exe"
+	wantURL := "https://github.com/esengine/Rexion/releases/download/desktop-v1.2.0/Rexion-windows-amd64-installer.exe"
 	if win.URL != wantURL {
 		t.Fatalf("windows url = %q, want %q", win.URL, wantURL)
 	}

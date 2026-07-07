@@ -1,7 +1,7 @@
 Unicode true
 
 ####
-## Reasonix per-user NSIS installer.
+## Rexion per-user NSIS installer.
 ##
 ## This file is COMMITTED and customized (Wails leaves an existing project.nsi
 ## untouched and only regenerates wails_tools.nsh). The customizations vs.
@@ -17,8 +17,8 @@ Unicode true
 ##      InstallLocation (HKCU\...\Uninstall\InstallLocation). When upgrading from
 ##      a build that did not write InstallLocation yet, .onInit falls back to the
 ##      old DisplayIcon path before using the default. Without this, every release
-##      forces the user back to %LOCALAPPDATA%\Programs\Reasonix even if they had
-##      moved the install to a different drive (e.g. D:\Tools\Reasonix); the silent
+##      forces the user back to %LOCALAPPDATA%\Programs\Rexion even if they had
+##      moved the install to a different drive (e.g. D:\Tools\Rexion); the silent
 ##      auto-updater would re-run with /S into the wrong dir, leaving the old
 ##      install orphaned.
 ##
@@ -75,16 +75,16 @@ ManifestDPIAware true
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-!define REASONIX_DEFAULT_INSTALLDIR "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}"
+!define Rexion_DEFAULT_INSTALLDIR "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}"
 InstallDirRegKey HKCU "${UNINST_KEY}" "InstallLocation" # Reuse the previous install path on update; .onInit falls back to the default on first install.
-InstallDir "${REASONIX_DEFAULT_INSTALLDIR}" # Per-user install location (no admin rights required).
+InstallDir "${Rexion_DEFAULT_INSTALLDIR}" # Per-user install location (no admin rights required).
 ShowInstDetails show # This will always show the installation details.
 
 ####
 ## Per-user uninstaller registry (HKCU). Replaces wails.writeUninstaller /
 ## wails.deleteUninstaller, which write HKLM and would fail without admin rights.
 ####
-!macro reasonix.writeUninstaller
+!macro Rexion.writeUninstaller
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
     WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "${INFO_COMPANYNAME}"
@@ -95,8 +95,8 @@ ShowInstDetails show # This will always show the installation details.
     WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
     # Persist the resolved install path so a subsequent update picks it up
     # via InstallDirRegKey above. Without this, every release would force the
-    # user back to %LOCALAPPDATA%\Programs\Reasonix even if they had moved
-    # the install to a different drive (e.g. D:\Tools\Reasonix). The auto-
+    # user back to %LOCALAPPDATA%\Programs\Rexion even if they had moved
+    # the install to a different drive (e.g. D:\Tools\Rexion). The auto-
     # updater re-runs this installer with /S and trusts the persisted path,
     # so it has to be present before the silent re-install.
     WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
@@ -106,7 +106,7 @@ ShowInstDetails show # This will always show the installation details.
     WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" "$0"
 !macroend
 
-!macro reasonix.deleteUninstaller
+!macro Rexion.deleteUninstaller
     Delete "$INSTDIR\uninstall.exe"
     DeleteRegKey HKCU "${UNINST_KEY}"
 !macroend
@@ -126,7 +126,7 @@ Function .onInit
    StrCmp $INSTDIR "" fallback done
 
 fallback:
-   StrCpy $INSTDIR "${REASONIX_DEFAULT_INSTALLDIR}"
+   StrCpy $INSTDIR "${Rexion_DEFAULT_INSTALLDIR}"
 done:
 FunctionEnd
 
@@ -140,16 +140,16 @@ Section
     !insertmacro wails.files
 
     ## MCP plugins: bundled alongside the main executable so the agent can
-    ## discover them via the default PATH-relative command in reasonix.toml.
+    ## discover them via the default PATH-relative command in Rexion.toml.
     SetOutPath "$INSTDIR\plugins"
-    File "..\..\bin\plugins\reasonix-plugin-office.exe"
-    File "..\..\bin\plugins\reasonix-plugin-sheet.exe"
-    File "..\..\bin\plugins\reasonix-plugin-search.exe"
-    File "..\..\bin\plugins\reasonix-plugin-calendar.exe"
-    File "..\..\bin\plugins\reasonix-plugin-slides.exe"
-    File "..\..\bin\plugins\reasonix-plugin-mail.exe"
-    File "..\..\bin\plugins\reasonix-plugin-im.exe"
-    File "..\..\bin\plugins\reasonix-plugin-dws.exe"
+    File "..\..\bin\plugins\Rexion-plugin-office.exe"
+    File "..\..\bin\plugins\Rexion-plugin-sheet.exe"
+    File "..\..\bin\plugins\Rexion-plugin-search.exe"
+    File "..\..\bin\plugins\Rexion-plugin-calendar.exe"
+    File "..\..\bin\plugins\Rexion-plugin-slides.exe"
+    File "..\..\bin\plugins\Rexion-plugin-mail.exe"
+    File "..\..\bin\plugins\Rexion-plugin-im.exe"
+    File "..\..\bin\plugins\Rexion-plugin-dws.exe"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -157,7 +157,7 @@ Section
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
 
-    !insertmacro reasonix.writeUninstaller
+    !insertmacro Rexion.writeUninstaller
 SectionEnd
 
 Section "uninstall"
@@ -173,5 +173,5 @@ Section "uninstall"
     !insertmacro wails.unassociateFiles
     !insertmacro wails.unassociateCustomProtocols
 
-    !insertmacro reasonix.deleteUninstaller
+    !insertmacro Rexion.deleteUninstaller
 SectionEnd

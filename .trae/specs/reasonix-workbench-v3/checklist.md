@@ -1,4 +1,4 @@
-# Checklist — Reasonix Workbench v3.0
+# Checklist — Rexion Workbench v3.0
 
 > 配套 [spec.md](./spec.md) 与 [tasks.md](./tasks.md) 的验收清单。
 > 每项验收对应 spec.md §9 验收总表中的编号（V1-V33）。
@@ -10,26 +10,26 @@
 
 ### P8-T1 个人知识库激活
 
-- [ ] **V1**: 首次启动创建 `~/.reasonix/memory/` 四个默认文件
-  - [ ] 删除 `~/.reasonix/memory/` 目录后启动 Reasonix
+- [ ] **V1**: 首次启动创建 `~/.Rexion/memory/` 四个默认文件
+  - [ ] 删除 `~/.Rexion/memory/` 目录后启动 Rexion
   - [ ] 启动后目录存在
   - [ ] `people.md` / `projects.md` / `preferences.md` / `writing_style.md` 四个文件均存在
   - [ ] 每个文件包含中文示例模板内容
 - [ ] **V2**: Agent 系统提示包含 PKM 四文件内容
-  - [ ] 启动 Reasonix 进入任意会话
-  - [ ] 通过 `reasonix doctor` 或日志确认系统提示中包含 `<personal-knowledge>` 标签
+  - [ ] 启动 Rexion 进入任意会话
+  - [ ] 通过 `Rexion doctor` 或日志确认系统提示中包含 `<personal-knowledge>` 标签
   - [ ] 标签内含四个文件的内容
   - [ ] 顺序为：writing_style → preferences → people → projects → 原 Docs
 - [ ] **V3**: MemoryPanel 可编辑 PKM，保存后下轮生效
   - [ ] 打开 MemoryPanel，看到「个人知识库」分区
   - [ ] 可切换四个文件 Tab
   - [ ] 编辑 `preferences.md` 添加一行「测试偏好」并保存
-  - [ ] 发送一条新消息，通过 `reasonix doctor` 确认系统提示已更新
+  - [ ] 发送一条新消息，通过 `Rexion doctor` 确认系统提示已更新
   - [ ] PKM 位置在 prefix 固定位置（byte-stable，编辑前不破坏缓存）
 - [ ] P8-T1.5: `[pkm] enabled=false` 时 memory.Load 跳过 PKM 注入
   - [ ] 配置 `[pkm] enabled=false` 后重启
   - [ ] 系统提示不包含 `<personal-knowledge>` 标签
-  - [ ] `~/.reasonix/memory/` 目录即使存在也不被读取
+  - [ ] `~/.Rexion/memory/` 目录即使存在也不被读取
 
 ---
 
@@ -54,7 +54,7 @@
   - [ ] 返回错误信息：「请先配置 OAuth2（调用 oauth2_authorize）或设置 MAIL_IMAP_PASS 环境变量」
 - [ ] P8-T2.4: 文档已更新
   - [ ] `docs/office-capabilities-guide.md` 包含 OAuth2 用法章节
-  - [ ] `cmd/reasonix-plugin-mail/README.md` 包含 OAuth2 配置步骤
+  - [ ] `cmd/Rexion-plugin-mail/README.md` 包含 OAuth2 配置步骤
 
 ---
 
@@ -161,7 +161,7 @@
   - [ ] 该 Tab 切换到前台
   - [ ] Tab 内显示 ProgressStepper + Transcript 执行过程
 - [ ] P9-T3.2.3: 窗口最小化时先 Show 再打开 Tab
-  - [ ] 把 Reasonix 窗口最小化到托盘
+  - [ ] 把 Rexion 窗口最小化到托盘
   - [ ] 等待定时任务触发
   - [ ] 窗口自动还原 + Tab 自动切换
 - [ ] **V16**: 任务完成弹出系统通知
@@ -220,7 +220,7 @@
   - [ ] 弹出 ApprovalModal：「检测到写作偏好，是否写入 `preferences.md`？」
   - [ ] 内容预览正确
   - [ ] 点击确认
-  - [ ] 验证 `~/.reasonix/memory/preferences.md` 的「写作风格」段落已追加
+  - [ ] 验证 `~/.Rexion/memory/preferences.md` 的「写作风格」段落已追加
 - [ ] P10-T1.1.2: 识别 5 类声明
   - [ ] 写作偏好：「我喜欢/我偏好…」→ `preferences.md` 或 `writing_style.md`
   - [ ] 联系人：「张三是我领导…」→ `people.md`
@@ -249,7 +249,7 @@
   - [ ] 名称、描述、Skill 名、参数模板自动填充
   - [ ] 选择触发条件「手动」
   - [ ] 保存
-  - [ ] 验证 `~/.reasonix/recipes/<name>.json` 存在且内容正确
+  - [ ] 验证 `~/.Rexion/recipes/<name>.json` 存在且内容正确
 - [ ] **V21**: 从 Recipe 创建定时任务
   - [ ] 打开 SchedulerPanel → 新建定时任务
   - [ ] 表单中有「从 Recipe 选择」下拉
@@ -285,7 +285,7 @@
 - [ ] **V24**: 剪贴板历史自动清理
   - [ ] 配置 `retention_days=1`
   - [ ] 手动插入一条 2 天前的条目到 SQLite
-  - [ ] 重启 Reasonix
+  - [ ] 重启 Rexion
   - [ ] 该条目已被清理
 - [ ] P10-T3.4.1: 超过上限删除最旧
   - [ ] 配置 `max_entries=10`

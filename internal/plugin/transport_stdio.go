@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/proc"
+	"rexion/internal/proc"
 )
 
 const closeWaitBudget = 5 * time.Second
@@ -205,7 +205,7 @@ func windowsStdioFallbackPATH(env []string) string {
 	}
 	// Add the directory containing the running executable and its plugins/
 	// subdirectory. This ensures bundled MCP plugins (e.g.
-	// reasonix-plugin-office.exe in <install>/plugins/) are discoverable
+	// Rexion-plugin-office.exe in <install>/plugins/) are discoverable
 	// even when the GUI was launched without the shell PATH (Windows Store
 	// click, auto-updater, etc.).
 	exeDir, _ := filepath.Abs(filepath.Dir(os.Args[0]))
@@ -251,7 +251,7 @@ func defaultStdioShellPATH(ctx context.Context) string {
 	if shell == "" {
 		return ""
 	}
-	const marker = "__REASONIX_PATH__="
+	const marker = "__REXION_PATH__="
 	script := "printf '\\n" + marker + "%s\\n' \"$PATH\""
 	for _, args := range [][]string{
 		{"-l", "-i", "-c", script},

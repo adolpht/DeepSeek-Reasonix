@@ -13,7 +13,7 @@ import (
 
 // runStdio runs the MCP server using the stdio transport. It reads JSON-RPC
 // requests from stdin and writes responses to stdout. This is the transport
-// used by Cursor and other editors that launch Reasonix as a subprocess.
+// used by Cursor and other editors that launch Rexion as a subprocess.
 func (s *Server) runStdio(ctx context.Context) error {
 	reader := bufio.NewReader(os.Stdin)
 	writer := os.Stdout

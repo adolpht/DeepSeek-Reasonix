@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/event"
-	"reasonix/internal/nilutil"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/event"
+	"rexion/internal/nilutil"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 )
 
 // Runner carries out one task turn. Both Agent (single model) and Coordinator
@@ -39,7 +39,7 @@ func PlannerMaxSteps(configured int) int {
 }
 
 // PlannerPromptWithContext appends cache-stable standing context, such as loaded
-// REASONIX.md / AGENTS.md memory, to the planner's smaller system prompt.
+// Rexion.md / AGENTS.md memory, to the planner's smaller system prompt.
 func PlannerPromptWithContext(context string) string {
 	context = strings.TrimSpace(context)
 	if context == "" {

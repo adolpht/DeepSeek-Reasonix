@@ -15,9 +15,9 @@ import (
 
 	"golang.org/x/text/transform"
 
-	fileenc "reasonix/internal/fileutil/encoding"
-	"reasonix/internal/proc"
-	"reasonix/internal/tool"
+	fileenc "rexion/internal/fileutil/encoding"
+	"rexion/internal/proc"
+	"rexion/internal/tool"
 )
 
 const grepMaxMatches = 200

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"reasonix/internal/tool"
+	"rexion/internal/tool"
 )
 
 // rememberTool lets the model persist a durable fact to the auto-memory store.

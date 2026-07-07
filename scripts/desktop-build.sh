@@ -5,11 +5,11 @@
 #
 # Output lands in <repo>/dist/ with stable, platform-keyed names that
 # desktop/cmd/sign's `manifest` subcommand maps back to update.PlatformKey:
-#   macOS:   Reasonix-darwin-<arch>.zip                  (ditto archive; updater channel)
-#            Reasonix-darwin-universal.dmg               (drag-to-install; human download)
-#   Windows: Reasonix-windows-<arch>-installer.exe       (NSIS per-user installer; updater channel)
-#            Reasonix-windows-<arch>.zip                 (portable human download)
-#   Linux:   Reasonix-linux-<arch>.tar.gz                (bare binary)
+#   macOS:   Rexion-darwin-<arch>.zip                  (ditto archive; updater channel)
+#            Rexion-darwin-universal.dmg               (drag-to-install; human download)
+#   Windows: Rexion-windows-<arch>-installer.exe       (NSIS per-user installer; updater channel)
+#            Rexion-windows-<arch>.zip                 (portable human download)
+#   Linux:   Rexion-linux-<arch>.tar.gz                (bare binary)
 #
 # Usage: scripts/desktop-build.sh <os/arch> <version>
 #   e.g. scripts/desktop-build.sh darwin/arm64 v1.1.0
@@ -22,8 +22,8 @@ os="${PLATFORM%/*}"
 arch="${PLATFORM#*/}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APPNAME="Reasonix"            # wails.json productName -> Reasonix.app
-BINNAME="reasonix-desktop"    # wails.json outputfilename -> linux binary name
+APPNAME="Rexion"            # wails.json productName -> Rexion.app
+BINNAME="Rexion-desktop"    # wails.json outputfilename -> linux binary name
 
 cd "$ROOT/desktop"
 
@@ -49,14 +49,14 @@ mkdir -p "$ROOT/dist"
 
 case "$os" in
 darwin)
-	# Wails names the bundle after outputfilename (reasonix-desktop.app); repackage
-	# it as Reasonix.app for a clean user-facing name. Ad-hoc sign the copy (still
+	# Wails names the bundle after outputfilename (Rexion-desktop.app); repackage
+	# it as Rexion.app for a clean user-facing name. Ad-hoc sign the copy (still
 	# not notarized — the real fix is a Developer ID cert); this cuts down the
 	# Gatekeeper "is damaged / can't be opened" error on a downloaded build, though
 	# users may still need to clear the quarantine attribute (see desktop/README.md).
 	staging=$(mktemp -d)
 	app="$staging/${APPNAME}.app"
-	cp -R "build/bin/reasonix-desktop.app" "$app"
+	cp -R "build/bin/Rexion-desktop.app" "$app"
 	codesign --force --deep -s - "$app"
 	if [ "$arch" = universal ]; then
 		# One universal .app covers Intel + Apple Silicon; publish it under both

@@ -14,14 +14,14 @@ import (
 // re-deriving discovery context.
 //
 // PKM holds the personal-knowledge-base sources (people.md / projects.md /
-// preferences.md / writing_style.md under ~/.reasonix/memory/). It is populated
+// preferences.md / writing_style.md under ~/.rexion/memory/). It is populated
 // by Load only when Options.PKMEnabled is true and the files exist; it is
 // rendered as its own <personal-knowledge> section by Block, ahead of Docs, so
 // the cache-stable system prefix stays byte-stable across sessions that don't
 // touch the PKM files.
 type Set struct {
-	Docs    []Source // REASONIX.md / AGENTS.md, ascending precedence
-	PKM     []Source // personal knowledge base (~/.reasonix/memory/*.md)
+	Docs    []Source // Rexion.md / AGENTS.md, ascending precedence
+	PKM     []Source // personal knowledge base (~/.rexion/memory/*.md)
 	Store   Store    // auto-memory store (may be a zero/disabled Store)
 	Index   string   // MEMORY.md contents at load time
 	CWD     string   // project working dir used for discovery
@@ -31,7 +31,7 @@ type Set struct {
 // Options configures discovery. CWD defaults to "." and UserDir is the user
 // config root (config.MemoryUserDir()); a "" UserDir disables user-global docs
 // and the auto-memory store. PKMEnabled gates whether the personal knowledge
-// base under ~/.reasonix/memory/ is loaded — it defaults to false so callers
+// base under ~/.rexion/memory/ is loaded — it defaults to false so callers
 // (and existing tests) that don't set it keep the historical Docs-only shape.
 type Options struct {
 	CWD        string
@@ -92,7 +92,7 @@ func ValidPKMFileName(name string) bool {
 	return false
 }
 
-// loadPKMFiles reads the four PKM files from ~/.reasonix/memory/ in the fixed
+// loadPKMFiles reads the four PKM files from ~/.rexion/memory/ in the fixed
 // pkmFileOrder. Missing or unreadable files are skipped silently so a partial
 // PKM (or none at all) never breaks boot. Bodies are trimmed; empty files are
 // dropped to keep the rendered block free of dead sections.
@@ -131,7 +131,7 @@ func readPKMFile(path string) (string, bool) {
 
 // DocPath returns the doc-memory file a given scope writes to. To avoid splitting
 // a project's memory across conventions, it prefers a file that already exists
-// (REASONIX.md / AGENTS.md / CLAUDE.md, in that order); when none exists it
+// (Rexion.md / AGENTS.md / CLAUDE.md, in that order); when none exists it
 // creates the universal default (AGENTS.md / AGENTS.local.md). ScopeUser →
 // <userDir>, ScopeLocal → <cwd> with the *.local.md names, anything else → <cwd>.
 // Returns "" for ScopeUser when no user dir is configured.
@@ -225,7 +225,7 @@ func (s *Set) Block() string {
 	if len(s.PKM) > 0 {
 		b.WriteString("\n<personal-knowledge>\n")
 		b.WriteString("## 个人知识库\n")
-		b.WriteString("User-authored personal knowledge base (~/.reasonix/memory/). Treat this as the user's standing profile — writing style, preferences, contacts, and projects — and honor it without restating it back.\n")
+		b.WriteString("User-authored personal knowledge base (~/.rexion/memory/). Treat this as the user's standing profile — writing style, preferences, contacts, and projects — and honor it without restating it back.\n")
 		for _, d := range s.PKM {
 			fmt.Fprintf(&b, "\n### %s\n\n%s\n", d.Path, strings.TrimSpace(d.Body))
 		}
@@ -264,14 +264,14 @@ func Compose(base string, s *Set) string {
 
 // --- Personal knowledge base (Task 31) ---
 
-// MemoryFile describes one default file in the ~/.reasonix/memory/ knowledge base.
+// MemoryFile describes one default file in the ~/.rexion/memory/ knowledge base.
 type MemoryFile struct {
 	Name    string // file name (e.g. "people.md")
 	Content string // initial content when the file is created
 }
 
 // DefaultMemoryFiles returns the set of default knowledge-base files to create
-// under ~/.reasonix/memory/ when the directory is first initialised.
+// under ~/.rexion/memory/ when the directory is first initialised.
 func DefaultMemoryFiles() []MemoryFile {
 	return []MemoryFile{
 		{
@@ -306,16 +306,16 @@ func DefaultMemoryFiles() []MemoryFile {
 }
 
 // MemoryDir returns the path to the personal knowledge base directory
-// (~/.reasonix/memory/). It uses the user's home directory as the base.
+// (~/.rexion/memory/). It uses the user's home directory as the base.
 func MemoryDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)
 	}
-	return filepath.Join(home, ".reasonix", "memory"), nil
+	return filepath.Join(home, ".rexion", "memory"), nil
 }
 
-// EnsureMemoryDir checks whether the ~/.reasonix/memory/ directory exists and,
+// EnsureMemoryDir checks whether the ~/.rexion/memory/ directory exists and,
 // if not, creates it along with the default knowledge-base files. It returns the
 // directory path and a boolean indicating whether the directory was newly created.
 func EnsureMemoryDir() (string, bool, error) {
@@ -346,7 +346,7 @@ func EnsureMemoryDir() (string, bool, error) {
 }
 
 // AppendPKMFile appends a learned preference snippet to one of the four PKM
-// files under ~/.reasonix/memory/. name must be a valid PKM filename. The
+// files under ~/.rexion/memory/. name must be a valid PKM filename. The
 // snippet is appended at the end of the file under a "## 自动学习" section so
 // the user can distinguish hand-written entries from auto-learned ones. The
 // directory is ensured to exist (idempotent). Returns the absolute path written.

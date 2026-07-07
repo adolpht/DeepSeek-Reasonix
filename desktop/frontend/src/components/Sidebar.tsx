@@ -26,7 +26,7 @@ import { Tooltip } from "./Tooltip";
 function loadSectionCollapsed(storageKey: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(`reasonix.sidebar.section.${storageKey}`) === "1";
+    return window.localStorage.getItem(`Rexion.sidebar.section.${storageKey}`) === "1";
   } catch {
     return false;
   }
@@ -35,7 +35,7 @@ function loadSectionCollapsed(storageKey: string): boolean {
 function saveSectionCollapsed(storageKey: string, collapsed: boolean): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(`reasonix.sidebar.section.${storageKey}`, collapsed ? "1" : "0");
+    window.localStorage.setItem(`Rexion.sidebar.section.${storageKey}`, collapsed ? "1" : "0");
   } catch {
     /* ignore storage failures */
   }

@@ -270,7 +270,7 @@ export interface HistoryToolCall {
 }
 
 // Phase 5 — personal-agent template library & doc preview payloads
-// (desktop/phase5_app.go). ListTemplates scans .reasonix/templates/;
+// (desktop/phase5_app.go). ListTemplates scans .Rexion/templates/;
 // RenderDocPreview registers a file with the media-token store and returns
 // a URL the frontend can inline-render (image) or surface as a download
 // chip (docx/pdf — page-by-page rendering is a future enhancement).
@@ -285,7 +285,7 @@ export interface TemplateMeta {
 }
 
 export interface DocPreviewPage {
-  url: string; // media token URL, e.g. /__reasonix_workspace_media/<tok>/<name>
+  url: string; // media token URL, e.g. /__Rexion_workspace_media/<tok>/<name>
   page: number; // 1-based
   total: number; // total pages available
 }
@@ -531,7 +531,7 @@ export interface MemoryScope {
   path: string;
 }
 
-// MemoryPKMFile is one personal-knowledge-base file under ~/.reasonix/memory/.
+// MemoryPKMFile is one personal-knowledge-base file under ~/.Rexion/memory/.
 export interface MemoryPKMFile {
   name: string; // "people.md" | "projects.md" | "preferences.md" | "writing_style.md"
   path: string; // absolute path

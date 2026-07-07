@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/tool"
+	"rexion/internal/tool"
 )
 
 func TestResolveIn(t *testing.T) {

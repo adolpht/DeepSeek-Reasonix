@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"rexion/internal/agent"
+	"rexion/internal/event"
+	"rexion/internal/provider"
 )
 
 func TestBranchAndSwitch(t *testing.T) {

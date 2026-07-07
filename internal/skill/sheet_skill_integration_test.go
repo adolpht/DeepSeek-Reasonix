@@ -7,7 +7,7 @@ import (
 )
 
 // TestSheetSkillsLoad verifies the real sheet-analysis and sheet-clean skill
-// files under .reasonix/commands/ parse correctly with the expected frontmatter.
+// files under .rexion/commands/ parse correctly with the expected frontmatter.
 // This is an integration test against the project's own skill files — it guards
 // against frontmatter typos (wrong key names, missing runas/allowed-tools) that
 // would silently make a skill load as inline or without tool scoping.
@@ -30,7 +30,7 @@ func TestSheetSkillsLoad(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			sk, ok := st.Read(c.name)
 			if !ok {
-				t.Fatalf("skill %q not loaded from %s/.reasonix/commands/", c.name, root)
+				t.Fatalf("skill %q not loaded from %s/.rexion/commands/", c.name, root)
 			}
 			if sk.Scope != ScopeProject {
 				t.Errorf("Scope = %v, want project", sk.Scope)

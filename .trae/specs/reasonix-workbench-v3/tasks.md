@@ -1,4 +1,4 @@
-# Tasks — Reasonix Workbench v3.0
+# Tasks — Rexion Workbench v3.0
 
 > 配套 [spec.md](./spec.md) 的可执行任务清单。
 > 标注规则：`[ ]` 待办 · `[~]` 进行中 · `[x]` 已完成 · `[!]` 阻塞
@@ -17,7 +17,7 @@
 - [ ] **Task 1.1**: 启动时调用 `EnsureMemoryDir()` (M)
   - [ ] SubTask 1.1.1: 在 `internal/boot/boot.go` 的 `Boot()` 流程中，于 `memory.Load()` 之前调用 `memory.EnsureMemoryDir()` (XS)
   - [ ] SubTask 1.1.2: 在 `desktop/app.go` 的 `startup()` 中同步调用（Wails 启动路径独立于 CLI） (XS)
-  - [ ] SubTask 1.1.3: 单元测试：首次启动时验证 `~/.reasonix/memory/` 目录和四个默认文件被创建 (S)
+  - [ ] SubTask 1.1.3: 单元测试：首次启动时验证 `~/.Rexion/memory/` 目录和四个默认文件被创建 (S)
 
 - [ ] **Task 1.2**: `memory.Set.Load()` 注入 PKM 四文件 (M)
   - [ ] SubTask 1.2.1: 在 `internal/memory/memory.go` 的 `Load()` 中，在组装 `Docs` 之后追加读取 PKM 目录下的四个文件 (S)
@@ -38,30 +38,30 @@
 - [ ] **Task 1.5**: 配置开关 `[pkm] enabled` (S)
   - [ ] SubTask 1.5.1: 在 `internal/config/config.go` 新增 `PKMConfig` 结构 (XS)
   - [ ] SubTask 1.5.2: `memory.Load()` 在 `enabled=false` 时跳过 PKM 注入 (XS)
-  - [ ] SubTask 1.5.3: 更新 `.env.example` / `reasonix.example.toml` (XS)
+  - [ ] SubTask 1.5.3: 更新 `.env.example` / `Rexion.example.toml` (XS)
 
 ---
 
 ### P8-T2: 邮件 OAuth2 闭环
 
 - [ ] **Task 2.1**: IMAP XOAUTH2 认证路径 (M)
-  - [ ] SubTask 2.1.1: 在 `cmd/reasonix-plugin-mail/imap.go` 的 `imapConfig()` 中，优先尝试 OAuth2 token（若已持久化） (S)
+  - [ ] SubTask 2.1.1: 在 `cmd/Rexion-plugin-mail/imap.go` 的 `imapConfig()` 中，优先尝试 OAuth2 token（若已持久化） (S)
   - [ ] SubTask 2.1.2: 在 `read_mail` 实现中，用 `OAuth2IMAPAuthString()` 替代 `PLAIN` 认证（当 token 可用时） (S)
   - [ ] SubTask 2.1.3: token 过期时调用 `RefreshToken()`，刷新后持久化并重试登录 (S)
   - [ ] SubTask 2.1.4: 无 OAuth2 配置且无 `MAIL_IMAP_PASS` 时返回明确错误 (XS)
 
 - [ ] **Task 2.2**: SMTP XOAUTH2 认证路径 (M)
-  - [ ] SubTask 2.2.1: 在 `cmd/reasonix-plugin-mail/smtp.go` 的 `smtpConfig()` 中，优先尝试 OAuth2 token (S)
+  - [ ] SubTask 2.2.1: 在 `cmd/Rexion-plugin-mail/smtp.go` 的 `smtpConfig()` 中，优先尝试 OAuth2 token (S)
   - [ ] SubTask 2.2.2: 在 `send_mail` 实现中，用 `OAuth2SMTPAuthString()` 替代 `PlainAuth`（当 token 可用时） (S)
   - [ ] SubTask 2.2.3: token 过期时刷新并重试 (S)
 
 - [ ] **Task 2.3**: 集成测试 (M)
-  - [ ] SubTask 2.3.1: 在 `cmd/reasonix-plugin-mail/main_test.go` 新增 OAuth2 路径测试（用 mock IMAP/SMTP 服务器） (M)
+  - [ ] SubTask 2.3.1: 在 `cmd/Rexion-plugin-mail/main_test.go` 新增 OAuth2 路径测试（用 mock IMAP/SMTP 服务器） (M)
   - [ ] SubTask 2.3.2: 手动验收脚本：Gmail OAuth2 授权 → read_mail → send_mail 全流程 (S)
 
 - [ ] **Task 2.4**: 文档更新 (S)
   - [ ] SubTask 2.4.1: 更新 `docs/office-capabilities-guide.md` 中邮件插件章节，说明 OAuth2 用法 (XS)
-  - [ ] SubTask 2.4.2: 在 `cmd/reasonix-plugin-mail/README.md`（若不存在则创建）补充 OAuth2 配置步骤 (XS)
+  - [ ] SubTask 2.4.2: 在 `cmd/Rexion-plugin-mail/README.md`（若不存在则创建）补充 OAuth2 配置步骤 (XS)
 
 ---
 
@@ -248,7 +248,7 @@
 
 - [ ] **Task 2.1**: Recipe 存储层 (M)
   - [ ] SubTask 2.1.1: 新增 `internal/recipe/recipe.go`，定义 `Recipe` 结构：`Name`/`Description`/`Skill`/`Params`/`Trigger`/`CreatedAt` (S)
-  - [ ] SubTask 2.1.2: 实现 `Save()`/`Load()`/`List()`/`Delete()`，存储到 `~/.reasonix/recipes/<name>.json` (S)
+  - [ ] SubTask 2.1.2: 实现 `Save()`/`Load()`/`List()`/`Delete()`，存储到 `~/.Rexion/recipes/<name>.json` (S)
   - [ ] SubTask 2.1.3: 单元测试 (S)
 
 - [ ] **Task 2.2**: 保存会话为 Recipe UI (M)
@@ -263,7 +263,7 @@
 
 - [ ] **Task 2.4**: 事件触发 Recipe (L)
   - [ ] SubTask 2.4.1: Recipe 的 `Trigger` 支持 `mail_received` 事件类型，含匹配规则（发件人/主题/正文关键词） (S)
-  - [ ] SubTask 2.4.2: 在 `reasonix-plugin-mail` 的 `read_mail` 工具返回后，触发事件检查（通过 hook 机制） (M)
+  - [ ] SubTask 2.4.2: 在 `Rexion-plugin-mail` 的 `read_mail` 工具返回后，触发事件检查（通过 hook 机制） (M)
   - [ ] SubTask 2.4.3: 命中时 `internal/recipe` 调度执行：创建新会话、发送 `/{skill} {params}` 消息 (M)
   - [ ] SubTask 2.4.4: 弹出系统通知「事件触发 Recipe：{name}」 (XS)
 
@@ -274,7 +274,7 @@
 - [ ] **Task 3.1**: 后端 SQLite 存储 (M)
   - [ ] SubTask 3.1.1: 新增 `desktop/clipboard_history.go`，定义 `ClipboardEntry` 结构：`ID`/`Kind`/`Content`/`Preview`/`CreatedAt` (S)
   - [ ] SubTask 3.1.2: 实现 `RecordClipboard(kind, content)` / `ListClipboard(limit, offset)` / `SearchClipboard(query)` / `ClearOldClipboard(days)` (M)
-  - [ ] SubTask 3.1.3: 持久化到 `~/.reasonix/clipboard_history.db`（SQLite） (S)
+  - [ ] SubTask 3.1.3: 持久化到 `~/.Rexion/clipboard_history.db`（SQLite） (S)
   - [ ] SubTask 3.1.4: 启动时自动清理超过 `retention_days` 的条目 (XS)
 
 - [ ] **Task 3.2**: 剪贴板监听 (M)
@@ -360,7 +360,7 @@
   - [ ] SubTask 1.4.4: 子图可折叠（点击收起/展开） (S)
 
 - [ ] **Task 1.5**: 配置与文档 (S)
-  - [ ] SubTask 1.5.1: 更新 `.env.example` / `reasonix.example.toml` 的 `[agents]` 节 (XS)
+  - [ ] SubTask 1.5.1: 更新 `.env.example` / `Rexion.example.toml` 的 `[agents]` 节 (XS)
   - [ ] SubTask 1.5.2: 更新 `docs/SPEC.md` 中 Agent 章节 (S)
 
 ---
@@ -368,7 +368,7 @@
 ### P11-T2: generate-tests Skill
 
 - [ ] **Task 2.1**: Skill 定义 (M)
-  - [ ] SubTask 2.1.1: 新增 `.reasonix/skills/generate-tests.md` (S)
+  - [ ] SubTask 2.1.1: 新增 `.Rexion/skills/generate-tests.md` (S)
   - [ ] SubTask 2.1.2: 声明 `runAs: subagent` + `allowed-tools: [read_file, grep, glob, write_file, edit_file]` (XS)
   - [ ] SubTask 2.1.3: prompt 要求：读取目标函数 → 分析签名 → 生成 table-driven 测试 → 写入 `_test.go` (S)
 
@@ -385,7 +385,7 @@
 ### P11-T3: review-pr Skill
 
 - [ ] **Task 3.1**: Skill 定义 (M)
-  - [ ] SubTask 3.1.1: 新增 `.reasonix/skills/review-pr.md` (S)
+  - [ ] SubTask 3.1.1: 新增 `.Rexion/skills/review-pr.md` (S)
   - [ ] SubTask 3.1.2: 声明 `runAs: subagent` + `allowed-tools: [bash, read_file, grep]` (XS)
   - [ ] SubTask 3.1.3: prompt 要求：`git diff {base}...HEAD` → 逐文件分析 → 输出审查报告（问题/建议/风险） (S)
 
@@ -425,8 +425,8 @@
 - [ ] **Task G3.1**: 每个 Phase 完成后更新文档 (M)
   - [ ] SubTask G3.1.1: 更新 `docs/SPEC.md` 对应章节 (S)
   - [ ] SubTask G3.1.2: 更新 `docs/office-capabilities-guide.md`（涉及插件时） (S)
-  - [ ] SubTask G3.1.3: 更新 `REASONIX.md`（涉及项目约定变更时） (S)
-  - [ ] SubTask G3.1.4: 更新 `.env.example` / `reasonix.example.toml` (XS)
+  - [ ] SubTask G3.1.3: 更新 `Rexion.md`（涉及项目约定变更时） (S)
+  - [ ] SubTask G3.1.4: 更新 `.env.example` / `Rexion.example.toml` (XS)
 
 ---
 

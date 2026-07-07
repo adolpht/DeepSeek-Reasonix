@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 
-	"reasonix/internal/sandbox"
+	"rexion/internal/sandbox"
 )
 
 // startWithSandbox starts the command. On non-Windows platforms it applies

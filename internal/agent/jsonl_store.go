@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/provider"
+	"rexion/internal/provider"
 )
 
 // JSONLStore implements Store backed by the existing JSONL file format.

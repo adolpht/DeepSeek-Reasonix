@@ -1,8 +1,8 @@
-# Reasonix IM 插件配置引导
+# Rexion IM 插件配置引导
 
 ## 概述
 
-`reasonix-plugin-im` 是 Reasonix 的即时通讯集成插件,支持从企业微信(WeCom)、飞书(Feishu)、钉钉(DingTalk)接收远程指令,并把执行结果回推到对应的 IM 群或会话。
+`Rexion-plugin-im` 是 Rexion 的即时通讯集成插件,支持从企业微信(WeCom)、飞书(Feishu)、钉钉(DingTalk)接收远程指令,并把执行结果回推到对应的 IM 群或会话。
 
 插件支持两种接入模式,可根据是否拥有公网 IP 自由选择:
 
@@ -26,7 +26,7 @@ IM 插件支持**全自动消息处理**:
 
 ## 一、环境变量完整清单
 
-所有环境变量均为**可选**,可在 GUI「设置 → 办公插件 → IM 即时通讯」中配置,也可直接写入 `reasonix.toml` 的 `[[plugins]]` 段。
+所有环境变量均为**可选**,可在 GUI「设置 → 办公插件 → IM 即时通讯」中配置,也可直接写入 `Rexion.toml` 的 `[[plugins]]` 段。
 
 ### 1.1 通用配置(Webhook 模式)
 
@@ -92,7 +92,7 @@ IM 插件支持**全自动消息处理**:
 2. **入重试队列** — 按指数退避自动重试(30s → 1m → 5m → 15m → 1h,最多 5 次)
 3. **刷新回调地址** — 钉钉 Stream 模式下,自动从缓存中取该会话最新的 SessionWebhook URL
 4. **死信目标标记** — 若判定为永久错误(机器人被踢出群、群被删除),标记目标为死信,不再无谓重试;后续成功发送时自动清除标记(自愈)
-5. **持久化** — 重试任务保存到 `~/.reasonix/im-plugin/callbacks.json`,插件重启后自动恢复
+5. **持久化** — 重试任务保存到 `~/.Rexion/im-plugin/callbacks.json`,插件重启后自动恢复
 
 **消息去重**:钉钉/飞书 SDK 断线重连后可能重投消息,插件按 `msg_id` 自动去重(10 分钟窗口),避免同一消息被处理两次。
 
@@ -106,7 +106,7 @@ IM 插件支持**全自动消息处理**:
 
 1. 访问 [钉钉开放平台](https://open-dev.dingtalk.com/)
 2. 进入「应用开发 → 企业内部开发 → 创建应用」
-3. 填写应用名称(如 `Reasonix Bot`)、应用描述
+3. 填写应用名称(如 `Rexion Bot`)、应用描述
 
 #### 步骤 2:启用机器人能力
 
@@ -122,7 +122,7 @@ IM 插件支持**全自动消息处理**:
    - `qyapi_chat_send`(单聊消息发送)
 3. 「应用发布 → 授权范围」选择可见的部门/用户
 
-#### 步骤 4:获取凭证并配置 Reasonix
+#### 步骤 4:获取凭证并配置 Rexion
 
 在应用详情「基础信息 → 凭证与基础信息」处复制:
 - AppKey → 填入 `IM_DINGTALK_APP_KEY`
@@ -130,12 +130,12 @@ IM 插件支持**全自动消息处理**:
 
 GUI 路径:**设置 → 办公插件 → IM 即时通讯 → 配置 → 钉钉企业应用 AppKey (Stream 模式)**
 
-或写入 `reasonix.toml`:
+或写入 `Rexion.toml`:
 
 ```toml
 [[plugins]]
 name = "im"
-command = "reasonix-plugin-im"
+command = "Rexion-plugin-im"
 auto_start_tool = "auto_start"
 
 [plugins.env]
@@ -161,7 +161,7 @@ im-watcher: started, polling for IM messages
 mcp__im__start_stream()
 ```
 
-在钉钉中 @机器人 发送消息,Reasonix 会自动收到并通过后台 IM Watcher 通知 Agent 处理。
+在钉钉中 @机器人 发送消息,Rexion 会自动收到并通过后台 IM Watcher 通知 Agent 处理。
 
 ---
 
@@ -190,7 +190,7 @@ mcp__im__start_stream()
 
 「版本管理与发布 → 创建版本 → 申请发布」,管理员审核通过后,在「应用可用范围」中添加可见用户。
 
-#### 步骤 5:获取凭证并配置 Reasonix
+#### 步骤 5:获取凭证并配置 Rexion
 
 应用详情「凭证与基础信息」处复制:
 - App ID → 填入 `IM_FEISHU_APP_ID`
@@ -198,11 +198,11 @@ mcp__im__start_stream()
 
 GUI 路径:**设置 → 办公插件 → IM 即时通讯 → 配置 → 飞书企业应用 App ID (Stream 模式)**
 
-或写入 `reasonix.toml`:
+或写入 `Rexion.toml`:
 ```toml
 [[plugins]]
 name = "im"
-command = "reasonix-plugin-im"
+command = "Rexion-plugin-im"
 auto_start_tool = "auto_start"
 
 [plugins.env]
@@ -254,12 +254,12 @@ https://example.com/im/dingtalk?token=<IM_BOT_TOKEN 的值>
 
 > 没有公网 IP 时可用 [ngrok](https://ngrok.com/) / [frp](https://github.com/fatedier/frp) 临时穿透,但稳定性差,**推荐改用 Stream 模式**。
 
-#### 步骤 3:在 Reasonix 中配置并启动
+#### 步骤 3:在 Rexion 中配置并启动
 
 ```toml
 [[plugins]]
 name = "im"
-command = "reasonix-plugin-im"
+command = "Rexion-plugin-im"
 auto_start_tool = "auto_start"
 
 [plugins.env]
@@ -324,7 +324,7 @@ https://example.com/im/wecom?token=<IM_BOT_TOKEN 的值>
 ```toml
 [[plugins]]
 name = "im"
-command = "reasonix-plugin-im"
+command = "Rexion-plugin-im"
 auto_start_tool = "auto_start"
 
 [plugins.env]
@@ -347,7 +347,7 @@ mcp__im__start_bot()
 ```toml
 [[plugins]]
 name = "im"
-command = "reasonix-plugin-im"
+command = "Rexion-plugin-im"
 auto_start_tool = "auto_start"
 
 [plugins.env]
@@ -374,7 +374,7 @@ im-watcher: started, polling for IM messages
 
 ## 三、GUI 配置流程
 
-1. 启动 Reasonix 桌面端
+1. 启动 Rexion 桌面端
 2. 侧边栏 → 「设置」(齿轮图标)
 3. 进入「办公插件」标签页
 4. 找到「IM 即时通讯」卡片,点击「配置」展开
@@ -523,7 +523,7 @@ mcp__im__stop_bot()
 
 **原因**:未配置 Stream 凭证环境变量。
 
-**解决**:在 GUI 配置面板填入 4 个 Stream 字段中的对应两项,或在 `reasonix.toml` 中配置 `IM_DINGTALK_APP_KEY` / `IM_FEISHU_APP_ID` 等。
+**解决**:在 GUI 配置面板填入 4 个 Stream 字段中的对应两项,或在 `Rexion.toml` 中配置 `IM_DINGTALK_APP_KEY` / `IM_FEISHU_APP_ID` 等。
 
 ### Q2:钉钉机器人收不到消息
 
@@ -532,7 +532,7 @@ mcp__im__stop_bot()
 2. 应用已发布并通过审核
 3. 应用可见范围包含当前用户
 4. 机器人被添加到了对应群中(群设置 → 智能群助手)
-5. Reasonix 日志(stderr)有 `DingTalk stream: queued msg` 记录 → 表示已收到,问题在 `mark_command_done` 回推环节
+5. Rexion 日志(stderr)有 `DingTalk stream: queued msg` 记录 → 表示已收到,问题在 `mark_command_done` 回推环节
 
 ### Q3:飞书机器人能收到消息但回复失败,提示 `Feishu reply failed: code=99991663`
 
@@ -602,7 +602,7 @@ IM 插件启动后,后台 IM Watcher 会持续调用 `poll_commands` 等待新�
 4. **永久错误**(机器人被踢出群等)— 标记死信目标,不再重试
 5. **重试耗尽**(5 次仍失败)— 标记会话为 failed,日志告警
 
-重试任务持久化到 `~/.reasonix/im-plugin/callbacks.json`,插件重启后自动恢复。如需紧急关闭重试机制,设置 `IM_CALLBACK_RETRY=off`。
+重试任务持久化到 `~/.Rexion/im-plugin/callbacks.json`,插件重启后自动恢复。如需紧急关闭重试机制,设置 `IM_CALLBACK_RETRY=off`。
 
 ### Q12:钉钉群机器人和企业机器人有什么区别?
 
@@ -628,8 +628,8 @@ IM 插件启动后,后台 IM Watcher 会持续调用 `poll_commands` 等待新�
 ## 七、安全建议
 
 1. **`IM_BOT_TOKEN` 必填**:Webhook 模式下,在回调 URL 后附加 `?token=<该值>` 可防止伪造请求
-2. **凭证定期轮换**:AppSecret / Webhook Key 泄露后应立即在开放平台重置,并在 Reasonix 中更新配置
-3. **不要把凭证提交到 Git**:`reasonix.toml` 含敏感信息时应加入 `.gitignore`,或用 `~/.reasonix/config.toml`(用户级配置,优先级高于项目级)
+2. **凭证定期轮换**:AppSecret / Webhook Key 泄露后应立即在开放平台重置,并在 Rexion 中更新配置
+3. **不要把凭证提交到 Git**:`Rexion.toml` 含敏感信息时应加入 `.gitignore`,或用 `~/.Rexion/config.toml`(用户级配置,优先级高于项目级)
 4. **应用可见范围最小化**:钉钉/飞书应用发布时,仅授权必要部门/用户,避免全员可用
 
 ---

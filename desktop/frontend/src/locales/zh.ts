@@ -120,7 +120,7 @@ export const zh: Record<DictKey, string> = {
   "sidebar.config": "配置",
   "sidebar.plugins": "插件",
   "sidebar.changeWorkspace": "更改",
-  "sidebar.navigation": "Reasonix 导航",
+  "sidebar.navigation": "Rexion 导航",
   "sidebar.collapse": "收起侧边栏",
   "sidebar.expand": "展开侧边栏",
   "sidebar.expandBlocked": "关闭右侧文件面板后可展开侧边栏",
@@ -325,7 +325,7 @@ export const zh: Record<DictKey, string> = {
   "caps.install": "安装",
   "caps.installGlobal": "全局安装",
   "caps.installGlobalHint": "全局安装，所有项目可用",
-  "caps.noRegistryEntries": "市场暂无可用技能。请检查网络连接，或在 reasonix.toml 中添加自定义源。",
+  "caps.noRegistryEntries": "市场暂无可用技能。请检查网络连接，或在 Rexion.toml 中添加自定义源。",
 
   // 仓库 Wiki 面板
   "repoWiki.title": "仓库 Wiki",
@@ -342,8 +342,8 @@ export const zh: Record<DictKey, string> = {
   // 模板库抽屉（Phase 5）
   "sidebar.templates": "模板库",
   "templates.title": "模板库",
-  "templates.summary": "浏览并套用 .reasonix/templates",
-  "templates.empty": "在 `.reasonix/templates/` 中未找到模板。将 .docx、.md 或 .tmpl 拖入该目录即可显示在此。",
+  "templates.summary": "浏览并套用 .Rexion/templates",
+  "templates.empty": "在 `.Rexion/templates/` 中未找到模板。将 .docx、.md 或 .tmpl 拖入该目录即可显示在此。",
   "templates.filterAll": "全部",
   "templates.kindDocx": "Word",
   "templates.kindXlsx": "表格",
@@ -437,7 +437,7 @@ export const zh: Record<DictKey, string> = {
   "welcome.assistantEx3": "帮我整理今天的日程安排",
 
   // 输入框
-  "composer.placeholder": "给 Reasonix 发消息…  ( / 命令 · @ 文件 )",
+  "composer.placeholder": "给 Rexion 发消息…  ( / 命令 · @ 文件 )",
   "composer.placeholder.coding": "描述你的编码任务，或用 / 触发 Skill…",
   "composer.placeholder.office": "描述你要生成的文档或表格…",
   "composer.placeholder.assistant": "让我帮你查、提醒、整理…",
@@ -637,7 +637,7 @@ export const zh: Record<DictKey, string> = {
   "memory.instructionFiles": "指令文件",
   "memory.instructionFilesHint": "这些 Markdown 文件会持续参与上下文，适合保存长期规则和项目约定。",
   "memory.expandDoc": "展开预览",
-  "memory.noDocs": "未找到 REASONIX.md。可在上方快速添加一条。",
+  "memory.noDocs": "未找到 Rexion.md。可在上方快速添加一条。",
   "memory.savedMemories": "已保存的记忆",
   "memory.memoryEntries": "记忆条目",
   "memory.addMemory": "+ 添加记忆",
@@ -763,7 +763,7 @@ export const zh: Record<DictKey, string> = {
   "settings.updatesMeta": "版本 · 配置",
   "settings.closeBehavior": "关闭窗口时",
   "settings.closeBehavior.background": "保持后台运行",
-  "settings.closeBehavior.quit": "退出 Reasonix",
+  "settings.closeBehavior.quit": "退出 Rexion",
   "settings.manageProviders": "管理模型服务",
   "settings.activeProvider": "当前模型服务",
   "settings.plannerStatus": "规划方式",
@@ -920,7 +920,7 @@ export const zh: Record<DictKey, string> = {
   "settings.pageDesc.providers": "管理模型供应商、API 地址、密钥与可用模型。",
   "settings.pageDesc.mcp": "管理 MCP 服务器连接和工具发现。",
   "settings.pageDesc.skills": "浏览、启用和管理智能体技能与来源。",
-  "settings.pageDesc.memory": "管理 Reasonix 会长期参考的偏好、项目约定和指令文件。",
+  "settings.pageDesc.memory": "管理 Rexion 会长期参考的偏好、项目约定和指令文件。",
   "settings.pageDesc.network": "代理与网络配置。",
   "settings.pageDesc.permissions": "写操作模式与细粒度工具权限规则。",
   "settings.pageDesc.sandbox": "Bash 沙箱、网络出口与工作区根目录。",
@@ -954,7 +954,7 @@ export const zh: Record<DictKey, string> = {
   "settings.addProvider.chooseTitle": "添加供应商",
   "settings.addProvider.chooseHint": "选择官方预设，或添加一个自定义 OpenAI-compatible / Anthropic 接入。",
   "settings.addProvider.officialChoice": "官方供应商",
-  "settings.addProvider.officialChoiceHint": "从 Reasonix 预设的 DeepSeek、Mimo、OpenAI、Anthropic、Gemini、通义千问接入中选择。",
+  "settings.addProvider.officialChoiceHint": "从 Rexion 预设的 DeepSeek、Mimo、OpenAI、Anthropic、Gemini、通义千问接入中选择。",
   "settings.addProvider.customChoice": "自定义供应商",
   "settings.addProvider.customChoiceHint": "按 base_url、模型、密钥环境变量等参数手动配置。",
   "settings.addProvider.officialTitle": "添加官方供应商",
@@ -1128,9 +1128,9 @@ export const zh: Record<DictKey, string> = {
   "updater.dismiss": "稍后",
 
   // onboarding — 首次启动多步骤引导
-  "onboarding.title": "连接 Reasonix",
+  "onboarding.title": "连接 Rexion",
   "onboarding.tagline": "粘贴一个 DeepSeek API key 即可开始。密钥仅存于本应用的本地凭据文件，不会发往任何地方。",
-  "onboarding.welcome": "欢迎来到 Reasonix",
+  "onboarding.welcome": "欢迎来到 Rexion",
   "onboarding.welcomeDesc": "你的 AI 智能体工作空间。只需几步即可完成设置。",
   "onboarding.start": "开始使用",
   "onboarding.roleTitle": "你的身份是？",
@@ -1164,7 +1164,7 @@ export const zh: Record<DictKey, string> = {
   "onboarding.skipApiKey": "稍后设置",
   "onboarding.skipTask": "跳过，我自己探索",
   "onboarding.celebrationTitle": "🎉 你完成了首个任务！",
-  "onboarding.celebrationDesc": "你已解锁 Reasonix 的全部功能，继续探索吧！",
+  "onboarding.celebrationDesc": "你已解锁 Rexion 的全部功能，继续探索吧！",
   "onboarding.celebrationContinue": "继续",
   "onboarding.celebrationSkills": "查看更多 Skill",
 
@@ -1205,7 +1205,7 @@ export const zh: Record<DictKey, string> = {
   "context.durationMinutesSeconds": "{minutes}分{seconds}秒",
 
   // 崩溃兜底页
-  "crash.title": "Reasonix 遇到错误 —— 请截图发送",
+  "crash.title": "Rexion 遇到错误 —— 请截图发送",
   "crash.copy": "复制",
 
   // 模拟/演示种子数据（仅浏览器开发模式）
@@ -1241,8 +1241,8 @@ export const zh: Record<DictKey, string> = {
   "mock.askQ1Opt2Desc": "放弃本地所有修改，强制与远端同步",
   "mock.askQ1Opt3Label": "另建分支保存改动",
   "mock.askQ1Opt3Desc": "先创建分支把本地改动保存起来，再拉取主分支",
-  "mock.askQ2Header": "Reasonix 构建",
-  "mock.askQ2Prompt": "对于 reasonix 二进制缺失的问题，你想怎么做？",
+  "mock.askQ2Header": "Rexion 构建",
+  "mock.askQ2Prompt": "对于 Rexion 二进制缺失的问题，你想怎么做？",
   "mock.askQ2Opt1Label": "先查文档",
   "mock.askQ2Opt1Desc": "查看 README / 构建文档来确定正确的构建命令",
   "mock.askQ2Opt2Label": "看构建配置",
@@ -1258,7 +1258,7 @@ export const zh: Record<DictKey, string> = {
   "mock.changedFile1Prompt": "更新规范草案 v0.3",
   "mock.changedFile2Prompt": "记录项目上下文",
   "mock.changedFile1Path": "docs/dev-standard.md",
-  "mock.changedFile2Path": ".reasonix/project.md",
+  "mock.changedFile2Path": ".Rexion/project.md",
 
   // --- 源代码管理（Git）---
   "git.refresh": "刷新",

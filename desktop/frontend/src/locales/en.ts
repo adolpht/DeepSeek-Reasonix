@@ -119,7 +119,7 @@ export const en = {
   "sidebar.config": "Config",
   "sidebar.plugins": "Plugins",
   "sidebar.changeWorkspace": "Change",
-  "sidebar.navigation": "Reasonix navigation",
+  "sidebar.navigation": "Rexion navigation",
   "sidebar.collapse": "Collapse sidebar",
   "sidebar.expand": "Expand sidebar",
   "sidebar.expandBlocked": "Close the right file panel before expanding the sidebar",
@@ -324,7 +324,7 @@ export const en = {
   "caps.install": "Install",
   "caps.installGlobal": "Global",
   "caps.installGlobalHint": "Install globally for all projects",
-  "caps.noRegistryEntries": "No skills found in the marketplace. Check your network connection or add custom sources in reasonix.toml.",
+  "caps.noRegistryEntries": "No skills found in the marketplace. Check your network connection or add custom sources in Rexion.toml.",
 
   // repo wiki panel
   "repoWiki.title": "Repo Wiki",
@@ -341,8 +341,8 @@ export const en = {
   // template library drawer (Phase 5)
   "sidebar.templates": "Templates",
   "templates.title": "Template Library",
-  "templates.summary": "Browse and apply .reasonix/templates",
-  "templates.empty": "No templates found in `.reasonix/templates/`. Drop a .docx, .md, or .tmpl there to make it appear here.",
+  "templates.summary": "Browse and apply .Rexion/templates",
+  "templates.empty": "No templates found in `.Rexion/templates/`. Drop a .docx, .md, or .tmpl there to make it appear here.",
   "templates.filterAll": "All",
   "templates.kindDocx": "Word",
   "templates.kindXlsx": "Sheet",
@@ -436,7 +436,7 @@ export const en = {
   "welcome.assistantEx3": "Help me organize my schedule for today",
 
   // composer
-  "composer.placeholder": "Message Reasonix…  ( / commands · @ files )",
+  "composer.placeholder": "Message Rexion…  ( / commands · @ files )",
   "composer.placeholder.coding": "Describe your coding task, or use / for Skills…",
   "composer.placeholder.office": "Describe the document or spreadsheet you need…",
   "composer.placeholder.assistant": "Let me help you search, remind, organize…",
@@ -636,7 +636,7 @@ export const en = {
   "memory.instructionFiles": "Instruction files",
   "memory.instructionFilesHint": "These Markdown files stay in context and are best for durable rules and project conventions.",
   "memory.expandDoc": "Expand preview",
-  "memory.noDocs": "No REASONIX.md found. Quick-add one above.",
+  "memory.noDocs": "No Rexion.md found. Quick-add one above.",
   "memory.savedMemories": "Saved memories",
   "memory.memoryEntries": "Memory entries",
   "memory.addMemory": "+ Add memory",
@@ -762,7 +762,7 @@ export const en = {
   "settings.updatesMeta": "version · config",
   "settings.closeBehavior": "When closing window",
   "settings.closeBehavior.background": "Keep running",
-  "settings.closeBehavior.quit": "Quit Reasonix",
+  "settings.closeBehavior.quit": "Quit Rexion",
   "settings.manageProviders": "Manage providers",
   "settings.activeProvider": "Active provider",
   "settings.plannerStatus": "Planning mode",
@@ -919,7 +919,7 @@ export const en = {
   "settings.pageDesc.providers": "Manage model providers, API endpoints, keys, and available models.",
   "settings.pageDesc.mcp": "Manage MCP server connections and tool discovery.",
   "settings.pageDesc.skills": "Browse, enable, and manage agent skills and skill sources.",
-  "settings.pageDesc.memory": "Manage preferences, project conventions, and instruction files Reasonix keeps referencing.",
+  "settings.pageDesc.memory": "Manage preferences, project conventions, and instruction files Rexion keeps referencing.",
   "settings.pageDesc.network": "Proxy and network configuration.",
   "settings.pageDesc.permissions": "Writer mode and fine-grained tool permission rules.",
   "settings.pageDesc.sandbox": "Bash sandbox, network egress, and workspace root.",
@@ -953,7 +953,7 @@ export const en = {
   "settings.addProvider.chooseTitle": "Add provider",
   "settings.addProvider.chooseHint": "Choose an official preset, or add a custom OpenAI-compatible or Anthropic service.",
   "settings.addProvider.officialChoice": "Official provider",
-  "settings.addProvider.officialChoiceHint": "Choose from Reasonix presets for DeepSeek, Mimo, OpenAI, Anthropic, Gemini, and Qwen.",
+  "settings.addProvider.officialChoiceHint": "Choose from Rexion presets for DeepSeek, Mimo, OpenAI, Anthropic, Gemini, and Qwen.",
   "settings.addProvider.customChoice": "Custom provider",
   "settings.addProvider.customChoiceHint": "Configure base_url, models, key env, and related parameters manually.",
   "settings.addProvider.officialTitle": "Add official provider",
@@ -1127,9 +1127,9 @@ export const en = {
   "updater.dismiss": "Later",
 
   // onboarding — first-run multi-step flow
-  "onboarding.title": "Connect Reasonix",
+  "onboarding.title": "Connect Rexion",
   "onboarding.tagline": "Paste a DeepSeek API key to start. Stored locally in this app's credentials, never sent anywhere else.",
-  "onboarding.welcome": "Welcome to Reasonix",
+  "onboarding.welcome": "Welcome to Rexion",
   "onboarding.welcomeDesc": "Your AI-powered agent workspace. Let's get you set up in a few quick steps.",
   "onboarding.start": "Get Started",
   "onboarding.roleTitle": "What best describes you?",
@@ -1163,7 +1163,7 @@ export const en = {
   "onboarding.skipApiKey": "Skip for now",
   "onboarding.skipTask": "Skip, I'll explore on my own",
   "onboarding.celebrationTitle": "You completed your first task!",
-  "onboarding.celebrationDesc": "You've unlocked the full power of Reasonix. Keep exploring!",
+  "onboarding.celebrationDesc": "You've unlocked the full power of Rexion. Keep exploring!",
   "onboarding.celebrationContinue": "Continue",
   "onboarding.celebrationSkills": "Explore Skills",
 
@@ -1204,7 +1204,7 @@ export const en = {
   "context.durationMinutesSeconds": "{minutes}m {seconds}s",
 
   // crash page
-  "crash.title": "Reasonix hit an error — screenshot this and send it over",
+  "crash.title": "Rexion hit an error — screenshot this and send it over",
   "crash.copy": "Copy",
 
   // mock / demo seed data (browser dev only)
@@ -1240,8 +1240,8 @@ export const en = {
   "mock.askQ1Opt2Desc": "Abandon all local changes, force sync with remote",
   "mock.askQ1Opt3Label": "Create branch to save changes",
   "mock.askQ1Opt3Desc": "Create a branch to save local changes first, then pull main branch",
-  "mock.askQ2Header": "Reasonix build",
-  "mock.askQ2Prompt": "What do you want to do about the missing reasonix binary?",
+  "mock.askQ2Header": "Rexion build",
+  "mock.askQ2Prompt": "What do you want to do about the missing Rexion binary?",
   "mock.askQ2Opt1Label": "Check docs first",
   "mock.askQ2Opt1Desc": "Read README / build docs to determine the correct build command",
   "mock.askQ2Opt2Label": "Check build config",
@@ -1257,7 +1257,7 @@ export const en = {
   "mock.changedFile1Prompt": "Update draft spec v0.3",
   "mock.changedFile2Prompt": "Record project context",
   "mock.changedFile1Path": "docs/dev-standard.md",
-  "mock.changedFile2Path": ".reasonix/project.md",
+  "mock.changedFile2Path": ".Rexion/project.md",
 
   // --- Source control (Git) ---
   "git.refresh": "Refresh",

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"reasonix/internal/provider"
+	"rexion/internal/provider"
 
 	_ "modernc.org/sqlite"
 )

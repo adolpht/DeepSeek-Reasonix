@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/plugin"
+	"rexion/internal/plugin"
 )
 
 const mcpMaxItemsPerSection = 6

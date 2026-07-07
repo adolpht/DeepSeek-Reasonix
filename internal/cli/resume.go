@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/i18n"
+	"rexion/internal/agent"
+	"rexion/internal/i18n"
 )
 
 const resumeListCap = 10

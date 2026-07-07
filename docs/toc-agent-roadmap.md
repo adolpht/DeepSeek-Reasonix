@@ -1,8 +1,8 @@
-# Reasonix ToC 个人 Agent 改造规划
+# Rexion ToC 个人 Agent 改造规划
 
 > 版本：v2.0 | 日期：2026-06-30 | 状态：规划中
 >
-> 定位：将 Reasonix 从「开发者专用编码 Agent」升级为「面向普通用户的桌面 AI 工作台」——既能完成编码任务，又能处理文档、表格、日程、信息整理等日常办公与个人需求。
+> 定位：将 Rexion 从「开发者专用编码 Agent」升级为「面向普通用户的桌面 AI 工作台」——既能完成编码任务，又能处理文档、表格、日程、信息整理等日常办公与个人需求。
 
 ---
 
@@ -23,7 +23,7 @@
 
 ### 1.1 愿景
 
-**Reasonix = 你的 AI 工作伙伴**
+**Rexion = 你的 AI 工作伙伴**
 
 一句话描述：**用自然语言下达指令，AI 自主规划步骤、调用工具、交付可验收成果。**
 
@@ -57,7 +57,7 @@
 
 ### 2.1 主要竞品对比
 
-| 维度 | WorkBuddy (腾讯) | TRAE Work (字节) | Marvis (腾讯) | Kimi Work | **Reasonix (我们)** |
+| 维度 | WorkBuddy (腾讯) | TRAE Work (字节) | Marvis (腾讯) | Kimi Work | **Rexion (我们)** |
 |------|------------------|------------------|---------------|-----------|---------------------|
 | **定位** | 全场景职场AI工作台 | 编码+办公双模式 | OS级个人AI助手 | 本地Agent | **编码+办公双栖Agent** |
 | **编码能力** | 弱 | 强 | 无 | 弱 | **极强（核心优势）** |
@@ -69,15 +69,15 @@
 | **插件生态** | MCP+2万技能包 | MCP | 有限 | 有限 | **MCP+Skill系统** |
 | **价格** | $9.95/月起 | 免费 | 免费 | 免费 | **免费+增值** |
 
-### 2.2 Reasonix 的三大差异化优势
+### 2.2 Rexion 的三大差异化优势
 
-1. **编码能力碾压级优势**：竞品均为办公优先、编码薄弱；Reasonix 以编码 Agent 起家，代码读写/调试/重构能力远超同类
+1. **编码能力碾压级优势**：竞品均为办公优先、编码薄弱；Rexion 以编码 Agent 起家，代码读写/调试/重构能力远超同类
 2. **本地优先 + 开源**：所有数据不出本机，开发者/隐私敏感用户的首选；开源社区驱动，不锁定任何云服务
 3. **Skill 声明式工作流**：用户可自定义 .md 文件描述工作流，无需代码；MCP 插件零侵入接入
 
 ### 2.3 需要补齐的短板
 
-| 短板 | 竞品做法 | Reasonix 对策 |
+| 短板 | 竞品做法 | Rexion 对策 |
 |------|----------|---------------|
 | 新手引导 | WorkBuddy 成长计划+积分 | 新手任务流 + 引导式首次体验 |
 | PPT 生成 | WorkBuddy/TRAE 原生支持 | PPT 插件（P5） |
@@ -111,7 +111,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Reasonix ToC 个人 Agent                      │
+│                     Rexion ToC 个人 Agent                      │
 ├─────────────┬───────────────┬──────────────┬───────────────────┤
 │  编码工作台  │   办公工作台   │  个人助手     │  系统底座          │
 │             │               │             │                   │
@@ -140,7 +140,7 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  ☰  Reasonix    [模式: 编码 ▾ | 办公 | 助手]    [模型▾] [设置⚙]    │
+│  ☰  Rexion    [模式: 编码 ▾ | 办公 | 助手]    [模型▾] [设置⚙]    │
 ├─────────┬──────────────────────────────────┬────────────────────────┤
 │         │  [标签页1] [标签页2] [+]          │                        │
 │  侧边栏  ├──────────────────────────────────┤   结果面板              │
@@ -171,7 +171,7 @@
 
 **改造后**：
 ```
-[☰ 侧边栏] [Reasonix Logo] [模式切换: 编码|办公|助手] [模型选择器] [通知🔔] [设置⚙]
+[☰ 侧边栏] [Rexion Logo] [模式切换: 编码|办公|助手] [模型选择器] [通知🔔] [设置⚙]
 ```
 
 - **模式切换**：核心入口，切换后整个界面上下文变化
@@ -369,13 +369,13 @@
 
 ```
 安装启动
-  → 欢迎页：「Reasonix 是你的 AI 工作伙伴」
+  → 欢迎页：「Rexion 是你的 AI 工作伙伴」
   → 选择身份：[开发者] [办公人员] [自由职业者] [其他]
   → 配置 API Key（支持扫码/粘贴，可选本地模型跳过）
   → 引导任务：
-      开发者 → 「让 Reasonix 帮你读一个代码文件」
-      办公人员 → 「让 Reasonix 帮你分析一个表格」
-      自由职业者 → 「让 Reasonix 帮你写一份周报」
+      开发者 → 「让 Rexion 帮你读一个代码文件」
+      办公人员 → 「让 Rexion 帮你分析一个表格」
+      自由职业者 → 「让 Rexion 帮你写一份周报」
   → 进入首页
 ```
 
@@ -402,7 +402,7 @@ Agent 执行流程：
 4. 返回 .pptx 文件 + 预览
 ```
 
-**PPT 插件设计**（`reasonix-plugin-slides`）：
+**PPT 插件设计**（`Rexion-plugin-slides`）：
 
 | 工具 | 功能 |
 |------|------|
@@ -544,7 +544,7 @@ Agent 执行流程：
 
 **技术方案**：
 - 读取系统日历（macOS Calendar / Windows Outlook）
-- 本地存储待办（`.reasonix/todos.json`）
+- 本地存储待办（`.Rexion/todos.json`）
 - 定时任务通过 cron 触发
 
 ### 5.7 邮件处理能力（新功能）
@@ -558,13 +558,13 @@ Agent 执行流程：
 - 「以后收到XX的邮件自动标记为重要」→ 规则设定
 
 **技术方案**：
-- 新增 MCP 插件 `reasonix-plugin-mail`
+- 新增 MCP 插件 `Rexion-plugin-mail`
 - 支持 IMAP/SMTP 协议（纯 Go：`go-imap`）
 - 邮件内容通过 LLM 处理，不走云端
 
 ### 5.8 IM 远程控制（新功能）
 
-**目标**：通过微信/飞书/钉钉远程操控电脑上的 Reasonix
+**目标**：通过微信/飞书/钉钉远程操控电脑上的 Rexion
 
 **架构**：
 
@@ -577,7 +577,7 @@ IM Bot 服务（本地轻量 HTTP 服务）
       │
       │ 解析指令 → 创建会话任务
       ▼
-Reasonix Agent 核心
+Rexion Agent 核心
       │
       │ 执行任务 → 生成结果
       ▼
@@ -661,7 +661,7 @@ IM Bot 服务
 └─────────────────────────────────┬───────────────────────────────────┘
                                   │ Wails Bound Methods
 ┌─────────────────────────────────▼───────────────────────────────────┐
-│                     Reasonix Core (Go)                               │
+│                     Rexion Core (Go)                               │
 │                                                                     │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐│
 │  │  Agent   │ │ Provider │ │   Tool   │ │  Skill   │ │Permission││
@@ -708,11 +708,11 @@ IM Bot 服务
 | `OnboardingFlow` | 前端 | 新手引导 | P5 |
 | `FloatingWindow` | 前端 | 悬浮剪贴板窗 | P6 |
 | `IntentClassifier` | 核心 | 意图分类器 | P5 |
-| `reasonix-plugin-slides` | 插件 | PPT 生成 | P5 |
-| `reasonix-plugin-search` | 插件 | 搜索调研 | P5 |
-| `reasonix-plugin-mail` | 插件 | 邮件处理 | P6 |
-| `reasonix-plugin-calendar` | 插件 | 日程管理 | P6 |
-| `reasonix-plugin-im` | 插件 | IM 远程控制 | P6 |
+| `Rexion-plugin-slides` | 插件 | PPT 生成 | P5 |
+| `Rexion-plugin-search` | 插件 | 搜索调研 | P5 |
+| `Rexion-plugin-mail` | 插件 | 邮件处理 | P6 |
+| `Rexion-plugin-calendar` | 插件 | 日程管理 | P6 |
+| `Rexion-plugin-im` | 插件 | IM 远程控制 | P6 |
 | `ClipboardHelper` | 桌面 | 剪贴板助手 | P6 |
 
 ### 6.3 数据模型扩展
@@ -818,7 +818,7 @@ CREATE TABLE notifications (
 **目标**：一句话生成专业 PPT
 
 **交付物**：
-- [ ] `reasonix-plugin-slides` 独立二进制
+- [ ] `Rexion-plugin-slides` 独立二进制
 - [ ] 5 个工具：create_ppt / add_slide / apply_theme / add_chart / export_pdf
 - [ ] Skill：`generate-ppt`
 - [ ] 前端 SlideViewer 预览组件
@@ -828,7 +828,7 @@ CREATE TABLE notifications (
 **目标**：自动搜索整理信息，生成调研报告
 
 **交付物**：
-- [ ] `reasonix-plugin-search` 独立二进制
+- [ ] `Rexion-plugin-search` 独立二进制
 - [ ] 3 个工具：web_search / web_extract / compare_table
 - [ ] Skill：`research-report`
 - [ ] 前端搜索结果卡片
@@ -859,7 +859,7 @@ CREATE TABLE notifications (
 #### P6-1: 日程与待办管理
 
 **交付物**：
-- [ ] `reasonix-plugin-calendar` 插件
+- [ ] `Rexion-plugin-calendar` 插件
 - [ ] 待办 CRUD（对话内 + 侧边栏）
 - [ ] 系统日历集成（macOS/Windows）
 - [ ] 日程视图组件
@@ -867,14 +867,14 @@ CREATE TABLE notifications (
 #### P6-2: 邮件处理
 
 **交付物**：
-- [ ] `reasonix-plugin-mail` 插件（IMAP/SMTP）
+- [ ] `Rexion-plugin-mail` 插件（IMAP/SMTP）
 - [ ] 邮件摘要、分类、起草回复
 - [ ] 批量处理 Skill（发票整理等）
 
 #### P6-3: IM 远程控制
 
 **交付物**：
-- [ ] `reasonix-plugin-im` 插件
+- [ ] `Rexion-plugin-im` 插件
 - [ ] 企业微信机器人对接
 - [ ] 飞书机器人对接
 - [ ] 钉钉机器人对接
@@ -900,7 +900,7 @@ CREATE TABLE notifications (
 #### P6-6: 长期记忆增强
 
 **交付物**：
-- [ ] 个人知识库（`~/.reasonix/memory/`）
+- [ ] 个人知识库（`~/.Rexion/memory/`）
   - `people.md` — 常联系人
   - `projects.md` — 在跟项目
   - `preferences.md` — 个人偏好
@@ -923,7 +923,7 @@ CREATE TABLE notifications (
 #### P7-1: Skill 市场
 
 - 浏览社区贡献的 Skill
-- 一键安装 Skill 到 `.reasonix/skills/`
+- 一键安装 Skill 到 `.Rexion/skills/`
 - Skill 评分与评论
 - Skill 版本管理
 
@@ -931,7 +931,7 @@ CREATE TABLE notifications (
 
 - 浏览 MCP 插件
 - 一键安装与配置
-- 插件健康检查（`reasonix doctor`）
+- 插件健康检查（`Rexion doctor`）
 
 #### P7-3: 多语言 UI
 

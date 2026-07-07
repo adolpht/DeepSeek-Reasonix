@@ -7,14 +7,14 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/acp"
-	"reasonix/internal/config"
-	"reasonix/internal/event"
-	"reasonix/internal/netclient"
-	"reasonix/internal/provider"
-	"reasonix/internal/tool"
+	"rexion/internal/acp"
+	"rexion/internal/config"
+	"rexion/internal/event"
+	"rexion/internal/netclient"
+	"rexion/internal/provider"
+	"rexion/internal/tool"
 
-	_ "reasonix/internal/tool/builtin"
+	_ "rexion/internal/tool/builtin"
 )
 
 const acpTestProviderKind = "acp-test-provider"
@@ -63,16 +63,16 @@ func TestACPInitializesWithoutAPIKey(t *testing.T) {
 			t.Fatalf("Run --acp initialize rc = %d, want 0", rc)
 		}
 	})
-	if !strings.Contains(out, `"protocolVersion":1`) || !strings.Contains(out, `"name":"reasonix"`) {
+	if !strings.Contains(out, `"protocolVersion":1`) || !strings.Contains(out, `"name":"Rexion"`) {
 		t.Fatalf("initialize output = %s", out)
 	}
 }
 
 func TestACPFactoryLoadsSessionCwdProjectConfig(t *testing.T) {
 	home := isolateCLIConfigHome(t)
-	t.Setenv("REASONIX_TEST_KEY", "test-key")
+	t.Setenv("REXION_TEST_KEY", "test-key")
 	project := t.TempDir()
-	if err := os.WriteFile(filepath.Join(project, "reasonix.toml"), []byte(`
+	if err := os.WriteFile(filepath.Join(project, "Rexion.toml"), []byte(`
 default_model = "local"
 
 [[providers]]
@@ -80,11 +80,11 @@ name = "local"
 kind = "acp-test-provider"
 base_url = "http://example.invalid"
 model = "fake-model"
-api_key_env = "REASONIX_TEST_KEY"
+api_key_env = "REXION_TEST_KEY"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmdDir := filepath.Join(project, ".reasonix", "commands")
+	cmdDir := filepath.Join(project, ".rexion", "commands")
 	if err := os.MkdirAll(cmdDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

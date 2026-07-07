@@ -1,4 +1,4 @@
-# Reasonix P0/P1 改造详细计划
+# Rexion P0/P1 改造详细计划
 
 > 版本：v1.0 | 日期：2026-06-29 | 状态：规划中
 
@@ -33,7 +33,7 @@
 | macOS Seatbelt 沙盒 | `internal/sandbox/seatbelt_darwin.go` | ✅ 完成 |
 | 权限系统 (deny > allow > ask, 默认 ask) | `internal/permission/permission.go` | ✅ 完成 |
 | 文件写入沙盒 (confine) | `internal/tool/builtin/confine.go` | ✅ 完成 |
-| 无头执行 (reasonix run) | `internal/cli/cli.go:runAgent()` | ✅ 基础完成 |
+| 无头执行 (Rexion run) | `internal/cli/cli.go:runAgent()` | ✅ 基础完成 |
 | 文件编辑 (search/replace) | `internal/tool/builtin/editfile.go` | ✅ 完成 |
 | 批量编辑 (原子 multi_edit) | `internal/tool/builtin/multiedit.go` | ✅ 完成 |
 | 子 Agent (TaskTool, 单次 API 调用) | `internal/agent/task.go` | ✅ 基础完成 |
@@ -267,7 +267,7 @@ restrict_network = true # 是否通过防火墙规则阻断出站
 
 ### P0-3: 无头执行模式增强
 
-**目标**：使 `reasonix run` 成为 CI/CD 就绪的自动化执行引擎，具备明确的退出码、结构化输出、超时重试等能力。
+**目标**：使 `Rexion run` 成为 CI/CD 就绪的自动化执行引擎，具备明确的退出码、结构化输出、超时重试等能力。
 
 **当前状态**：`runAgent()` 已有基础实现，但缺乏 CI/CD 所需的语义化退出码、结构化输出、差异汇总等。
 
@@ -312,7 +312,7 @@ restrict_network = true # 是否通过防火墙规则阻断出站
 #### 新增 CLI 标志
 
 ```
-reasonix run [flags] <prompt>
+Rexion run [flags] <prompt>
 
 新增标志：
   --format <text|json>         输出格式（默认 text）
@@ -363,7 +363,7 @@ reasonix run [flags] <prompt>
 
 #### 验收标准
 
-- [ ] `reasonix run` 返回正确的语义化退出码
+- [ ] `Rexion run` 返回正确的语义化退出码
 - [ ] `--format json` 输出完整结构化结果
 - [ ] `--timeout` 超时后优雅终止（发送中断、等待清理）
 - [ ] `--approval-mode ask` 遇到审批需求时退出码 2
@@ -576,10 +576,10 @@ func BashRequiresNetwork(command string) bool {
 #### CLI 标志
 
 ```
-reasonix chat --sandbox read-only     # 建议模式
-reasonix chat                         # 默认 workspace-write
-reasonix chat --sandbox full-access   # 危险模式（需确认）
-reasonix run  --sandbox workspace-write "fix the bug"
+Rexion chat --sandbox read-only     # 建议模式
+Rexion chat                         # 默认 workspace-write
+Rexion chat --sandbox full-access   # 危险模式（需确认）
+Rexion run  --sandbox workspace-write "fix the bug"
 ```
 
 #### 文件变更清单
@@ -731,7 +731,7 @@ func NewStore(cfg StoreConfig) (Store, error) {
 1. 若 sessions/ 目录仅有 .jsonl 文件 → 自动迁移到 SQLite
 2. 迁移过程：逐文件解析 JSONL → 写入 SQLite → 原文件加 .migrated 后缀
 3. 迁移完成后 SQLite 成为默认后端
-4. 提供 reasonix session export --format jsonl 导出功能
+4. 提供 Rexion session export --format jsonl 导出功能
 ```
 
 #### 文件变更清单
@@ -753,7 +753,7 @@ func NewStore(cfg StoreConfig) (Store, error) {
 ```toml
 [store]
 backend = "sqlite"       # "sqlite" | "jsonl"
-path = ""                # SQLite 数据库路径（默认 ~/.config/reasonix/sessions.db）
+path = ""                # SQLite 数据库路径（默认 ~/.config/Rexion/sessions.db）
 auto_migrate = true      # 是否自动从 JSONL 迁移
 ```
 
@@ -974,7 +974,7 @@ system_addon = "你专注于运行测试并修复失败..."
 
 ### P1-3: MCP 服务端模式
 
-**目标**：让 Reasonix 可以作为 MCP 工具服务器暴露，被其他 Agent（Claude Code、Cursor、Copilot 等）调用。
+**目标**：让 Rexion 可以作为 MCP 工具服务器暴露，被其他 Agent（Claude Code、Cursor、Copilot 等）调用。
 
 **当前状态**：仅有 MCP 客户端（连接外部 MCP 服务器），无服务端能力。
 
@@ -988,7 +988,7 @@ system_addon = "你专注于运行测试并修复失败..."
               │ stdio / HTTP
               │ JSON-RPC 2.0
 ┌─────────────▼───────────────────┐
-│  Reasonix MCP Server            │
+│  Rexion MCP Server            │
 │  ┌─────────────────────────┐    │
 │  │  MCP 协议层              │    │
 │  │  initialize / tools/*   │    │
@@ -1007,26 +1007,26 @@ system_addon = "你专注于运行测试并修复失败..."
 
 | 工具名 | 说明 | 参数 |
 |--------|------|------|
-| `reasonix_code` | 代码修改 Agent | `prompt`, `sandbox_mode` |
-| `reasonix_explore` | 代码探索（只读） | `prompt` |
-| `reasonix_review` | 代码审查 | `target`, `focus` |
-| `reasonix_test` | 测试运行和修复 | `command`, `fix` |
+| `Rexion_code` | 代码修改 Agent | `prompt`, `sandbox_mode` |
+| `Rexion_explore` | 代码探索（只读） | `prompt` |
+| `Rexion_review` | 代码审查 | `target`, `focus` |
+| `Rexion_test` | 测试运行和修复 | `command`, `fix` |
 
 #### 启动方式
 
 ```bash
 # stdio 模式（供 Cursor/VS Code 等 IDE 调用）
-reasonix mcp-server --transport stdio
+Rexion mcp-server --transport stdio
 
 # HTTP 模式（供远程 Agent 调用）
-reasonix mcp-server --transport http --addr 0.0.0.0:9090
+Rexion mcp-server --transport http --addr 0.0.0.0:9090
 
 # 配置方式
 # 在 Cursor 的 .cursor/mcp.json 中：
 {
   "mcpServers": {
-    "reasonix": {
-      "command": "reasonix",
+    "Rexion": {
+      "command": "Rexion",
       "args": ["mcp-server", "--transport", "stdio"]
     }
   }
@@ -1051,7 +1051,7 @@ func (s *Server) HandleInitialize(req InitializeRequest) InitializeResult {
             Tools: &ToolsCapability{ListChanged: false},
         },
         ServerInfo: Implementation{
-            Name:    "reasonix",
+            Name:    "Rexion",
             Version: version,
         },
     }
@@ -1060,10 +1060,10 @@ func (s *Server) HandleInitialize(req InitializeRequest) InitializeResult {
 func (s *Server) HandleToolsList() ListToolsResult {
     return ListToolsResult{
         Tools: []Tool{
-            {Name: "reasonix_code", Description: "...", InputSchema: ...},
-            {Name: "reasonix_explore", Description: "...", InputSchema: ...},
-            {Name: "reasonix_review", Description: "...", InputSchema: ...},
-            {Name: "reasonix_test", Description: "...", InputSchema: ...},
+            {Name: "Rexion_code", Description: "...", InputSchema: ...},
+            {Name: "Rexion_explore", Description: "...", InputSchema: ...},
+            {Name: "Rexion_review", Description: "...", InputSchema: ...},
+            {Name: "Rexion_test", Description: "...", InputSchema: ...},
         },
     }
 }
@@ -1088,12 +1088,12 @@ func (s *Server) HandleToolsCall(req CallToolRequest) CallToolResult {
 | `internal/mcpserver/transport_http.go` | 新增 | HTTP 传输层 |
 | `internal/mcpserver/handler.go` | 新增 | JSON-RPC 请求处理器 |
 | `internal/cli/cli.go` | 修改 | 新增 `mcp-server` 子命令 |
-| `cmd/reasonix/main.go` | 无需改动 | cli.Run 已覆盖 |
+| `cmd/Rexion/main.go` | 无需改动 | cli.Run 已覆盖 |
 
 #### 验收标准
 
-- [ ] `reasonix mcp-server --transport stdio` 正常启动
-- [ ] Claude Code / Cursor 可发现和调用 Reasonix 工具
+- [ ] `Rexion mcp-server --transport stdio` 正常启动
+- [ ] Claude Code / Cursor 可发现和调用 Rexion 工具
 - [ ] stdio 传输遵循 JSON-RPC 2.0 + MCP 协议
 - [ ] HTTP 传输支持 SSE 流式响应
 - [ ] 工具调用映射到 Controller.Run()
@@ -1385,7 +1385,7 @@ Week 7-9:  [P1-3 MCP 服务端] + [P1-4 REPL] + [P1-5 tool_search]
 ### 5. 可观测性
 - 新增 Notice 事件用于沙盒状态、权限决策、Agent 生命周期
 - 结构化日志记录关键操作
-- 诊断命令（reasonix doctor）覆盖新功能健康检查
+- 诊断命令（Rexion doctor）覆盖新功能健康检查
 
 ### 6. 测试策略
 - 每个新功能包含单元测试 + 集成测试

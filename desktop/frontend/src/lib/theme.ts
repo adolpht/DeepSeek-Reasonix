@@ -49,8 +49,8 @@ const DEFAULT_THEME_STYLE: Record<ResolvedTheme, ThemeStyle> = {
 // user who manually changes the theme, keep their stored desktop config.
 const DEFAULT_THEME: Theme = "dark";
 
-const THEME_KEY = "reasonix-theme";
-const STYLE_KEY = "reasonix-theme-style";
+const THEME_KEY = "Rexion-theme";
+const STYLE_KEY = "Rexion-theme-style";
 let currentTheme: Theme = DEFAULT_THEME;
 let currentThemeStyle: ThemeStyle = DEFAULT_THEME_STYLE.dark;
 
@@ -190,7 +190,7 @@ export function initTheme(): void {
 // WorkspaceType must match the type defined in lib/types.ts.
 type WorkspaceType = "coding" | "office" | "assistant";
 
-const UNIFIED_THEME_KEY = "reasonix-unified-theme";
+const UNIFIED_THEME_KEY = "Rexion-unified-theme";
 
 /** Returns the recommended theme + style for a given workspace type. */
 export function getThemeForWorkspaceType(wsType: WorkspaceType): { theme: ResolvedTheme; style: ThemeStyle } {

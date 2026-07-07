@@ -1,7 +1,7 @@
-// Command reasonix-desktop is the Wails shell around the Reasonix kernel: a native
+// Command Rexion-desktop is the Wails shell around the Rexion kernel: a native
 // window hosting a webview frontend, with the Go-side control.Controller bound
 // directly to the UI (no HTTP hop — bindings in, runtime events out). It lives in
-// a nested module (reasonix/desktop) so the CGO/WebKit desktop build never touches
+// a nested module (Rexion/desktop) so the CGO/WebKit desktop build never touches
 // the CLI's CGO_ENABLED=0 single-static-binary guarantee, while still importing
 // the same internal/* kernel.
 package main
@@ -22,10 +22,10 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
 	// Blank imports wire compile-time built-ins into their registries, exactly as
-	// cmd/reasonix does — boot.Build resolves providers/tools from these registries.
-	_ "reasonix/internal/provider/anthropic"
-	_ "reasonix/internal/provider/openai"
-	_ "reasonix/internal/tool/builtin"
+	// cmd/Rexion does — boot.Build resolves providers/tools from these registries.
+	_ "rexion/internal/provider/anthropic"
+	_ "rexion/internal/provider/openai"
+	_ "rexion/internal/tool/builtin"
 )
 
 // assets embeds the built frontend. `all:` so dotfiles (e.g. the dist .gitkeep
@@ -36,7 +36,7 @@ import (
 var assets embed.FS
 
 // version is injected at build time via `wails build -ldflags "-X main.version=..."`,
-// mirroring cmd/reasonix/main.go. The auto-updater reads it (App.Version) to compare
+// mirroring cmd/Rexion/main.go. The auto-updater reads it (App.Version) to compare
 // against the published manifest; an un-injected dev build stays "dev" and never
 // prompts to update.
 var version = "dev"
@@ -44,9 +44,9 @@ var version = "dev"
 func main() {
 	// Set up dual-output logging: write to both stderr (for console/wails dev)
 	// and a log file (for production diagnostics). The log file lives at
-	//   Windows: %AppData%\reasonix\logs\reasonix.log
-	//   macOS:   ~/Library/Application Support/reasonix/logs/reasonix.log
-	//   Linux:   ~/.config/reasonix/logs/reasonix.log
+	//   Windows: %AppData%\Rexion\logs\Rexion.log
+	//   macOS:   ~/Library/Application Support/Rexion/logs/Rexion.log
+	//   Linux:   ~/.config/Rexion/logs/Rexion.log
 	initLogging()
 
 	// Cap V8's old-space heap at 512 MB so long sessions don't balloon
@@ -68,7 +68,7 @@ func main() {
 	}
 
 	err := wails.Run(&options.App{
-		Title:     "Reasonix",
+		Title:     "Rexion",
 		Width:     width,
 		Height:    height,
 		MinWidth:  760,
@@ -111,7 +111,7 @@ func main() {
 			Theme: windows.SystemDefault,
 		},
 		Linux: &linux.Options{
-			ProgramName: "Reasonix",
+			ProgramName: "Rexion",
 			// WebKitGTK GPU compositing is inconsistent across distros/drivers and
 			// is the one real cross-platform rough edge for a Go+webview stack:
 			// "always" can yield blank or flickering webviews on some setups, so
@@ -133,11 +133,11 @@ func initLogging() {
 	if err != nil {
 		return
 	}
-	logDir := filepath.Join(configDir, "reasonix", "logs")
+	logDir := filepath.Join(configDir, "Rexion", "logs")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return
 	}
-	logPath := filepath.Join(logDir, "reasonix.log")
+	logPath := filepath.Join(logDir, "Rexion.log")
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return
@@ -147,7 +147,7 @@ func initLogging() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(multi, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	})))
-	slog.Info("reasonix: logging initialized", "log_file", logPath)
+	slog.Info("Rexion: logging initialized", "log_file", logPath)
 }
 
 // dualWriter writes to two writers simultaneously.
@@ -172,7 +172,7 @@ func (d *dualWriter) Write(p []byte) (n int, err error) {
 // into a logged error the user can recover from by retrying.
 //
 // The recovered value and a goroutine stack snapshot are written through slog,
-// which initLogging has already pointed at reasonix.log (and stderr in dev).
+// which initLogging has already pointed at Rexion.log (and stderr in dev).
 // Recovering here does NOT keep a panicking turn alive — controller.runGuarded
 // has its own recover for in-turn panics — this is the outer guard for panics
 // in tab lookup, transcript snapshotting, approval plumbing, etc.

@@ -76,7 +76,7 @@ import {
 } from "./lib/theme";
 import { useWindowStatePersistence } from "./lib/windowState";
 
-const SIDEBAR_COLLAPSED_KEY = "reasonix.sidebar.collapsed";
+const SIDEBAR_COLLAPSED_KEY = "Rexion.sidebar.collapsed";
 const SIDEBAR_DEFAULT_WIDTH = 264;
 const SIDEBAR_DEFAULT_RATIO = 0.175;
 const SIDEBAR_MIN_WIDTH = 228;
@@ -87,24 +87,14 @@ const WORKSPACE_RESIZER_WIDTH = 8;
 function isThemeMode(value: string): value is Theme {
   return value === "auto" || value === "light" || value === "dark";
 }
-const CONTEXT_PANEL_MIN_WIDTH = 340;
-const RIGHT_DOCK_MIN_WIDTH = CONTEXT_PANEL_MIN_WIDTH;
-const RIGHT_DOCK_CONTEXT_WIDTH = 380;
-const RIGHT_DOCK_TREE_DEFAULT_WIDTH = 320;
-const RIGHT_DOCK_TREE_DEFAULT_RATIO = 0.25;
-const RIGHT_DOCK_TREE_MIN_WIDTH = 260;
-const RIGHT_DOCK_TREE_MAX_WIDTH = 560;
-const RIGHT_DOCK_PREVIEW_DEFAULT_WIDTH = 640;
+const RIGHT_DOCK_MIN_WIDTH = 260;
+const RIGHT_DOCK_DEFAULT_WIDTH = 380;
+const RIGHT_DOCK_DEFAULT_RATIO = 0.25;
 const RIGHT_DOCK_MAX_WIDTH = 860;
 
 type RightDockMode = "preview" | "files" | "changed" | "context" | "calendar" | "dailyBrief" | "imSessions";
 const SHOW_CONTEXT_DOCK = true;
 
-// Fixed-width dock modes (context, calendar, dailyBrief) use a constant
-// panel width and skip width-persistence logic.
-function isFixedWidthDockMode(mode: RightDockMode): boolean {
-  return mode === "context" || mode === "calendar" || mode === "dailyBrief" || mode === "imSessions";
-}
 type HistoryScopeFilter = { scope: "global" | "project"; workspaceRoot: string };
 type DesktopPlatform = "darwin" | "windows" | "linux";
 type HistoryViewState =
@@ -120,10 +110,6 @@ function clampRightDockWidth(width: number): number {
   return Math.min(RIGHT_DOCK_MAX_WIDTH, Math.max(RIGHT_DOCK_MIN_WIDTH, Math.round(width)));
 }
 
-function clampRightDockTreeWidth(width: number): number {
-  return Math.min(RIGHT_DOCK_TREE_MAX_WIDTH, Math.max(RIGHT_DOCK_TREE_MIN_WIDTH, Math.round(width)));
-}
-
 function viewportWidthFallback(): number {
   if (typeof window === "undefined") return 0;
   const width = Math.round(window.innerWidth || 0);
@@ -136,10 +122,10 @@ function defaultSidebarWidth(): number {
   return clampSidebarWidth(width * SIDEBAR_DEFAULT_RATIO);
 }
 
-function defaultRightDockTreeWidth(): number {
+function defaultRightDockWidth(): number {
   const width = viewportWidthFallback();
-  if (width <= 0) return RIGHT_DOCK_TREE_DEFAULT_WIDTH;
-  return clampRightDockTreeWidth(width * RIGHT_DOCK_TREE_DEFAULT_RATIO);
+  if (width <= 0) return RIGHT_DOCK_DEFAULT_WIDTH;
+  return clampRightDockWidth(width * RIGHT_DOCK_DEFAULT_RATIO);
 }
 
 function resolveRightDockWidth(mainWidth: number, desiredDockWidth: number, minWidth: number): number {
@@ -197,20 +183,20 @@ function detectBrowserPlatform(): DesktopPlatform {
   return "linux";
 }
 
-function loadRightDockTreeWidth(): number {
-  return loadLayoutSize("rightDockTreeWidth", defaultRightDockTreeWidth(), clampRightDockTreeWidth);
+function loadRightDockWidth(): number {
+  // Migrate from legacy keys if the new key doesn't exist yet.
+  const existing = loadLayoutSize("rightDockWidth", -1, clampRightDockWidth);
+  if (existing >= 0) return existing;
+  // Fall back to the wider of the two legacy widths.
+  const legacyTree = loadLayoutSize("rightDockTreeWidth", -1, (v) => v);
+  const legacyPreview = loadLayoutSize("rightDockPreviewWidth", -1, (v) => v);
+  const legacy = Math.max(legacyTree, legacyPreview);
+  if (legacy >= 0) return clampRightDockWidth(legacy);
+  return defaultRightDockWidth();
 }
 
-function saveRightDockTreeWidth(width: number): void {
-  saveLayoutSize("rightDockTreeWidth", width, clampRightDockTreeWidth);
-}
-
-function loadRightDockPreviewWidth(): number {
-  return loadLayoutSize("rightDockPreviewWidth", RIGHT_DOCK_PREVIEW_DEFAULT_WIDTH, clampRightDockWidth);
-}
-
-function saveRightDockPreviewWidth(width: number): void {
-  saveLayoutSize("rightDockPreviewWidth", width, clampRightDockWidth);
+function saveRightDockWidth(width: number): void {
+  saveLayoutSize("rightDockWidth", width, clampRightDockWidth);
 }
 
 function tabWorkspaceTitle(tab?: TabMeta): string {
@@ -270,7 +256,7 @@ function fence(label: string, value: string): string {
 }
 
 function sessionItemsToMarkdown(title: string, items: Item[], live?: LiveStream): string {
-  const lines: string[] = [`# ${title.trim() || "Reasonix session"}`, ""];
+  const lines: string[] = [`# ${title.trim() || "Rexion session"}`, ""];
   for (const item of materializeLiveItems(items, live)) {
     switch (item.kind) {
       case "user":
@@ -329,7 +315,7 @@ function sessionItemsToJson(title: string, items: Item[], live?: LiveStream): st
 
 function safeFilename(name: string): string {
   const cleaned = name.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 80);
-  return cleaned || "reasonix-session";
+  return cleaned || "Rexion-session";
 }
 
 function downloadTextFile(filename: string, text: string, mime: string): void {
@@ -421,8 +407,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [sidebarResizing, setSidebarResizing] = useState(false);
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(true);
-  const [rightDockTreeWidth, setRightDockTreeWidth] = useState(loadRightDockTreeWidth);
-  const [rightDockPreviewWidth, setRightDockPreviewWidth] = useState(loadRightDockPreviewWidth);
+  const [rightDockWidth, setRightDockWidth] = useState(loadRightDockWidth);
   const [workspacePreviewActive, setWorkspacePreviewActive] = useState(false);
   const [workspacePanelResizing, setWorkspacePanelResizing] = useState(false);
   const [workspacePanelMaximized, setWorkspacePanelMaximized] = useState(false);
@@ -584,15 +569,10 @@ export default function App() {
   const layoutRef = useRef<HTMLDivElement>(null);
   const footerRef = useRef<HTMLElement>(null);
   const [layoutWidth, setLayoutWidth] = useState(0);
-  const preferredWorkspacePanelWidth =
-    isFixedWidthDockMode(rightDockMode)
-      ? RIGHT_DOCK_CONTEXT_WIDTH
-      : workspacePreviewActive
-      ? rightDockPreviewWidth
-      : rightDockTreeWidth;
+  const preferredWorkspacePanelWidth = rightDockWidth;
   const sidebarRenderWidth = sidebarCollapsed ? 0 : sidebarWidth;
   const measuredMainWidth = layoutWidth > 0 ? Math.max(0, layoutWidth - sidebarRenderWidth) : CHAT_MIN_WIDTH + WORKSPACE_RESIZER_WIDTH + preferredWorkspacePanelWidth;
-  const workspacePanelMinWidth = workspacePreviewActive ? RIGHT_DOCK_MIN_WIDTH : RIGHT_DOCK_TREE_MIN_WIDTH;
+  const workspacePanelMinWidth = RIGHT_DOCK_MIN_WIDTH;
 
   const budget = Math.max(0, measuredMainWidth - CHAT_MIN_WIDTH - WORKSPACE_RESIZER_WIDTH);
   const workspacePanelFloating = workspacePanelOpen && !workspacePanelMaximized && budget < workspacePanelMinWidth;
@@ -695,12 +675,12 @@ export default function App() {
   );
 
   const [autoSwitchMode, setAutoSwitchMode] = useState(() => {
-    try { return window.localStorage.getItem("reasonix.autoSwitchMode") === "true"; } catch { return false; }
+    try { return window.localStorage.getItem("Rexion.autoSwitchMode") === "true"; } catch { return false; }
   });
 
   // Persist autoSwitchMode changes to localStorage.
   useEffect(() => {
-    try { window.localStorage.setItem("reasonix.autoSwitchMode", autoSwitchMode ? "true" : "false"); } catch { /* ignore */ }
+    try { window.localStorage.setItem("Rexion.autoSwitchMode", autoSwitchMode ? "true" : "false"); } catch { /* ignore */ }
   }, [autoSwitchMode]);
 
   // Mode switching UI has been removed: simply consume any intent signal so it
@@ -1111,28 +1091,20 @@ export default function App() {
 
   const setSavedWorkspacePanelWidth = useCallback(
     (width: number) => {
-      if (isFixedWidthDockMode(rightDockMode)) return;
-      if (workspacePreviewActive) {
-        const next = clampRightDockWidth(width);
-        setRightDockPreviewWidth(next);
-        saveRightDockPreviewWidth(next);
-        return;
-      }
-      const next = clampRightDockTreeWidth(width);
-      setRightDockTreeWidth(next);
-      saveRightDockTreeWidth(next);
+      const next = clampRightDockWidth(width);
+      setRightDockWidth(next);
+      saveRightDockWidth(next);
     },
-    [rightDockMode, workspacePreviewActive],
+    [],
   );
 
   const ensureWorkspacePanelWidth = useCallback(
     (width: number) => {
-      if (isFixedWidthDockMode(rightDockMode)) return;
       const next = clampRightDockWidth(width);
-      setRightDockPreviewWidth(next);
-      saveRightDockPreviewWidth(next);
+      setRightDockWidth(next);
+      saveRightDockWidth(next);
     },
-    [rightDockMode],
+    [],
   );
 
   const startWorkspacePanelResize = useCallback(
@@ -1146,12 +1118,7 @@ export default function App() {
       const onMove = (moveEvent: PointerEvent) => {
         const delta = moveEvent.clientX - startX;
         nextDockWidth = startDockWidth - delta;
-        if (isFixedWidthDockMode(rightDockMode)) return;
-        if (workspacePreviewActive) {
-          setRightDockPreviewWidth(clampRightDockWidth(nextDockWidth));
-        } else {
-          setRightDockTreeWidth(clampRightDockTreeWidth(nextDockWidth));
-        }
+        setRightDockWidth(clampRightDockWidth(nextDockWidth));
       };
       const onDone = () => {
         setSavedWorkspacePanelWidth(nextDockWidth);
@@ -1178,13 +1145,13 @@ export default function App() {
         setSavedWorkspacePanelWidth(preferredWorkspacePanelWidth + (event.key === "ArrowLeft" ? 16 : -16));
       } else if (event.key === "Home") {
         event.preventDefault();
-        setSavedWorkspacePanelWidth(workspacePreviewActive ? RIGHT_DOCK_MIN_WIDTH : RIGHT_DOCK_TREE_MIN_WIDTH);
+        setSavedWorkspacePanelWidth(RIGHT_DOCK_MIN_WIDTH);
       } else if (event.key === "End") {
         event.preventDefault();
-        setSavedWorkspacePanelWidth(workspacePreviewActive ? RIGHT_DOCK_MAX_WIDTH : RIGHT_DOCK_TREE_MAX_WIDTH);
+        setSavedWorkspacePanelWidth(RIGHT_DOCK_MAX_WIDTH);
       }
     },
-    [preferredWorkspacePanelWidth, setSavedWorkspacePanelWidth, workspacePreviewActive],
+    [preferredWorkspacePanelWidth, setSavedWorkspacePanelWidth],
   );
 
   const startTerminalDockResize = useCallback(
@@ -1654,12 +1621,8 @@ export default function App() {
       ? t("sidebar.expand")
       : t("sidebar.collapse");
   const sidebarNavTooltipDisabled = !sidebarCollapsed;
-  const workspacePanelResetWidth = isFixedWidthDockMode(rightDockMode)
-    ? RIGHT_DOCK_CONTEXT_WIDTH
-    : workspacePreviewActive
-    ? RIGHT_DOCK_PREVIEW_DEFAULT_WIDTH
-    : defaultRightDockTreeWidth();
-  const workspacePanelMaxWidth = workspacePreviewActive ? RIGHT_DOCK_MAX_WIDTH : RIGHT_DOCK_TREE_MAX_WIDTH;
+  const workspacePanelResetWidth = RIGHT_DOCK_DEFAULT_WIDTH;
+  const workspacePanelMaxWidth = RIGHT_DOCK_MAX_WIDTH;
 
   return (
     <ShellExpandProvider>
@@ -1695,7 +1658,7 @@ export default function App() {
           >
             {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
           </button>
-          <div className="app-chrome__identity" aria-label="Reasonix">
+          <div className="app-chrome__identity" aria-label="Rexion">
             <span className="app-chrome__scope">{appChromeScopeLabel(activeTab, state.meta)}</span>
           </div>
           <div className="app-chrome__spacer" />

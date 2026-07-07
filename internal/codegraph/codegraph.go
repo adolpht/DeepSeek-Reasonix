@@ -6,7 +6,7 @@
 // would need.
 //
 // CodeGraph is fetched on first use into a per-version cache (see Install) rather
-// than shipped in the reasonix binary, which keeps installs small. Resolve finds
+// than shipped in the Rexion binary, which keeps installs small. Resolve finds
 // the cached launcher; an explicit config path, a system-installed `codegraph` on
 // PATH, and a bundle placed beside the executable are also honored. boot injects
 // the resolved launcher as one more stdio plugin, pinned to the project root via
@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/proc"
+	"rexion/internal/proc"
 )
 
 const initTimeout = 30 * time.Second
@@ -40,7 +40,7 @@ You have codegraph tools for symbol-level code intelligence. For architecture qu
 - codegraph_files — project file tree with symbol counts
 Use grep/read_file for content search (comments, strings, config values) and when codegraph is not available.`
 
-// BundleDirName is the directory, beside the reasonix executable, that the release
+// BundleDirName is the directory, beside the Rexion executable, that the release
 // archive unpacks the CodeGraph bundle into. Its launcher lives at
 // <BundleDirName>/bin/codegraph, with the bundled node runtime and lib/ beside it;
 // the launcher resolves those relative to itself, so the bundle is relocatable.
@@ -50,7 +50,7 @@ const BundleDirName = "codegraph"
 //  1. override — an explicit [codegraph].path from config (~ and ${VAR} expanded);
 //  2. the per-version cache populated by Install (the normal case);
 //  3. a system-installed `codegraph` on PATH;
-//  4. a bundle placed beside the reasonix executable (fallback for manual setups).
+//  4. a bundle placed beside the Rexion executable (fallback for manual setups).
 //
 // ok is false when none resolves — the caller then triggers Install (or skips the
 // feature), so the codegraph_* tools come online once the cache is populated.
@@ -72,7 +72,7 @@ func Resolve(override string) (string, bool) {
 	return "", false
 }
 
-// bundled looks for the CodeGraph launcher unpacked beside the reasonix binary.
+// bundled looks for the CodeGraph launcher unpacked beside the Rexion binary.
 // The executable path is symlink-resolved first so a launcher installed via a
 // symlink (e.g. a package manager's bin shim) still points at the real bundle.
 func bundled() (string, bool) {

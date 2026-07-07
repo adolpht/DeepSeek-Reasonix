@@ -1,4 +1,4 @@
-module reasonix
+module rexion
 
 go 1.25.0
 

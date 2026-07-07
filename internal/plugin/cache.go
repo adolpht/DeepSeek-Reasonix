@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
-	"reasonix/internal/config"
-	"reasonix/internal/tool"
+	"rexion/internal/config"
+	"rexion/internal/tool"
 )
 
 // cacheableToolsOf extracts the persistable subset of remote tools so Start()

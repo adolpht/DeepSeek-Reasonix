@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/config"
-	"reasonix/internal/control"
-	"reasonix/internal/event"
-	"reasonix/internal/provider"
+	"rexion/internal/agent"
+	"rexion/internal/config"
+	"rexion/internal/control"
+	"rexion/internal/event"
+	"rexion/internal/provider"
 )
 
 func TestHistoryMessagesIncludeAssistantReasoning(t *testing.T) {

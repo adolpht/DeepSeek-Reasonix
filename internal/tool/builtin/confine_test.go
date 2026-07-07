@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"reasonix/internal/sandbox"
+	"rexion/internal/sandbox"
 )
 
 func TestWithin(t *testing.T) {
@@ -109,7 +109,7 @@ func TestBashSandboxConfinement(t *testing.T) {
 	if err != nil {
 		t.Skipf("no home dir: %v", err)
 	}
-	work, err := os.MkdirTemp(home, ".reasonix-bashsb-*")
+	work, err := os.MkdirTemp(home, ".rexion-bashsb-*")
 	if err != nil {
 		t.Skipf("cannot create work dir under home: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestBashSandboxConfinement(t *testing.T) {
 	if _, err := b.Execute(context.Background(), inArgs); err != nil {
 		t.Fatalf("bash write inside root failed: %v", err)
 	}
-	outPath := filepath.Join(home, ".reasonix-bashsb-escape.txt")
+	outPath := filepath.Join(home, ".rexion-bashsb-escape.txt")
 	t.Cleanup(func() { os.Remove(outPath) })
 	outArgs, _ := json.Marshal(map[string]string{"command": "echo nope > " + outPath})
 	if _, err := b.Execute(context.Background(), outArgs); err == nil {

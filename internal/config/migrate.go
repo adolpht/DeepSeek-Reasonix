@@ -4,15 +4,136 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
 
-// legacyConfig is the subset of the v0.x (~/.reasonix/config.json) schema this
+// MigrateReasonixIfNeeded performs a one-time migration of data directories from
+// the previous brand name ("Reasonix") to "Rexion". It handles:
+//   - ~/.reasonix/ → ~/.rexion/          (home dot-dir)
+//   - <UserConfigDir>/Reasonix/ → <UserConfigDir>/Rexion/  (XDG/AppData config dir)
+//   - REASONIX_* env vars → REXION_* env vars (backward compat, REXION_* takes priority)
+//
+// The migration is non-destructive: the old directory is copied then removed, so
+// no data is duplicated. A marker file is written to prevent re-migration. If the
+// new directory already exists, the old one is left untouched (the user may have
+// intentionally kept both).
+func MigrateReasonixIfNeeded() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	migrateRenamedDir(filepath.Join(home, ".reasonix"), filepath.Join(home, ".rexion"), "~/.reasonix → ~/.rexion")
+
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+	migrateRenamedDir(filepath.Join(configDir, "Reasonix"), filepath.Join(configDir, "Rexion"), "config dir Reasonix → Rexion")
+
+	// Backward-compatible environment variable forwarding: if a user still has
+	// REASONIX_HOME set (but not REXION_HOME), mirror it so the code that reads
+	// REXION_HOME picks it up without the user having to change their shell
+	// profile. REXION_* always wins when both are set.
+	migrateLegacyEnv("REASONIX_HOME", "REXION_HOME")
+	migrateLegacyEnv("REASONIX_CACHE_DIR", "REXION_CACHE_DIR")
+	migrateLegacyEnv("REASONIX_DATA_DIR", "REXION_DATA_DIR")
+	migrateLegacyEnv("REASONIX_LANG", "REXION_LANG")
+	migrateLegacyEnv("REASONIX_THEME", "REXION_THEME")
+	migrateLegacyEnv("REASONIX_THEME_STYLE", "REXION_THEME_STYLE")
+	migrateLegacyEnv("REASONIX_DEV", "REXION_DEV")
+}
+
+// migrateLegacyEnv sets newName to oldName's value when newName is unset but
+// oldName is set. This provides backward compatibility for the brand rename
+// without requiring users to update their shell profiles immediately.
+func migrateLegacyEnv(oldName, newName string) {
+	if os.Getenv(newName) == "" {
+		if v := os.Getenv(oldName); v != "" {
+			os.Setenv(newName, v)
+		}
+	}
+}
+
+// migrateRenamedDir moves srcDir to destDir if: srcDir exists, destDir does not
+// exist, and the migration marker is absent. On success a marker file is written
+// inside destDir so the migration never runs again.
+func migrateRenamedDir(srcDir, destDir, label string) {
+	marker := filepath.Join(destDir, ".migrated-from-reasonix")
+	if _, err := os.Stat(marker); err == nil {
+		return // already migrated
+	}
+	if info, err := os.Stat(srcDir); err != nil || !info.IsDir() {
+		return // source does not exist
+	}
+	if _, err := os.Stat(destDir); err == nil {
+		// dest already exists — don't clobber, just mark as done
+		writeMigrationMarker(marker, label)
+		return
+	}
+	// Copy directory tree (rename fails across filesystems on some setups).
+	if err := copyDir(srcDir, destDir); err != nil {
+		slog.Warn("brand migration: copy failed", "from", srcDir, "to", destDir, "err", err)
+		return
+	}
+	// Remove the old directory tree after a successful copy.
+	if err := os.RemoveAll(srcDir); err != nil {
+		slog.Warn("brand migration: could not remove old dir", "path", srcDir, "err", err)
+	}
+	writeMigrationMarker(marker, label)
+	slog.Info("brand migration: renamed data directory", "label", label)
+}
+
+func writeMigrationMarker(marker, label string) {
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(marker, []byte("Migrated by Rexion from Reasonix: "+label+"\n"), 0o644)
+}
+
+// copyDir recursively copies a directory tree from src to dst.
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		return copyFile(path, target, info.Mode())
+	})
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+// legacyConfig is the subset of the v0.x (~/.rexion/config.json) schema this
 // import carries forward. Fields absent here are dropped on purpose: desktop tab
-// state is frontend-owned, and skills already live in the shared ~/.reasonix/skills
+// state is frontend-owned, and skills already live in the shared ~/.rexion/skills
 // root that v1+ also scans, so they need no migration.
 type legacyConfig struct {
 	APIKey      string                       `json:"apiKey"`
@@ -50,7 +171,7 @@ func (r *MigrationResult) Notice() string {
 		fmt.Fprintf(&b, " (%d MCP server(s))", r.Plugins)
 	}
 	if r.KeyToEnv {
-		b.WriteString("; API key saved to reasonix's credentials store")
+		b.WriteString("; API key saved to Rexion's credentials store")
 	}
 	b.WriteString(". The old files were left untouched.")
 	for _, w := range r.Warnings {
@@ -61,7 +182,7 @@ func (r *MigrationResult) Notice() string {
 
 // MigrateLegacyIfNeeded performs a one-time, non-destructive import of older
 // installs into the current user config when the latter does not exist yet. It
-// checks v1-era TOML first, then v0.5/v0.x ~/.reasonix/config.json, and never
+// checks v1-era TOML first, then v0.5/v0.x ~/.rexion/config.json, and never
 // modifies or deletes the legacy files. Returns nil when there is nothing to
 // migrate, or when the current user config already exists.
 func MigrateLegacyIfNeeded() (*MigrationResult, error) {
@@ -79,7 +200,7 @@ func MigrateLegacyIfNeeded() (*MigrationResult, error) {
 	if res, err := migrateLegacyTOMLIfNeeded(dest, home); res != nil || err != nil {
 		return res, err
 	}
-	src := filepath.Join(home, ".reasonix", "config.json")
+	src := filepath.Join(home, ".rexion", "config.json")
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return nil, nil
@@ -152,9 +273,9 @@ func migrateLegacyTOMLIfNeeded(dest, home string) (*MigrationResult, error) {
 }
 
 func legacyTOMLPaths(dest, home string) []string {
-	paths := []string{filepath.Join(filepath.Dir(dest), "reasonix.toml")}
+	paths := []string{filepath.Join(filepath.Dir(dest), "Rexion.toml")}
 	if home != "" {
-		paths = append(paths, filepath.Join(home, ".reasonix", "reasonix.toml"))
+		paths = append(paths, filepath.Join(home, ".rexion", "Rexion.toml"))
 	}
 	return paths
 }
@@ -242,8 +363,8 @@ func mergeEnv(base, overlay map[string]string) map[string]string {
 	return out
 }
 
-// writeCredentialsEnv merges lines into the reasonix-owned global credentials
-// file (UserCredentialsPath, e.g. %AppData%\reasonix\credentials), replacing any
+// writeCredentialsEnv merges lines into the Rexion-owned global credentials
+// file (UserCredentialsPath, e.g. %AppData%\Rexion\credentials), replacing any
 // existing assignment of the same key, and pins them into the current process env
 // so the just-built session resolves the key without a restart. Falls back to
 // ~/.env only when the user config dir can't be resolved — never a project .env,

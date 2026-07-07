@@ -29,25 +29,25 @@ import (
 	"sync"
 	"time"
 
-	"reasonix/internal/agent"
-	"reasonix/internal/billing"
-	"reasonix/internal/checkpoint"
-	"reasonix/internal/codegraph"
-	"reasonix/internal/command"
-	"reasonix/internal/config"
-	"reasonix/internal/diff"
-	"reasonix/internal/event"
-	"reasonix/internal/hook"
-	"reasonix/internal/i18n"
-	"reasonix/internal/jobs"
-	"reasonix/internal/memory"
-	"reasonix/internal/nilutil"
-	"reasonix/internal/permission"
-	"reasonix/internal/plugin"
-	"reasonix/internal/provider"
-	"reasonix/internal/sandbox"
-	"reasonix/internal/skill"
-	"reasonix/internal/tool"
+	"rexion/internal/agent"
+	"rexion/internal/billing"
+	"rexion/internal/checkpoint"
+	"rexion/internal/codegraph"
+	"rexion/internal/command"
+	"rexion/internal/config"
+	"rexion/internal/diff"
+	"rexion/internal/event"
+	"rexion/internal/hook"
+	"rexion/internal/i18n"
+	"rexion/internal/jobs"
+	"rexion/internal/memory"
+	"rexion/internal/nilutil"
+	"rexion/internal/permission"
+	"rexion/internal/plugin"
+	"rexion/internal/provider"
+	"rexion/internal/sandbox"
+	"rexion/internal/skill"
+	"rexion/internal/tool"
 )
 
 // ErrTurnRunning reports that a caller tried to start a second foreground turn
@@ -401,7 +401,7 @@ func (c *Controller) runGuarded(body func(ctx context.Context) error) {
 		// nil deref or out-of-range slice in a provider/tool would silently kill
 		// the Wails desktop app (no stderr in production builds → no trace).
 		// The stack is logged so the next crash leaves a fingerprint in
-		// reasonix.log, and the user sees a recoverable error in-tab.
+		// Rexion.log, and the user sees a recoverable error in-tab.
 		defer func() {
 			if r := recover(); r != nil {
 				stack := debugStack()
@@ -1228,7 +1228,7 @@ func (c *Controller) RequestApproval(ctx context.Context, tool, subject string) 
 }
 
 // Run executes a turn synchronously, returning the agent's error. Used by the
-// headless `reasonix run` path, where the Sink renders to stdout and the caller
+// headless `Rexion run` path, where the Sink renders to stdout and the caller
 // just needs the exit status — no TurnDone event, no cancel bookkeeping.
 // Errors are wrapped with semantic exit codes when applicable (timeout, API
 // error, permission denied, context overflow).
@@ -2023,7 +2023,7 @@ func (c *Controller) AddMCPServer(e config.PluginEntry) (int, error) {
 
 // ConnectMCPServer connects an MCP server entry for this session without writing
 // it to config. Desktop owns config placement so it can keep user-level settings
-// out of project reasonix.toml while preserving the CLI AddMCPServer semantics.
+// out of project Rexion.toml while preserving the CLI AddMCPServer semantics.
 func (c *Controller) ConnectMCPServer(e config.PluginEntry) (int, error) {
 	return c.connectMCPServer(e)
 }
@@ -2353,7 +2353,7 @@ func (c *Controller) Bypass() bool {
 // is disabled.
 
 // QuickAdd appends a one-line note to the doc-memory file for scope (project
-// REASONIX.md by default) — the write side of "#<note>". Returns the file written.
+// Rexion.md by default) — the write side of "#<note>". Returns the file written.
 func (c *Controller) QuickAdd(scope memory.Scope, note string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

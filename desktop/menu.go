@@ -27,10 +27,10 @@ func (a *App) createAppMenu() *menu.Menu {
 			runtime.EventsEmit(a.ctx, "app:open-settings")
 		}
 	})
-	fileMenu.AddText("Show Reasonix", nil, func(_ *menu.CallbackData) {
+	fileMenu.AddText("Show Rexion", nil, func(_ *menu.CallbackData) {
 		a.showMainWindow()
 	})
-	fileMenu.AddText("Quit Reasonix", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
+	fileMenu.AddText("Quit Rexion", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
 		a.quitApp()
 	})
 	m.Append(menu.EditMenu())

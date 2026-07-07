@@ -9,8 +9,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"reasonix/internal/i18n"
-	"reasonix/internal/skill"
+	"rexion/internal/i18n"
+	"rexion/internal/skill"
 )
 
 var scopePriority = map[skill.Scope]int{

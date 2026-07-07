@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"reasonix/internal/i18n"
-	"reasonix/internal/provider"
+	"rexion/internal/i18n"
+	"rexion/internal/provider"
 )
 
 // explainError maps a provider HTTP failure to an actionable, localized message

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"reasonix/internal/tool"
+	"rexion/internal/tool"
 )
 
 func init() { tool.RegisterBuiltin(multiEdit{}) }

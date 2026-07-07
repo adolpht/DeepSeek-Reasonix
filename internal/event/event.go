@@ -12,9 +12,9 @@
 package event
 
 import (
-	"reasonix/internal/evidence"
-	"reasonix/internal/nilutil"
-	"reasonix/internal/provider"
+	"rexion/internal/evidence"
+	"rexion/internal/nilutil"
+	"rexion/internal/provider"
 )
 
 // Kind tags an Event. Read the field(s) documented for that kind.

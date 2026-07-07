@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"reasonix/internal/tool"
+	"rexion/internal/tool"
 )
 
 func init() { tool.RegisterBuiltin(globTool{}) }
