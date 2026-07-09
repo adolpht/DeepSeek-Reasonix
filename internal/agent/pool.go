@@ -14,26 +14,27 @@ import (
 
 // Pool manages concurrent child agents.
 type Pool struct {
-	mu       sync.RWMutex
-	agents   map[string]*ChildAgent  // Active child agents
-	results  map[string]*AgentResult // Completed results
-	maxDepth int                     // Max nesting depth (default 1)
-	maxConc  int                     // Max concurrent agents (default 6)
-	parent   *Agent                  // Parent agent reference
-	customRoles []Role               // Custom roles from config
+	mu          sync.RWMutex
+	agents      map[string]*ChildAgent  // Active child agents
+	results     map[string]*AgentResult // Completed results
+	maxDepth    int                     // Max nesting depth (default 1)
+	maxConc     int                     // Max concurrent agents (default 6)
+	parent      *Agent                  // Parent agent reference
+	customRoles []Role                  // Custom roles from config
 
 	// Shared provider/registry info for creating child agents
 	prov              provider.Provider
 	pricing           *provider.Pricing
 	parentReg         *tool.Registry
 	contextWindow     int
+	completionBudget  int
 	softCompactRatio  float64
 	compactRatio      float64
 	compactForceRatio float64
 	temperature       float64
 	archiveDir        string
 	gate              Gate
-	resolveProvider   func(modelRef, effort string) (provider.Provider, *provider.Pricing, int, error)
+	resolveProvider   func(modelRef, effort string) (provider.Provider, *provider.Pricing, int, int, error)
 	sysPrompt         string
 	maxSteps          int
 	parentSink        event.Sink
@@ -75,13 +76,13 @@ func (p *Pool) pruneResultsLocked() {
 
 // AgentResult is the structured result of a completed child agent.
 type AgentResult struct {
-	Summary    string            // Final answer text
-	ToolCalls  int               // Total tool calls
-	FilesRead  []string          // Files read
-	FilesWrite []string          // Files written
-	Duration   time.Duration     // Execution time
-	Usage      provider.Usage    // Token usage
-	Error      error             // Error if failed
+	Summary    string         // Final answer text
+	ToolCalls  int            // Total tool calls
+	FilesRead  []string       // Files read
+	FilesWrite []string       // Files written
+	Duration   time.Duration  // Execution time
+	Usage      provider.Usage // Token usage
+	Error      error          // Error if failed
 }
 
 // PoolOpts configures a new Pool.
@@ -93,13 +94,14 @@ type PoolOpts struct {
 	Pricing           *provider.Pricing
 	ParentReg         *tool.Registry
 	ContextWindow     int
+	CompletionBudget  int
 	SoftCompactRatio  float64
 	CompactRatio      float64
 	CompactForceRatio float64
 	Temperature       float64
 	ArchiveDir        string
 	Gate              Gate
-	ResolveProvider   func(modelRef, effort string) (provider.Provider, *provider.Pricing, int, error)
+	ResolveProvider   func(modelRef, effort string) (provider.Provider, *provider.Pricing, int, int, error)
 	SysPrompt         string
 	MaxSteps          int
 	ParentSink        event.Sink
@@ -126,6 +128,7 @@ func NewPool(parent *Agent, opts PoolOpts) *Pool {
 		pricing:           opts.Pricing,
 		parentReg:         opts.ParentReg,
 		contextWindow:     opts.ContextWindow,
+		completionBudget:  opts.CompletionBudget,
 		softCompactRatio:  opts.SoftCompactRatio,
 		compactRatio:      opts.CompactRatio,
 		compactForceRatio: opts.CompactForceRatio,
@@ -177,13 +180,13 @@ func (p *Pool) Spawn(ctx context.Context, id string, role Role, prompt string, m
 	}
 
 	// Resolve provider
-	prov, pricing, ctxWin := p.prov, p.pricing, p.contextWindow
+	prov, pricing, ctxWin, compBudget := p.prov, p.pricing, p.contextWindow, p.completionBudget
 	if p.resolveProvider != nil && (modelRef != "" || effort != "") {
-		pp, pr, cw, err := p.resolveProvider(modelRef, effort)
+		pp, pr, cw, cb, err := p.resolveProvider(modelRef, effort)
 		if err != nil {
 			return nil, fmt.Errorf("child agent profile: %w", err)
 		}
-		prov, pricing, ctxWin = pp, pr, cw
+		prov, pricing, ctxWin, compBudget = pp, pr, cw, cb
 	}
 
 	// Determine max steps
@@ -216,6 +219,7 @@ func (p *Pool) Spawn(ctx context.Context, id string, role Role, prompt string, m
 		Pricing:           pricing,
 		Gate:              p.gate,
 		ContextWindow:     ctxWin,
+		CompletionBudget:  compBudget,
 		SoftCompactRatio:  p.softCompactRatio,
 		CompactRatio:      p.compactRatio,
 		CompactForceRatio: p.compactForceRatio,
@@ -394,7 +398,7 @@ func (p *Pool) SendInput(ctx context.Context, id string, message string) error {
 	}
 
 	subReg := p.buildSubReg(role)
-	prov, pricing, ctxWin := p.prov, p.pricing, p.contextWindow
+	prov, pricing, ctxWin, compBudget := p.prov, p.pricing, p.contextWindow, p.completionBudget
 
 	steps := role.MaxSteps
 	if steps <= 0 {
@@ -420,6 +424,7 @@ func (p *Pool) SendInput(ctx context.Context, id string, message string) error {
 		Pricing:           pricing,
 		Gate:              p.gate,
 		ContextWindow:     ctxWin,
+		CompletionBudget:  compBudget,
 		SoftCompactRatio:  p.softCompactRatio,
 		CompactRatio:      p.compactRatio,
 		CompactForceRatio: p.compactForceRatio,

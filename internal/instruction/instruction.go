@@ -81,6 +81,36 @@ func markdownHeading(line string) (string, bool) {
 	return heading, heading != ""
 }
 
+// ExtractReadinessLevel reads the readiness level from the first
+// memory document that specifies it under "Rexion host checks" or
+// as a top-level setting. The level is set via:
+//
+//	- readiness: verified
+//	- readiness: merge-ready
+//
+// An empty or unset level defaults to basic.
+func ExtractReadinessLevel(docs []memory.Source) string {
+	for _, doc := range docs {
+		inSection := false
+		for _, raw := range strings.Split(doc.Body, "\n") {
+			line := strings.TrimRight(raw, "\r")
+			if heading, ok := markdownHeading(line); ok {
+				inSection = strings.EqualFold(heading, "Rexion host checks")
+				continue
+			}
+			if !inSection {
+				continue
+			}
+			val, ok := readinessBullet(line)
+			if !ok {
+				continue
+			}
+			return val
+		}
+	}
+	return ""
+}
+
 func verifyBullet(line string) (string, bool) {
 	line = strings.TrimSpace(line)
 	if len(line) < 2 || (line[:2] != "- " && line[:2] != "* ") {
@@ -94,3 +124,31 @@ func verifyBullet(line string) (string, bool) {
 	command := strings.TrimSpace(body[len(prefix):])
 	return command, command != ""
 }
+
+func readinessBullet(line string) (string, bool) {
+	line = strings.TrimSpace(line)
+	if len(line) < 2 || (line[:2] != "- " && line[:2] != "* ") {
+		return "", false
+	}
+	body := strings.TrimSpace(line[2:])
+	const prefix = "readiness:"
+	if len(body) < len(prefix) || !strings.EqualFold(body[:len(prefix)], prefix) {
+		return "", false
+	}
+	val := strings.TrimSpace(body[len(prefix):])
+	return val, val != ""
+}
+
+// WithReadinessLevel embeds a readiness level string into the context.
+func WithReadinessLevel(ctx context.Context, level string) context.Context {
+	return context.WithValue(ctx, readinessKey{}, level)
+}
+
+// ReadinessLevelFromContext returns the embedded readiness level from context.
+func ReadinessLevelFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(readinessKey{}).(string)
+	return v
+}
+
+type readinessKey struct{}
+

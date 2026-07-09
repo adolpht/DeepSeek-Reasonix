@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -28,6 +29,8 @@ import (
 	"github.com/atotto/clipboard"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"github.com/robfig/cron/v3"
 
 	"rexion/internal/agent"
 	"rexion/internal/billing"
@@ -5753,6 +5756,138 @@ type ScheduledTaskView struct {
 	CreatedAt  int64  `json:"createdAt"`
 }
 
+// GeneratedScheduledTaskView is the AI-generated scheduled task draft for user
+// confirmation. The frontend displays it as a preview; the user can accept
+// (which calls CreateScheduledTask) or edit/reject.
+type GeneratedScheduledTaskView struct {
+	Name       string `json:"name"`
+	Cron       string `json:"cron"`
+	CronDesc   string `json:"cronDesc"`   // human-readable description of the cron schedule
+	Skill      string `json:"skill"`
+	Prompt     string `json:"prompt"`     // custom prompt (maps to _prompt in parameters)
+	Workspace  string `json:"workspace"`  // workspace path (maps to _workspace in parameters)
+	Parameters string `json:"parameters"` // additional JSON parameters
+}
+
+// GenerateScheduledTask uses the current AI model to parse a natural language
+// description into a structured scheduled task configuration. Returns a draft
+// for the user to confirm before saving.
+func (a *App) GenerateScheduledTask(description string) (GeneratedScheduledTaskView, error) {
+	var zero GeneratedScheduledTaskView
+	ctrl := a.activeCtrl()
+	if ctrl == nil {
+		return zero, fmt.Errorf("no active workspace")
+	}
+
+	// Get the current model config to create a temporary provider.
+	a.mu.RLock()
+	model := ""
+	for _, tab := range a.tabs {
+		if tab.Ctrl == ctrl {
+			model = tab.model
+			break
+		}
+	}
+	a.mu.RUnlock()
+
+	cfg, err := config.Load()
+	if err != nil {
+		return zero, fmt.Errorf("load config: %w", err)
+	}
+	if model == "" {
+		model = cfg.DefaultModel
+	}
+	entry, ok := cfg.ResolveModel(model)
+	if !ok {
+		return zero, fmt.Errorf("resolve model %q", model)
+	}
+	proxySpec := cfg.NetworkProxySpec()
+	prov, err := boot.NewProviderWithProxy(entry, proxySpec)
+	if err != nil {
+		return zero, fmt.Errorf("create provider: %w", err)
+	}
+
+	// Build a one-shot prompt that asks the model to return structured JSON.
+	systemPrompt := `You are a scheduled task configuration assistant. Given a natural language description of a recurring task, generate a JSON object with these fields:
+- "name": a short descriptive task name (e.g. "每日代码审查", "Weekly Report")
+- "cron": a valid cron expression (5-field standard format: minute hour day month weekday). Use 0 * * * * for hourly, 0 9 * * * for daily 9am, 0 9 * * 1 for weekly Monday 9am, 0 9 1 * * for monthly 1st 9am, etc.
+- "cronDesc": human-readable description of the schedule in the user's language
+- "skill": the most appropriate built-in skill name (e.g. "review", "test", "explore", "research", "weekly-report", "generate-tests"). If no specific skill fits, use "explore".
+- "prompt": a detailed custom prompt that will be sent to the AI when the task fires. This should capture the full intent of the user's description so the AI knows exactly what to do.
+- "workspace": empty string (user will select)
+- "parameters": empty JSON object "{}"
+
+Return ONLY the JSON object, no markdown fences, no explanation.`
+
+	userMsg := description
+	ctx, cancel := context.WithTimeout(a.bootContext(), 30*time.Second)
+	defer cancel()
+
+	ch, err := prov.Stream(ctx, provider.Request{
+		Messages: []provider.Message{
+			{Role: provider.RoleSystem, Content: systemPrompt},
+			{Role: provider.RoleUser, Content: userMsg},
+		},
+		Temperature: 0.1,
+		MaxTokens:   1024,
+	})
+	if err != nil {
+		return zero, fmt.Errorf("AI request failed: %w", err)
+	}
+
+	var buf strings.Builder
+	for chunk := range ch {
+		if chunk.Type == provider.ChunkText {
+			buf.WriteString(chunk.Text)
+		}
+		if chunk.Type == provider.ChunkError {
+			return zero, fmt.Errorf("AI stream error: %w", chunk.Err)
+		}
+	}
+
+	// Parse the JSON response, stripping markdown fences if present.
+	raw := strings.TrimSpace(buf.String())
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSuffix(raw, "```")
+	raw = strings.TrimSpace(raw)
+
+	// The AI may return "parameters": {} (object) instead of "parameters": "{}"
+	// (string). Use an intermediate map to normalise: any JSON value for the
+	// "parameters" key is re-encoded as a JSON string.
+	var rawMap map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &rawMap); err != nil {
+		return zero, fmt.Errorf("parse AI response: %w\nraw: %s", err, raw)
+	}
+	if pRaw, ok := rawMap["parameters"]; ok {
+		// If it's already a JSON string, use it as-is; otherwise re-encode as a
+		// JSON string (e.g. {} → "{}", null → "null").
+		var s string
+		if json.Unmarshal(pRaw, &s) != nil {
+			encoded, _ := json.Marshal(string(pRaw))
+			rawMap["parameters"] = encoded
+		}
+	}
+	normalised, _ := json.Marshal(rawMap)
+
+	var result GeneratedScheduledTaskView
+	if err := json.Unmarshal(normalised, &result); err != nil {
+		return zero, fmt.Errorf("parse AI response: %w\nraw: %s", err, raw)
+	}
+
+	// Validate the cron expression.
+	if result.Cron != "" {
+		if _, err := cron.ParseStandard(result.Cron); err != nil {
+			parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+			if _, err2 := parser.Parse(result.Cron); err2 != nil {
+				return zero, fmt.Errorf("AI generated invalid cron %q: %w", result.Cron, err)
+			}
+		}
+	}
+
+	return result, nil
+}
+
 // TodoView is the JSON-serialisable form of a todo for the frontend.
 type TodoView struct {
 	ID          string `json:"id"`
@@ -5900,7 +6035,19 @@ func (a *App) CreateScheduledTask(name, cron, skill, params string) error {
 		Enabled:    true,
 		CreatedAt:  time.Now().UnixMilli(),
 	}
-	return ds.CreateScheduledTask(t)
+	// Compute NextRun from the cron expression.
+	t.NextRun = computeNextRun(t.Cron, time.Now())
+	if err := ds.CreateScheduledTask(t); err != nil {
+		return err
+	}
+	// Register with the in-memory scheduler so the task fires immediately
+	// without requiring an app restart.
+	if a.sched != nil && t.Enabled {
+		if err := a.sched.Register(t.Name, t.Cron, t.Skill, t.Parameters); err != nil {
+			log.Printf("scheduler: register new task %q: %v", t.Name, err)
+		}
+	}
+	return nil
 }
 
 // UpdateScheduledTask updates an existing scheduled task.
@@ -5922,15 +6069,40 @@ func (a *App) UpdateScheduledTask(id, name, cron, skill, params string, enabled 
 	if err != nil {
 		return err
 	}
+	var oldName string
 	for _, e := range existing {
 		if e.ID == t.ID {
 			t.LastRun = e.LastRun
 			t.NextRun = e.NextRun
 			t.CreatedAt = e.CreatedAt
+			oldName = e.Name
 			break
 		}
 	}
-	return ds.UpdateScheduledTask(t)
+	// Recompute NextRun if cron changed or task is being re-enabled.
+	if t.Enabled {
+		t.NextRun = computeNextRun(t.Cron, time.Now())
+	} else {
+		t.NextRun = 0
+	}
+	if err := ds.UpdateScheduledTask(t); err != nil {
+		return err
+	}
+	// Sync the in-memory scheduler.
+	if a.sched != nil {
+		// If the name changed, unregister the old entry first.
+		if oldName != "" && oldName != t.Name {
+			_ = a.sched.Disable(oldName)
+		}
+		if t.Enabled {
+			if err := a.sched.Enable(t.Name, t.Cron, t.Skill, t.Parameters); err != nil {
+				log.Printf("scheduler: enable task %q: %v", t.Name, err)
+			}
+		} else {
+			_ = a.sched.Disable(t.Name)
+		}
+	}
+	return nil
 }
 
 // DeleteScheduledTask deletes a scheduled task by ID.
@@ -5939,7 +6111,23 @@ func (a *App) DeleteScheduledTask(id string) error {
 	if ds == nil {
 		return fmt.Errorf("data store not available")
 	}
-	return ds.DeleteScheduledTask(id)
+	// Look up the task name so we can unregister it from the scheduler.
+	var taskName string
+	tasks, _ := ds.ListScheduledTasks()
+	for _, t := range tasks {
+		if t.ID == id {
+			taskName = t.Name
+			break
+		}
+	}
+	if err := ds.DeleteScheduledTask(id); err != nil {
+		return err
+	}
+	// Remove from the in-memory scheduler.
+	if a.sched != nil && taskName != "" {
+		_ = a.sched.Disable(taskName)
+	}
+	return nil
 }
 
 // ListTodos returns all todos.
@@ -6017,6 +6205,20 @@ func (a *App) DeleteTodo(id string) error {
 		return fmt.Errorf("data store not available")
 	}
 	return ds.DeleteTodo(id)
+}
+
+// computeNextRun parses a cron expression and returns the next fire time as
+// unix milliseconds. Returns 0 if the expression cannot be parsed.
+func computeNextRun(cronExpr string, from time.Time) int64 {
+	sched, err := cron.ParseStandard(cronExpr)
+	if err != nil {
+		parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+		sched, err = parser.Parse(cronExpr)
+	}
+	if err != nil {
+		return 0
+	}
+	return sched.Next(from).UnixMilli()
 }
 
 func scheduledTaskViewFromModel(t datastore.ScheduledTask) ScheduledTaskView {

@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"rexion/internal/agent"
+	"rexion/internal/approval"
 	"rexion/internal/billing"
 	"rexion/internal/checkpoint"
 	"rexion/internal/codegraph"
@@ -126,6 +127,7 @@ type Controller struct {
 	approvals   map[string]chan approvalReply
 	asks        map[string]chan []event.AskAnswer
 	granted     map[string]bool
+	tokens      *approval.Store // one-time approval token store
 	nextID      int
 	// turn counts model turns this session, passed to hooks in their payload.
 	turn int
@@ -269,6 +271,7 @@ func New(opts Options) *Controller {
 		approvals:        map[string]chan approvalReply{},
 		asks:             map[string]chan []event.AskAnswer{},
 		granted:          map[string]bool{},
+		tokens:           approval.NewStore(0), // default TTL
 		autoLearner:      memory.NewAutoLearner(),
 		autoLearnEnabled: opts.AutoLearn,
 		autoLearnConfirm: opts.AutoLearnConfirm,
@@ -1285,6 +1288,30 @@ func (c *Controller) Approve(id string, allow, session, persist bool) {
 	}
 }
 
+// RedeemToken consumes a one-time approval token. If the token is valid
+// (exists, not expired, not already redeemed), it is marked as consumed and
+// the tool+subject pair is also added to the session grants so the agent
+// doesn't re-prompt for the same operation. Returns true if the token was
+// successfully redeemed.
+func (c *Controller) RedeemToken(tokenID string) bool {
+	tok := c.tokens.Redeem(tokenID)
+	if tok == nil {
+		return false
+	}
+	// Add to session grants so the gate won't re-prompt.
+	c.mu.Lock()
+	c.granted[tok.Tool] = true
+	c.mu.Unlock()
+	return true
+}
+
+// GenerateApprovalToken creates a one-time approval token for the given
+// tool+subject pair. The token is returned to the caller (e.g., the
+// frontend) so the user can approve the operation out-of-band.
+func (c *Controller) GenerateApprovalToken(tool, subject string) (*approval.Token, error) {
+	return c.tokens.Generate(tool, subject)
+}
+
 // EnableInteractiveApproval swaps the executor's gate for one that routes "ask"
 // decisions to the frontend via ApprovalRequest events, and wires the controller
 // in as the executor's Asker so the `ask` tool can question the user. Interactive
@@ -1293,9 +1320,19 @@ func (c *Controller) Approve(id string, allow, session, persist bool) {
 func (c *Controller) EnableInteractiveApproval() {
 	if c.executor != nil {
 		gate := permission.NewGate(c.policy, gateApprover{c})
+		gate.WorkspaceRoot = c.cpRoot // for bash validation path-scope checks
 		gate.OnRemember = c.onRemember // wire "always allow" persistence callback
 		c.executor.SetGate(gate)
 		c.executor.SetAsker(c)
+		// Wire the approval token generator so gate denials include a one-time
+		// token that the user can redeem out-of-band.
+		c.executor.SetTokenGenerator(func(tool, subject string) (string, error) {
+			tok, err := c.tokens.Generate(tool, subject)
+			if err != nil {
+				return "", err
+			}
+			return tok.ID, nil
+		})
 	}
 }
 

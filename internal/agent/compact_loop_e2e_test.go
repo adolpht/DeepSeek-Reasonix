@@ -76,7 +76,7 @@ func (m *loopMock) handler(w http.ResponseWriter, r *http.Request) {
 // compactionsPerTurn drives `turns` user messages through a fresh agent wired to
 // loopMock and reports, per turn, how many compactions started and whether an
 // auto-compaction-paused notice was seen.
-func compactionsPerTurn(t *testing.T, windowTok int, blob string, turns int) (perTurn []int, paused bool) {
+func compactionsPerTurn(t *testing.T, windowTok, completionBudget int, blob string, turns int) (perTurn []int, paused bool) {
 	t.Helper()
 	mock := &loopMock{t: t}
 	srv := httptest.NewServer(http.HandlerFunc(mock.handler))
@@ -85,7 +85,7 @@ func compactionsPerTurn(t *testing.T, windowTok int, blob string, turns int) (pe
 	reg := tool.NewRegistry()
 	reg.Add(fatTool{blob: blob})
 
-	a, _ := newAgent(t, srv.URL, reg, windowTok, 4)
+	a, _ := newAgent(t, srv.URL, reg, windowTok, 4, completionBudget)
 	started := 0
 	a.sink = event.FuncSink(func(e event.Event) {
 		switch e.Kind {
@@ -95,6 +95,7 @@ func compactionsPerTurn(t *testing.T, windowTok int, blob string, turns int) (pe
 			if strings.Contains(e.Text, "Auto-compaction paused") {
 				paused = true
 			}
+			t.Logf("  notice: %s", e.Text)
 		}
 	})
 
@@ -130,7 +131,8 @@ func consecutiveCompactingTurns(perTurn []int) int {
 // notice — instead of looping turn after turn.
 func TestCompactionPausesWhenWindowTooSmall(t *testing.T) {
 	// One fat_read result (~1750 tok) exceeds the 0.8×1600 trigger on its own.
-	perTurn, paused := compactionsPerTurn(t, 1600, strings.Repeat("LARGE FILE CONTENTS. ", 350), 8)
+	// completionBudget=320 makes effectiveWindow=1280, so the 0.8 trigger is 1024.
+	perTurn, paused := compactionsPerTurn(t, 1600, 320, strings.Repeat("LARGE FILE CONTENTS. ", 350), 8)
 
 	total := 0
 	for _, n := range perTurn {
@@ -151,7 +153,10 @@ func TestCompactionPausesWhenWindowTooSmall(t *testing.T) {
 // but reclaims enough headroom that it never fires on consecutive turns and never
 // trips the stuck guard.
 func TestCompactionHealthyWindowNeverLoops(t *testing.T) {
-	perTurn, paused := compactionsPerTurn(t, 40000, strings.Repeat("file line. ", 1100), 20)
+	// Use a minimal completion budget so effectiveWindow ≈ windowTok,
+	// preserving the original test semantics where contextWindow was the
+	// full available space for prompts.
+	perTurn, paused := compactionsPerTurn(t, 40000, 1, strings.Repeat("file line. ", 1100), 20)
 
 	total := 0
 	for _, n := range perTurn {

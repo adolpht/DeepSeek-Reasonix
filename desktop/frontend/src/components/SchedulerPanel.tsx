@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Clock, Pause, Pencil, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Clock, Pause, Pencil, Play, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { useT } from "../lib/i18n";
 import { app } from "../lib/bridge";
-import type { RecipeView, ScheduledTaskView, WorkspaceView } from "../lib/types";
+import type { GeneratedScheduledTaskView, RecipeView, ScheduledTaskView, WorkspaceView } from "../lib/types";
 import { ResizableDrawer } from "./ResizableDrawer";
 import { Tooltip } from "./Tooltip";
 
@@ -104,6 +104,10 @@ export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [recipes, setRecipes] = useState<RecipeView[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([]);
+  const [aiInput, setAiInput] = useState("");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiPreview, setAiPreview] = useState<GeneratedScheduledTaskView | null>(null);
+  const [aiError, setAiError] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -195,6 +199,49 @@ export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
     setForm((f) => ({ ...f, cron }));
   };
 
+  // AI-generate a scheduled task from natural language.
+  const handleAiGenerate = async () => {
+    if (!aiInput.trim()) return;
+    setAiGenerating(true);
+    setAiError("");
+    setAiPreview(null);
+    try {
+      const result = await app.GenerateScheduledTask(aiInput.trim());
+      setAiPreview(result);
+    } catch (e: unknown) {
+      setAiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  // Accept the AI-generated task and populate the form.
+  const handleAiAccept = () => {
+    if (!aiPreview) return;
+    const mergedParams = mergeReservedParams(
+      aiPreview.parameters || "{}",
+      aiPreview.workspace || "",
+      aiPreview.prompt || "",
+    );
+    setForm({
+      name: aiPreview.name,
+      cron: aiPreview.cron,
+      skill: aiPreview.skill,
+      workspace: aiPreview.workspace || "",
+      prompt: aiPreview.prompt || "",
+      parameters: mergedParams,
+      enabled: true,
+    });
+    setAiPreview(null);
+    setAiInput("");
+    setShowForm(true);
+  };
+
+  // Reject the AI-generated task.
+  const handleAiReject = () => {
+    setAiPreview(null);
+  };
+
   return (
     <ResizableDrawer onClose={onClose} subtle>
       <header className="drawer__head">
@@ -210,6 +257,11 @@ export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
           <Tooltip label={t("scheduler.addTask")}>
             <button className="chip chip--icon chip--primary" onClick={handleAdd} aria-label={t("scheduler.addTask")}>
               <Plus size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t("scheduler.aiGenerate")}>
+            <button className={`chip chip--icon${aiPreview ? " chip--accent" : ""}`} onClick={() => { if (!aiPreview) setAiInput((v) => v || " "); }} aria-label={t("scheduler.aiGenerate")}>
+              <Sparkles size={14} />
             </button>
           </Tooltip>
           <Tooltip label={t("common.close")}>
@@ -276,6 +328,62 @@ export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* AI generate section */}
+      <div className="scheduler-panel__ai">
+        <div className="scheduler-panel__ai-input-row">
+          <input
+            className="scheduler-panel__input scheduler-panel__ai-input"
+            value={aiInput}
+            onChange={(e) => { setAiInput(e.target.value); setAiError(""); }}
+            placeholder={t("scheduler.aiPlaceholder")}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleAiGenerate(); } }}
+            disabled={aiGenerating}
+          />
+          <button
+            className="scheduler-panel__btn scheduler-panel__btn--primary scheduler-panel__ai-btn"
+            onClick={() => void handleAiGenerate()}
+            disabled={aiGenerating || !aiInput.trim()}
+          >
+            {aiGenerating ? <RefreshCw size={14} className="spin" /> : <Sparkles size={14} />}
+            {aiGenerating ? t("scheduler.aiGenerating") : t("scheduler.aiGenerate")}
+          </button>
+        </div>
+        {aiError && (
+          <div className="scheduler-panel__ai-error">{aiError}</div>
+        )}
+        {aiPreview && (
+          <div className="scheduler-panel__ai-preview">
+            <div className="scheduler-panel__ai-preview-title">{t("scheduler.aiPreviewTitle")}</div>
+            <div className="scheduler-panel__ai-preview-row">
+              <span className="scheduler-panel__ai-preview-label">{t("scheduler.taskName")}:</span>
+              <span>{aiPreview.name}</span>
+            </div>
+            <div className="scheduler-panel__ai-preview-row">
+              <span className="scheduler-panel__ai-preview-label">{t("scheduler.cronExpression")}:</span>
+              <span>{aiPreview.cron} ({aiPreview.cronDesc})</span>
+            </div>
+            <div className="scheduler-panel__ai-preview-row">
+              <span className="scheduler-panel__ai-preview-label">{t("scheduler.skill")}:</span>
+              <span>{aiPreview.skill}</span>
+            </div>
+            {aiPreview.prompt && (
+              <div className="scheduler-panel__ai-preview-row">
+                <span className="scheduler-panel__ai-preview-label">{t("scheduler.prompt")}:</span>
+                <span className="scheduler-panel__ai-preview-prompt">{aiPreview.prompt}</span>
+              </div>
+            )}
+            <div className="scheduler-panel__ai-preview-actions">
+              <button className="scheduler-panel__btn" onClick={handleAiReject}>
+                {t("common.cancel")}
+              </button>
+              <button className="scheduler-panel__btn scheduler-panel__btn--primary" onClick={handleAiAccept}>
+                {t("scheduler.aiAccept")}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add/Edit form */}

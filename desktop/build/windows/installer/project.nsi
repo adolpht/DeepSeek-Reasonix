@@ -142,14 +142,14 @@ Section
     ## MCP plugins: bundled alongside the main executable so the agent can
     ## discover them via the default PATH-relative command in Rexion.toml.
     SetOutPath "$INSTDIR\plugins"
-    File "..\..\bin\plugins\Rexion-plugin-office.exe"
-    File "..\..\bin\plugins\Rexion-plugin-sheet.exe"
-    File "..\..\bin\plugins\Rexion-plugin-search.exe"
-    File "..\..\bin\plugins\Rexion-plugin-calendar.exe"
-    File "..\..\bin\plugins\Rexion-plugin-slides.exe"
-    File "..\..\bin\plugins\Rexion-plugin-mail.exe"
-    File "..\..\bin\plugins\Rexion-plugin-im.exe"
-    File "..\..\bin\plugins\Rexion-plugin-dws.exe"
+    File "..\..\bin\plugins\rexion-plugin-office.exe"
+    File "..\..\bin\plugins\rexion-plugin-sheet.exe"
+    File "..\..\bin\plugins\rexion-plugin-search.exe"
+    File "..\..\bin\plugins\rexion-plugin-calendar.exe"
+    File "..\..\bin\plugins\rexion-plugin-slides.exe"
+    File "..\..\bin\plugins\rexion-plugin-mail.exe"
+    File "..\..\bin\plugins\rexion-plugin-im.exe"
+    File "..\..\bin\plugins\rexion-plugin-dws.exe"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"

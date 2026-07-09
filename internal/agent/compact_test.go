@@ -322,7 +322,7 @@ func TestMaybeCompactThreshold(t *testing.T) {
 
 	// Below 50% of the window: untouched.
 	sess := newSess()
-	a := New(&fakeProvider{reply: "s"}, tool.NewRegistry(), sess, Options{ContextWindow: 100, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
+	a := New(&fakeProvider{reply: "s"}, tool.NewRegistry(), sess, Options{ContextWindow: 100, CompletionBudget: 10, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
 	a.maybeCompact(context.Background(), &provider.Usage{PromptTokens: 49})
 	if len(sess.Messages) != 7 {
 		t.Errorf("below threshold should not compact, len = %d", len(sess.Messages))
@@ -332,7 +332,7 @@ func TestMaybeCompactThreshold(t *testing.T) {
 	sess = newSess()
 	prov := &fakeProvider{reply: "s"}
 	var notices []event.Event
-	a = New(prov, tool.NewRegistry(), sess, Options{ContextWindow: 100, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.FuncSink(func(e event.Event) {
+	a = New(prov, tool.NewRegistry(), sess, Options{ContextWindow: 100, CompletionBudget: 10, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.FuncSink(func(e event.Event) {
 		if e.Kind == event.Notice {
 			notices = append(notices, e)
 		}
@@ -357,7 +357,7 @@ func TestMaybeCompactThreshold(t *testing.T) {
 	// message is the only foldable region — folding it installs a summary at
 	// index 1 (the count is unchanged because one message becomes one summary).
 	sess = newSess()
-	a = New(&fakeProvider{reply: "s"}, tool.NewRegistry(), sess, Options{ContextWindow: 100, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
+	a = New(&fakeProvider{reply: "s"}, tool.NewRegistry(), sess, Options{ContextWindow: 100, CompletionBudget: 10, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
 	a.maybeCompact(context.Background(), &provider.Usage{PromptTokens: 80})
 	if !strings.Contains(sess.Messages[1].Content, "Summary of earlier") {
 		t.Errorf("compact threshold should fold the large early message, got: %+v", sess.Messages[1])
@@ -381,7 +381,7 @@ func TestMaybeCompactForceCeilingBypassesEconomics(t *testing.T) {
 		{Role: provider.RoleAssistant, Content: "ok"},
 	}}
 	prov := &fakeProvider{reply: "forced summary"}
-	a := New(prov, tool.NewRegistry(), sess, Options{ContextWindow: 100, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
+	a := New(prov, tool.NewRegistry(), sess, Options{ContextWindow: 100, CompletionBudget: 10, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
 
 	a.maybeCompact(context.Background(), &provider.Usage{PromptTokens: 90})
 	// The token-budgeted tail keeps "small old answer", next, ok, so only the
@@ -407,7 +407,7 @@ func TestMaybeCompactSkipsLowValueRegionBeforeForceCeiling(t *testing.T) {
 		{Role: provider.RoleAssistant, Content: "ok"},
 	}}
 	prov := &fakeProvider{reply: "should not summarize"}
-	a := New(prov, tool.NewRegistry(), sess, Options{ContextWindow: 100, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
+	a := New(prov, tool.NewRegistry(), sess, Options{ContextWindow: 100, CompletionBudget: 10, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
 
 	a.maybeCompact(context.Background(), &provider.Usage{PromptTokens: 80})
 	if got := len(sess.Messages); got != 5 {
@@ -425,7 +425,7 @@ func TestMaybeCompactFoldsSingleLargeMessageAtThreshold(t *testing.T) {
 		{Role: provider.RoleUser, Content: "next"},
 		{Role: provider.RoleAssistant, Content: "ok"},
 	}}
-	a := New(&fakeProvider{reply: "single large summary"}, tool.NewRegistry(), sess, Options{ContextWindow: 100, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
+	a := New(&fakeProvider{reply: "single large summary"}, tool.NewRegistry(), sess, Options{ContextWindow: 100, CompletionBudget: 10, RecentKeep: 2, ArchiveDir: t.TempDir()}, event.Discard)
 
 	a.maybeCompact(context.Background(), &provider.Usage{PromptTokens: 80})
 	if got := len(sess.Messages); got != 4 {

@@ -38,6 +38,7 @@ import type {
   ModelInfo,
   NetworkView,
   NotificationView,
+  GeneratedScheduledTaskView,
   ProjectNode,
   ProviderView,
   QuestionAnswer,
@@ -352,6 +353,7 @@ export interface AppBindings {
   UpdateScheduledTask(id: string, name: string, cron: string, skill: string, params: string, enabled: boolean): Promise<void>;
   DeleteScheduledTask(id: string): Promise<void>;
   OpenTabForScheduledTask(taskName: string): Promise<void>;
+  GenerateScheduledTask(description: string): Promise<GeneratedScheduledTaskView>;
   // Todos
   ListTodos(): Promise<TodoView[]>;
   CreateTodo(title: string, description: string, dueDate: string, priority: string): Promise<void>;
@@ -2323,6 +2325,9 @@ function makeMockApp(): AppBindings {
     },
     async OpenTabForScheduledTask(_taskName: string): Promise<void> {
       // no-op in mock
+    },
+    async GenerateScheduledTask(_description: string): Promise<GeneratedScheduledTaskView> {
+      return { name: "AI Generated Task", cron: "0 9 * * *", cronDesc: "Every day at 9am", skill: "explore", prompt: "", workspace: "", parameters: "{}" };
     },
     async ListTodos(): Promise<TodoView[]> {
       return [

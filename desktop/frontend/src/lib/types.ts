@@ -742,6 +742,17 @@ export interface ScheduledTaskView {
   createdAt: number; // unix ms
 }
 
+// AI-generated scheduled task draft for user confirmation.
+export interface GeneratedScheduledTaskView {
+  name: string;
+  cron: string;
+  cronDesc: string; // human-readable schedule description
+  skill: string;
+  prompt: string; // custom prompt (_prompt in parameters)
+  workspace: string; // workspace path (_workspace in parameters)
+  parameters: string; // additional JSON parameters
+}
+
 // RecipeView is a reusable automation workflow configuration.
 export interface RecipeView {
   name: string;

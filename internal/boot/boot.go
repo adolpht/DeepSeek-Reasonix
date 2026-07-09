@@ -36,6 +36,7 @@ import (
 	"rexion/internal/permission"
 	"rexion/internal/plugin"
 	"rexion/internal/provider"
+	"rexion/internal/readiness"
 	"rexion/internal/sandbox"
 	"rexion/internal/skill"
 	"rexion/internal/tool"
@@ -236,6 +237,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	}
 	mem := memory.Load(memory.Options{CWD: root, UserDir: config.MemoryUserDir(), PKMEnabled: pkmEnabled})
 	projectChecks := instruction.ExtractHostChecks(mem.Docs)
+	readinessLevel := readiness.ParseLevel(instruction.ExtractReadinessLevel(mem.Docs))
 	sysPrompt = memory.Compose(sysPrompt, mem)
 
 	// Skills: discover playbooks (built-in + project/custom/global) and fold their
@@ -560,6 +562,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// inherit this same gate.
 	policy := permission.New(cfg.Permissions.Mode, cfg.Permissions.Allow, cfg.Permissions.Ask, cfg.Permissions.Deny)
 	headlessGate := permission.NewGate(policy, nil)
+	headlessGate.WorkspaceRoot = root // for bash validation path-scope checks
 
 	// Hooks: load the global settings.json plus the project's (only when trusted —
 	// project hooks run arbitrary shell commands, so cloning a repo must not
@@ -582,19 +585,19 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// sub-agents inherit the full tool set (minus `task` itself, to keep
 	// nesting out of the picture). It registers into the same reg the
 	// executor uses, so the model surfaces it like any other tool.
-	resolveSubagentProvider := func(modelRef, effort string) (provider.Provider, *provider.Pricing, int, error) {
+	resolveSubagentProvider := func(modelRef, effort string) (provider.Provider, *provider.Pricing, int, int, error) {
 		me := *entry
 		if strings.TrimSpace(modelRef) != "" {
 			resolved, ok := cfg.ResolveModel(modelRef)
 			if !ok {
-				return nil, nil, 0, fmt.Errorf("unknown model %q", modelRef)
+				return nil, nil, 0, 0, fmt.Errorf("unknown model %q", modelRef)
 			}
 			me = *resolved
 		}
 		if strings.TrimSpace(effort) != "" {
 			normalized, err := config.NormalizeEffort(&me, effort)
 			if err != nil {
-				return nil, nil, 0, err
+				return nil, nil, 0, 0, err
 			}
 			me.Effort = normalized
 			if me.Kind == "anthropic" && strings.TrimSpace(me.Effort) != "" && strings.TrimSpace(me.Thinking) == "" {
@@ -603,14 +606,14 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		}
 		p, err := NewProviderWithProxy(&me, proxySpec)
 		if err != nil {
-			return nil, nil, 0, err
+			return nil, nil, 0, 0, err
 		}
-		return p, me.Price, me.ContextWindow, nil
+		return p, me.Price, me.ContextWindow, me.CompletionBudget, nil
 	}
 	taskModel := firstNonEmpty(cfg.Agent.SubagentModels["task"], cfg.Agent.SubagentModel)
 	taskEffort := firstNonEmpty(cfg.Agent.SubagentEfforts["task"], cfg.Agent.SubagentEffort)
 	reg.Add(agent.NewTaskTool(execProv, entry.Price, reg, maxSteps,
-		entry.ContextWindow, cfg.Agent.SoftCompactRatio, cfg.Agent.CompactRatio, cfg.Agent.CompactForceRatio,
+		entry.ContextWindow, entry.CompletionBudget, cfg.Agent.SoftCompactRatio, cfg.Agent.CompactRatio, cfg.Agent.CompactForceRatio,
 		cfg.Agent.Temperature, config.ArchiveDir(), "", headlessGate,
 		taskModel, taskEffort, resolveSubagentProvider))
 
@@ -633,15 +636,15 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// task/skill meta-tools, to bar recursion), and an optional per-skill model.
 	// Its tool activity nests under the invoking call, like `task`.
 	skillRunner := func(sctx context.Context, sk skill.Skill, task string) (string, error) {
-		prov, price, ctxWin := execProv, entry.Price, entry.ContextWindow
+		prov, price, ctxWin, compBudget := execProv, entry.Price, entry.ContextWindow, entry.CompletionBudget
 		modelRef := subagentModelRef(cfg, sk)
 		effortRef := subagentEffortRef(cfg, sk)
 		if modelRef != "" || effortRef != "" {
-			p, pr, cw, err := resolveSubagentProvider(modelRef, effortRef)
+			p, pr, cw, cb, err := resolveSubagentProvider(modelRef, effortRef)
 			if err != nil {
 				return "", fmt.Errorf("subagent skill %q profile: %w", sk.Name, err)
 			}
-			prov, price, ctxWin = p, pr, cw
+			prov, price, ctxWin, compBudget = p, pr, cw, cb
 		}
 		subReg := agent.FilterRegistry(reg, sk.AllowedTools, agent.SubagentMetaTools()...)
 		steps := maxSteps
@@ -651,12 +654,13 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 			}
 		}
 		return agent.RunSubAgent(sctx, prov, subReg, sk.Body, task, agent.Options{
-			MaxSteps:      steps,
-			Temperature:   cfg.Agent.Temperature,
-			Pricing:       price,
-			Gate:          headlessGate,
-			ContextWindow: ctxWin,
-			ArchiveDir:    config.ArchiveDir(),
+			MaxSteps:         steps,
+			Temperature:      cfg.Agent.Temperature,
+			Pricing:          price,
+			Gate:             headlessGate,
+			ContextWindow:    ctxWin,
+			CompletionBudget: compBudget,
+			ArchiveDir:       config.ArchiveDir(),
 		}, agent.NestedSink(sctx, event.Discard))
 	}
 	skillProfile := func(sk skill.Skill) *event.Profile {
@@ -727,7 +731,9 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		Hooks:             hookRunner,
 		Jobs:              jm,
 		ProjectChecks:     projectChecks,
+		ReadinessLevel:    readinessLevel,
 		ContextWindow:     entry.ContextWindow,
+		CompletionBudget:  entry.CompletionBudget,
 		SoftCompactRatio:  cfg.Agent.SoftCompactRatio,
 		CompactRatio:      cfg.Agent.CompactRatio,
 		CompactForceRatio: cfg.Agent.CompactForceRatio,
@@ -748,6 +754,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		Pricing:           entry.Price,
 		ParentReg:         reg,
 		ContextWindow:     entry.ContextWindow,
+		CompletionBudget:  entry.CompletionBudget,
 		SoftCompactRatio:  cfg.Agent.SoftCompactRatio,
 		CompactRatio:      cfg.Agent.CompactRatio,
 		CompactForceRatio: cfg.Agent.CompactForceRatio,
@@ -829,6 +836,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 				MaxSteps:          agent.PlannerMaxSteps(maxSteps),
 				Gate:              headlessGate,
 				ContextWindow:     pe.ContextWindow,
+				CompletionBudget:  pe.CompletionBudget,
 				SoftCompactRatio:  cfg.Agent.SoftCompactRatio,
 				CompactRatio:      cfg.Agent.CompactRatio,
 				CompactForceRatio: cfg.Agent.CompactForceRatio,

@@ -64,3 +64,7 @@ contenttestresult/
 
 # Local build tools (NSIS portable, etc.)
 /tools/
+
+# External reference archives
+/claw-code-main/
+/claw-code-main.zip

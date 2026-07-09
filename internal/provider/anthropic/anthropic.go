@@ -131,7 +131,7 @@ func (c *client) Stream(ctx context.Context, req provider.Request) (<-chan provi
 	}
 
 	out := make(chan provider.Chunk)
-	go c.readStream(resp, out)
+	go c.readStream(ctx, resp, out)
 	return out, nil
 }
 
@@ -250,9 +250,26 @@ func (c *client) buildRequest(req provider.Request) anthRequest {
 // and a complete ChunkToolCall when the block closes; usage is assembled from
 // message_start (input/cache) + message_delta (output + stop_reason) and emitted
 // once before ChunkDone.
-func (c *client) readStream(resp *http.Response, out chan<- provider.Chunk) {
+func (c *client) readStream(ctx context.Context, resp *http.Response, out chan<- provider.Chunk) {
 	defer resp.Body.Close()
 	defer close(out)
+
+	// Close the response body when the context is canceled so scanner.Scan()
+	// unblocks instead of hanging on a stalled connection. Without this, a
+	// Stop button click cancels the request context but the scanner keeps
+	// blocking on resp.Body.Read() until the server sends more data or the
+	// TCP connection times out — leaving the turn running with no way to
+	// interrupt it. done lets the watcher exit when readStream returns
+	// normally so it doesn't outlive the call.
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			resp.Body.Close()
+		case <-done:
+		}
+	}()
 
 	tools := map[int]*provider.ToolCall{} // tool_use blocks, keyed by content index
 	var inTok, outTok, cacheCreate, cacheRead int

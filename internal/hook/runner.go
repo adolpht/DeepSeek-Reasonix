@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"rexion/internal/agent"
 )
 
 // Runner binds a set of resolved hooks to a session: a working directory, the
@@ -55,14 +57,48 @@ func (r *Runner) Has(event Event) bool {
 // keeps streaming reasoning live unless a transform is actually wired up.
 func (r *Runner) HasPostLLMCall() bool { return r.Has(PostLLMCall) }
 
-// PreToolUse fires before a tool call. block=true means the call must be
-// refused; message is the reason (fed back to the model and shown to the user).
-func (r *Runner) PreToolUse(ctx context.Context, name string, args json.RawMessage) (block bool, message string) {
+// PreToolUse fires before a tool call. Returns a PreToolUseResult that may
+// block the call (Block=true), modify its arguments (Args non-nil), or override
+// a permission denial (AllowOverride=true).
+//
+// The hook's stdout is parsed for directives:
+//   - A line starting with "ALLOW:" overrides a prior permission denial.
+//   - A JSON object on stdout replaces the tool arguments.
+//   - Exit code 2 blocks the call.
+func (r *Runner) PreToolUse(ctx context.Context, name string, args json.RawMessage) agent.PreToolUseResult {
 	if !r.Enabled() {
-		return false, ""
+		return agent.PreToolUseResult{}
 	}
 	rep := Run(ctx, Payload{Event: PreToolUse, Cwd: r.cwd, ToolName: name, ToolArgs: args}, r.hooks, r.spawner)
-	return r.handle(rep)
+	block, msg := r.handle(rep)
+
+	result := agent.PreToolUseResult{Block: block, Message: msg}
+
+	// Scan hook stdout for directives.
+	for _, o := range rep.Outcomes {
+		if o.Decision != DecisionPass {
+			continue
+		}
+		stdout := strings.TrimSpace(o.Stdout)
+		if stdout == "" {
+			continue
+		}
+
+		// ALLOW: override — permits a tool call that the permission gate denied.
+		if strings.HasPrefix(stdout, "ALLOW:") {
+			result.AllowOverride = true
+			result.OverrideReason = strings.TrimSpace(strings.TrimPrefix(stdout, "ALLOW:"))
+			continue
+		}
+
+		// JSON args replacement — the hook rewrites the tool arguments.
+		// Must be a valid JSON object.
+		if json.Valid([]byte(stdout)) {
+			result.Args = json.RawMessage(stdout)
+		}
+	}
+
+	return result
 }
 
 // PostToolUse fires after a tool call. It can't block; non-pass outcomes are

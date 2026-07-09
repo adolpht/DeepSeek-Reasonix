@@ -683,6 +683,9 @@ type AgentConfig struct {
 	SoftCompactRatio  float64 `toml:"soft_compact_ratio"`
 	CompactRatio      float64 `toml:"compact_ratio"`
 	CompactForceRatio float64 `toml:"compact_force_ratio"`
+	// ReadinessLevel sets the quality bar for accepting a final answer:
+	// "basic" (default), "verified", or "merge-ready".
+	ReadinessLevel string `toml:"readiness_level"`
 }
 
 // AgentPoolConfig for multi-agent parallel orchestration
@@ -726,17 +729,18 @@ func (c *Config) AgentPoolMaxDepth() int {
 // token budget; the harness compacts older history as a turn's prompt approaches
 // it (see agent compaction). 0 disables compaction for the instance.
 type ProviderEntry struct {
-	Name          string            `toml:"name"`
-	Kind          string            `toml:"kind"`
-	BaseURL       string            `toml:"base_url"`
-	Model         string            `toml:"model"`      // a single model (back-compat)
-	Models        []string          `toml:"models"`     // a vendor's model list (one base_url/key, many models)
-	ModelsURL     string            `toml:"models_url"` // auto-fetch models from this URL on startup
-	Default       string            `toml:"default"`    // default model when Models is set (else Models[0])
-	APIKeyEnv     string            `toml:"api_key_env"`
-	BalanceURL    string            `toml:"balance_url"` // optional; a provider-specific wallet-balance endpoint (DeepSeek: https://api.deepseek.com/user/balance). Empty = no balance readout.
-	ContextWindow int               `toml:"context_window"`
-	Price         *provider.Pricing `toml:"price"`
+	Name             string            `toml:"name"`
+	Kind             string            `toml:"kind"`
+	BaseURL          string            `toml:"base_url"`
+	Model            string            `toml:"model"`      // a single model (back-compat)
+	Models           []string          `toml:"models"`     // a vendor's model list (one base_url/key, many models)
+	ModelsURL        string            `toml:"models_url"` // auto-fetch models from this URL on startup
+	Default          string            `toml:"default"`    // default model when Models is set (else Models[0])
+	APIKeyEnv        string            `toml:"api_key_env"`
+	BalanceURL       string            `toml:"balance_url"` // optional; a provider-specific wallet-balance endpoint (DeepSeek: https://api.deepseek.com/user/balance). Empty = no balance readout.
+	ContextWindow    int               `toml:"context_window"`
+	CompletionBudget int               `toml:"completion_budget"` // tokens reserved for model output; subtracted from context_window for compaction thresholds
+	Price            *provider.Pricing `toml:"price"`
 	// Thinking / Effort are provider-kind-specific knobs forwarded to the provider
 	// via Config.Extra. The anthropic provider reads Thinking="adaptive" to enable
 	// extended thinking and Effort ("low".."max") to tune depth. The
@@ -1030,8 +1034,8 @@ func Default() *Config {
 		PKM:     PKMConfig{Enabled: true},
 		Network: NetworkConfig{ProxyMode: netclient.ModeAuto},
 		Providers: []ProviderEntry{
-			{Name: "deepseek-flash", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-flash", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.02, Input: 1, Output: 2, Currency: "¥"}},
-			{Name: "deepseek-pro", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-pro", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.025, Input: 3, Output: 6, Currency: "¥"}},
+			{Name: "deepseek-flash", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-flash", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 202_752, Price: &provider.Pricing{CacheHit: 0.02, Input: 1, Output: 2, Currency: "¥"}},
+			{Name: "deepseek-pro", Kind: "openai", BaseURL: "https://api.deepseek.com", Model: "deepseek-v4-pro", APIKeyEnv: "DEEPSEEK_API_KEY", BalanceURL: "https://api.deepseek.com/user/balance", ContextWindow: 202_752, Price: &provider.Pricing{CacheHit: 0.025, Input: 3, Output: 6, Currency: "¥"}},
 			{Name: "mimo-pro", Kind: "openai", BaseURL: "https://token-plan-cn.xiaomimimo.com/v1", Model: "mimo-v2.5-pro", APIKeyEnv: "MIMO_API_KEY", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.025, Input: 3, Output: 6, Currency: "¥"}, NoProxy: true},
 			{Name: "mimo-flash", Kind: "openai", BaseURL: "https://token-plan-cn.xiaomimimo.com/v1", Model: "mimo-v2.5", APIKeyEnv: "MIMO_API_KEY", ContextWindow: 1_000_000, Price: &provider.Pricing{CacheHit: 0.02, Input: 1, Output: 2, Currency: "¥"}, NoProxy: true},
 			{Name: "openai-gpt4o", Kind: "openai", BaseURL: "https://api.openai.com/v1", Model: "gpt-4o", APIKeyEnv: "OPENAI_API_KEY", ContextWindow: 128_000, Price: &provider.Pricing{Input: 2.5, Output: 10, Currency: "$"}, ReasoningProtocol: "openai"},

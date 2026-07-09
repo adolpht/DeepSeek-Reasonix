@@ -24,12 +24,12 @@ type stubHooks struct {
 	postLLMTurns  []int    // turn number each PostLLMCall received
 }
 
-func (h *stubHooks) PreToolUse(_ context.Context, name string, _ json.RawMessage) (bool, string) {
+func (h *stubHooks) PreToolUse(_ context.Context, name string, _ json.RawMessage) PreToolUseResult {
 	h.preSeen = append(h.preSeen, name)
 	if h.blockPre[name] {
-		return true, "blocked by test hook"
+		return PreToolUseResult{Block: true, Message: "blocked by test hook"}
 	}
-	return false, ""
+	return PreToolUseResult{}
 }
 
 func (h *stubHooks) PostToolUse(_ context.Context, name string, _ json.RawMessage, _ string) {

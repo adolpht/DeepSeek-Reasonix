@@ -1421,6 +1421,11 @@ export const zh: Record<DictKey, string> = {
   "scheduler.cronEveryDay9am": "每天上午9点",
   "scheduler.cronEveryMonday": "每周一",
   "scheduler.cronEveryMonthFirst": "每月1号",
+  "scheduler.aiGenerate": "AI 生成",
+  "scheduler.aiPlaceholder": "用自然语言描述任务，如「每天早上9点检查代码」",
+  "scheduler.aiGenerating": "生成中…",
+  "scheduler.aiPreviewTitle": "AI 生成的任务",
+  "scheduler.aiAccept": "确认并编辑",
 
   // 日历面板
   "calendarPanel.month": "月",

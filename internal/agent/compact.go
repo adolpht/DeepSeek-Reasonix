@@ -25,12 +25,89 @@ const (
 	defaultCompactForceRatio = 0.9   // force compaction at this high-water mark even for low-value folds
 	defaultCompactTarget     = 0.5   // safety cap: the kept tail never exceeds this fraction of the window
 	defaultTailTokens        = 16384 // verbatim recent-tail budget, in tokens
+	defaultCompletionBudget  = 32768 // tokens reserved for model completion output
+	defaultSummaryBudget    = 4096  // max tokens for a compaction summary output
 	minRecentKeep            = 2     // never keep fewer recent messages than this
 	minCompactMessages       = 2     // skip compaction below this many compactable messages
 	fallbackTokPerChar       = 0.25  // ~4 chars/token, used before any usage is available to calibrate
 )
 
-// summaryTag wraps the compaction summary so the model can distinguish it from
+// summaryCompressedSystemPrompt is a terse variant used when the context
+// window is tight (force compaction at high-water mark) — headings only,
+// minimal prose, no redundancy. Budget is tighter to leave more room for
+// the recent tail.
+const summaryCompressedSystemPrompt = `You are compacting a coding agent's history. Write a MAXIMUM 15-line briefing under these headings, omitting any with no content:
+
+## Goal
+## Decisions & rationale
+## Files & code
+## Commands & outcomes
+## Errors & fixes
+## Pending & next step
+
+Rules: bullet points only, max 15 lines total. Preserve identifiers, paths, and numbers exactly. Do NOT invent anything not present.
+Your output must stay under %d tokens — be ruthless about brevity.`
+
+// hasPriorSummary checks whether any message in the region already contains
+// a previous compaction summary. When true, the summarizer is asked to merge
+// (rather than discard) the earlier summary.
+func hasPriorSummary(region []provider.Message) bool {
+	for _, m := range region {
+		if strings.Contains(m.Content, summaryTagOpen) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractPriorSummary returns the content of the first compaction summary
+// found in the region (between the summary tags), or empty string if none.
+// This lets the summarizer explicitly merge rather than re-derive.
+func extractPriorSummary(region []provider.Message) string {
+	for _, m := range region {
+		i := strings.Index(m.Content, summaryTagOpen)
+		if i < 0 {
+			continue
+		}
+		j := strings.Index(m.Content, summaryTagClose)
+		if j < 0 {
+			j = len(m.Content)
+		}
+		return strings.TrimSpace(m.Content[i+len(summaryTagOpen) : j])
+	}
+	return ""
+}
+
+// summaryBudgetTokens returns the max token budget for a normal compaction
+// summary. It scales with the context window: small windows get a tighter
+// budget to leave more room for the recent tail.
+func (a *Agent) summaryBudgetTokens() int {
+	if a.contextWindow <= 0 {
+		return defaultSummaryBudget
+	}
+	// For windows under 32k, use a proportionally smaller budget.
+	// For windows 32k+, use the default 4096.
+	budget := defaultSummaryBudget
+	if a.contextWindow < 32768 {
+		budget = a.contextWindow / 8
+		if budget < 1024 {
+			budget = 1024
+		}
+	}
+	return budget
+}
+
+// compressedSummaryBudgetTokens returns the max token budget for a forced
+// (high-water-mark) compaction summary. It is tighter than the normal budget
+// to maximize the room left for the recent tail.
+func (a *Agent) compressedSummaryBudgetTokens() int {
+	normal := a.summaryBudgetTokens()
+	compressed := normal * 3 / 4
+	if compressed < 512 {
+		compressed = 512
+	}
+	return compressed
+}
 // live user input and later strip or skip it when reasoning about the current turn.
 const (
 	summaryTagOpen  = "<compaction-summary>"
@@ -65,52 +142,66 @@ Problems hit and how they were resolved (or not), so the same dead ends are not 
 ## Pending & next step
 What is still in progress or unstarted, and the single most concrete next action to take.
 
-Rules: be terse — bullet points and fragments, not prose. Preserve identifiers, paths, and numbers exactly. Do NOT invent anything not present in the messages; if something is unknown, leave it out rather than guessing.`
+Rules: be terse — bullet points and fragments, not prose. Preserve identifiers, paths, and numbers exactly. Do NOT invent anything not present in the messages; if something is unknown, leave it out rather than guessing.
+Your output must stay under %d tokens — prioritize the most critical facts and drop anything redundant.`
 
 // maybeCompact compacts the session when the last turn's prompt has grown to the
 // configured fraction of the context window. It is a no-op when compaction is
-// disabled (no window) or usage is unavailable.
+// disabled (no window) or usage is unavailable. The effective window is reduced
+// by the completion budget so that prompt + completion never exceeds the model's
+// total context limit.
 func (a *Agent) maybeCompact(ctx context.Context, u *provider.Usage) {
 	if a.contextWindow <= 0 || u == nil || u.PromptTokens == 0 {
 		return
 	}
-	high := int(float64(a.contextWindow) * a.compactRatio)
-	soft := int(float64(a.contextWindow) * a.softCompactRatio)
+	effectiveWindow := a.contextWindow - a.completionBudget
+	if effectiveWindow <= 0 {
+		effectiveWindow = 1
+	}
+	// Use the provider's actual PromptTokens as a base, then add the delta
+	// from messages appended since the last stream. This avoids undercounting
+	// when tool results were added after the last stream returned its usage.
+	// Only add the delta when lastUsageMsgIdx has been set by a prior stream
+	// (it starts at 0, which would double-count the entire session).
+	// Use tokPerChar for the delta estimate so it tracks the provider's real
+	// tokenizer rather than the conservative estimateMessagesTokens default.
+	currentPrompt := u.PromptTokens
+	if a.lastUsageMsgIdx > 0 && a.lastUsageMsgIdx < len(a.session.Messages) {
+		delta := int(float64(charsOfMessages(a.session.Messages[a.lastUsageMsgIdx:])) * a.tokPerChar())
+		currentPrompt += delta
+	}
+	high := int(float64(effectiveWindow) * a.compactRatio)
+	soft := int(float64(effectiveWindow) * a.softCompactRatio)
 	// Between the soft ratio and the trigger, report growing context once without
 	// rewriting the prefix — a compaction here would needlessly crater the cache.
-	if u.PromptTokens >= soft && u.PromptTokens < high && !a.softCompactNoticed {
+	if currentPrompt >= soft && currentPrompt < high && !a.softCompactNoticed {
 		a.softCompactNoticed = true
-		a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: fmt.Sprintf("context reached %.0f%% of window; keeping cache-first prefix until compact threshold %.0f%%", a.softCompactRatio*100, a.compactRatio*100)})
+		a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: fmt.Sprintf("context reached %.0f%% of effective window (prompt ~%d + %d completion ≤ %d); keeping cache-first prefix until compact threshold %.0f%%", a.softCompactRatio*100, currentPrompt, a.completionBudget, a.contextWindow, a.compactRatio*100)})
 		return
 	}
-	if u.PromptTokens < high {
+	if currentPrompt < high {
 		// A turn that sits under the trigger is the breathing room a healthy
-		// compaction buys; it clears the stuck latch, the run counter, and the
-		// one-shot soft notice.
-		a.consecutiveCompacts = 0
-		a.compactStuck = false
+		// compaction buys; it clears the stuck latch and the run counter —
+		// but only if no compaction has fired in this turn yet. If a
+		// compaction ran earlier in the same turn (pre-flight or
+		// maybeCompact on a prior step), the prompt may have temporarily
+		// dipped below the trigger only to climb back once tool results
+		// arrive. Resetting the latch here would let the cycle repeat
+		// forever without the stuck guard ever firing.
 		a.softCompactNoticed = false
+		if !a.compactedThisTurn {
+			a.consecutiveCompacts = 0
+			a.compactStuck = false
+		}
 		return
 	}
 	if a.compactStuck {
 		return
 	}
-	force := u.PromptTokens >= int(float64(a.contextWindow)*a.compactForceRatio)
+	force := currentPrompt >= int(float64(effectiveWindow)*a.compactForceRatio)
 	if err := a.compact(ctx, "auto", "", force); err != nil {
 		a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: fmt.Sprintf("compaction skipped: %v", err)})
 		return
-	}
-	// A healthy compaction drops the prompt under the trigger, so the next turn
-	// won't compact. Compacting on consecutive turns means the kept tail alone
-	// exceeds the trigger — the system prompt plus one verbatim turn is bigger than
-	// the window allows. Re-firing every turn is the loop users hit, so pause
-	// auto-compaction and say why, once.
-	a.consecutiveCompacts++
-	if a.consecutiveCompacts >= 2 {
-		a.compactStuck = true
-		a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: fmt.Sprintf(
-			"context_window=%d is too small for compaction to help (the system prompt plus one turn already exceeds %.0f%% of it); raise context_window or shrink tool output. Auto-compaction paused until the prompt drops.",
-			a.contextWindow, a.compactRatio*100)})
 	}
 }
 
@@ -145,15 +236,52 @@ func estimateTextTokens(s string) int {
 	if s == "" {
 		return 0
 	}
-	// A conservative cross-language approximation: English-ish text trends near
-	// four bytes per token, while CJK-heavy text is closer to one rune per token.
+	// A conservative cross-language approximation. English-ish text trends near
+	// four bytes per token, while CJK-heavy text is closer to 1.5-2 tokens per
+	// rune (not 1:1 as previously assumed). We detect CJK weight and blend the
+	// two estimates so that mixed-language content is neither wildly over- nor
+	// under-counted. The estimate is intentionally conservative (slightly high)
+	// to ensure compaction triggers early enough and fold-economics never skips
+	// a region that is worth compressing.
 	bytes := len(s)
 	runes := utf8.RuneCountInString(s)
 	byBytes := (bytes + 3) / 4
-	if runes > byBytes {
-		return runes
+	// Count CJK runes to weight the estimate. Each CJK rune typically costs
+	// ~1.5-2 tokens, so using rune count directly underestimates. A 1.8x
+	// multiplier bridges the gap for typical CJK text.
+	cjkRunes := 0
+	for _, r := range s {
+		if r >= 0x4E00 && r <= 0x9FFF || r >= 0x3400 && r <= 0x4DBF || // CJK Unified
+			r >= 0x3000 && r <= 0x303F || // CJK Symbols
+			r >= 0x3040 && r <= 0x309F || // Hiragana
+			r >= 0x30A0 && r <= 0x30FF || // Katakana
+			r >= 0xAC00 && r <= 0xD7AF { // Hangul
+			cjkRunes++
+		}
 	}
-	return byBytes
+	if cjkRunes == 0 {
+		// No CJK: return the larger of byte-based and rune-based estimates.
+		// The rune-based estimate is conservative for whitespace-heavy text
+		// (e.g. "a " * 500 has 500 runes but ~250 tokens), which is safer
+		// for compaction decisions.
+		if runes > byBytes {
+			return runes
+		}
+		return byBytes
+	}
+	// For CJK-heavy text: ~1.8 tokens per CJK rune + byte-based for the rest.
+	cjkTokens := int(float64(cjkRunes) * 1.8)
+	restBytes := bytes - cjkRunes*3 // approximate byte cost of CJK runes (3 bytes each in UTF-8)
+	if restBytes < 0 {
+		restBytes = 0
+	}
+	restTokens := (restBytes + 3) / 4
+	estimated := cjkTokens + restTokens
+	// Never return less than the byte-based estimate (safeguard for edge cases).
+	if estimated < byBytes {
+		estimated = byBytes
+	}
+	return estimated
 }
 
 // compact summarizes the older middle of the session and replaces it in place:
@@ -186,6 +314,32 @@ func (a *Agent) compact(ctx context.Context, trigger, instructions string, force
 		return nil
 	}
 
+	a.compactedThisTurn = true
+
+	// Track consecutive compactions across all trigger types (auto, preflight,
+	// emergency, manual) so the stuck guard covers preflight and emergency
+	// paths too. Manual /compact resets the counters (the user chose to
+	// compact, so it shouldn't count toward the stuck threshold).
+	if trigger == "manual" {
+		a.consecutiveCompacts = 0
+		a.compactStuck = false
+	} else {
+		a.consecutiveCompacts++
+		if a.consecutiveCompacts >= 2 {
+			a.compactStuck = true
+			if a.healthTracker != nil {
+				a.healthTracker.SetCompactionStuck(true)
+			}
+			effectiveWindow := a.contextWindow - a.completionBudget
+			if effectiveWindow <= 0 {
+				effectiveWindow = 1
+			}
+			a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: fmt.Sprintf(
+				"context_window=%d (effective %d after %d completion reserve) is too small for compaction to help (the system prompt plus one turn already exceeds %.0f%% of it); raise context_window or shrink tool output. Auto-compaction paused until the prompt drops.",
+				a.contextWindow, effectiveWindow, a.completionBudget, a.compactRatio*100)})
+		}
+	}
+
 	a.sink.Emit(event.Event{Kind: event.CompactionStarted, Compaction: event.Compaction{Trigger: trigger}})
 
 	// A PreCompact hook can steer what the summary keeps; its stdout joins any
@@ -209,7 +363,7 @@ func (a *Agent) compact(ctx context.Context, trigger, instructions string, force
 		archived = path
 	}
 
-	summary, err := a.summarize(ctx, region, instructions)
+	summary, err := a.summarize(ctx, region, instructions, force)
 	if err != nil {
 		a.emitCompactionAborted(trigger)
 		return err
@@ -255,7 +409,7 @@ func (a *Agent) SummarizeFrom(ctx context.Context, fromIdx int) error {
 	if a.archiveDir != "" {
 		_, _ = archiveMessages(a.archiveDir, region) // best-effort traceability
 	}
-	summary, err := a.summarize(ctx, region, "")
+	summary, err := a.summarize(ctx, region, "", false)
 	if err != nil {
 		return err
 	}
@@ -287,7 +441,7 @@ func (a *Agent) SummarizeUpTo(ctx context.Context, toIdx int) error {
 	if a.archiveDir != "" {
 		_, _ = archiveMessages(a.archiveDir, region)
 	}
-	summary, err := a.summarize(ctx, region, "")
+	summary, err := a.summarize(ctx, region, "", false)
 	if err != nil {
 		return err
 	}
@@ -315,8 +469,14 @@ func (a *Agent) planCompaction(msgs []provider.Message, min int) (head, start in
 		head = 1
 	}
 	if a.contextWindow > 0 {
+		// The tail budget must fit within the effective window (after reserving
+		// completion tokens) so that a compacted session stays below the trigger.
+		effectiveWindow := a.contextWindow - a.completionBudget
+		if effectiveWindow <= 0 {
+			effectiveWindow = 1
+		}
 		budget := defaultTailTokens
-		if maxByWin := int(float64(a.contextWindow) * defaultCompactTarget); maxByWin < budget {
+		if maxByWin := int(float64(effectiveWindow) * defaultCompactTarget); maxByWin < budget {
 			budget = maxByWin
 		}
 		start = tailStart(msgs, head, budget, a.tokPerChar(), a.tailFloor())
@@ -407,9 +567,25 @@ func charsOfMessages(msgs []provider.Message) int {
 // summarize asks the executor's own provider (no tools) to distill the region
 // into a briefing, returning the collected text. instructions, when non-empty,
 // is appended to the system prompt as extra focus guidance (from /compact <focus>
-// and/or a PreCompact hook).
-func (a *Agent) summarize(ctx context.Context, region []provider.Message, instructions string) (string, error) {
-	sys := summarySystemPrompt
+// and/or a PreCompact hook). force=true selects a compressed summary prompt
+// (for high-water-mark compactions).
+func (a *Agent) summarize(ctx context.Context, region []provider.Message, instructions string, force bool) (string, error) {
+	sys := fmt.Sprintf(summarySystemPrompt, a.summaryBudgetTokens())
+	if force {
+		sys = fmt.Sprintf(summaryCompressedSystemPrompt, a.compressedSummaryBudgetTokens())
+		a.aggressiveCompact = true
+	} else {
+		a.aggressiveCompact = false
+	}
+
+	// Detect prior compaction summaries in the region: when found,
+	// append merge guidance so the summarizer builds on (rather than
+	// discarding) the earlier summary. Extract the prior summary text
+	// so the model can explicitly merge rather than re-derive.
+	if prior := extractPriorSummary(region); prior != "" {
+		sys += fmt.Sprintf("\n\nIMPORTANT: The transcript below CONTAINS a previous compaction summary. Here is the prior summary:\n<prev-summary>\n%s\n</prev-summary>\nYour summary MUST merge the prior summary with the new transcript content. Preserve ALL facts from the previous summary — do NOT discard them. Integrate new information under the appropriate headings. If the prior summary and new transcript overlap, keep the more recent/specific version.", prior)
+	}
+
 	if strings.TrimSpace(instructions) != "" {
 		sys += "\n\nAdditional focus for this compaction (prioritize keeping this):\n" + strings.TrimSpace(instructions)
 	}

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,7 +23,9 @@ import (
 	"rexion/internal/nilutil"
 	"rexion/internal/permission"
 	"rexion/internal/provider"
+	"rexion/internal/readiness"
 	"rexion/internal/sandbox"
+	"rexion/internal/health"
 	"rexion/internal/tool"
 )
 
@@ -94,13 +98,32 @@ type Gate interface {
 	Check(ctx context.Context, toolName string, args json.RawMessage, readOnly bool) (allow bool, reason string, err error)
 }
 
+// PreToolUseResult is the return value from PreToolUse hooks. It carries three
+// independent controls:
+//
+//   - Block: when true, the tool call is refused and Message is shown to the model.
+//   - Args: when non-nil, replaces the tool arguments for execution (input
+//     modification). Use json.RawMessage(`{"key":"val"}`) to set it.
+//   - AllowOverride: when true, overrides a prior permission gate denial. The
+//     hook is vouching that the call should proceed despite the gate's decision.
+//     OverrideReason is the human-readable justification shown to the user.
+//
+// All fields are optional: a zero-value result means "pass, no changes".
+type PreToolUseResult struct {
+	Block          bool
+	Message        string
+	Args           json.RawMessage
+	AllowOverride  bool
+	OverrideReason string
+}
+
 // ToolHooks fires user-configured shell hooks around each tool call. PreToolUse
-// runs before the call and may block it (block=true; message is the reason fed
-// back to the model); PostToolUse runs after and only surfaces output to the
-// user (it can't block). It is interface-shaped so the agent stays independent
-// of the hook package — a nil hooks field disables hook firing entirely.
+// runs before the call and may block it or modify its arguments; PostToolUse
+// runs after and only surfaces output to the user (it can't block). It is
+// interface-shaped so the agent stays independent of the hook package — a nil
+// hooks field disables hook firing entirely.
 type ToolHooks interface {
-	PreToolUse(ctx context.Context, name string, args json.RawMessage) (block bool, message string)
+	PreToolUse(ctx context.Context, name string, args json.RawMessage) PreToolUseResult
 	PostToolUse(ctx context.Context, name string, args json.RawMessage, result string)
 	// PostLLMCall fires after each model turn completes (streaming finishes)
 	// but before reasoning_content is stored. It returns the (possibly
@@ -192,6 +215,19 @@ type Agent struct {
 	// verify against same-turn bash receipts after a write-backed completion.
 	projectChecks []instruction.VerifyCheck
 
+	// readinessLevel is the quality bar for accepting a final answer.
+	// When Basic, finalReadinessCheck is a no-op (only visible answer needed).
+	// Verified requires complete_step after the latest write.
+	// MergeReady requires Verified + project checks + no incomplete todos.
+	readinessLevel readiness.Level
+
+	// tokenGenerator generates one-time approval tokens when the gate denies
+	// a tool call. Nil means denials have no token (the user must retry).
+	tokenGenerator func(tool, subject string) (tokenID string, err error)
+
+	// healthTracker monitors session health (context usage, error rates, loops).
+	healthTracker *health.Tracker
+
 	// memQueue, when non-nil, lets the remember/forget tools fold a turn-tail note
 	// about a just-made memory change into the next turn, so it applies this
 	// session without touching the cache-stable prefix. Set via SetMemoryQueue.
@@ -205,6 +241,7 @@ type Agent struct {
 	// pauses instead of looping. softCompactNoticed gates the one-shot soft-ratio
 	// notice so it fires once per approach, not every turn.
 	contextWindow       int
+	completionBudget    int // tokens reserved for model output; subtracted from contextWindow for compaction thresholds
 	softCompactRatio    float64
 	compactRatio        float64
 	compactForceRatio   float64
@@ -213,6 +250,12 @@ type Agent struct {
 	archiveDir          string
 	compactStuck        bool
 	consecutiveCompacts int
+	// aggressiveCompact is true when the last compaction used the compressed
+	// summary prompt (force or tight budget). It prevents ping-pong between
+	// compressed and full-format summaries.
+	aggressiveCompact bool
+	compactedThisTurn   bool // set when any compaction fires in the current Run turn
+	lastUsageMsgIdx     int  // session.Messages index at the time of the last stream call
 
 	// stormSig / stormCount track a run of turns that keep failing the same way so
 	// the loop can break a death-spiral. The signature is each call's (tool, error)
@@ -257,6 +300,24 @@ func (a *Agent) SetGate(g Gate) {
 // SetAsker installs the asker the `ask` tool uses to question the user.
 // Interactive frontends wire one in; headless runs leave it nil.
 func (a *Agent) SetAsker(as Asker) { a.asker = as }
+
+// SetTokenGenerator installs the one-time approval token generator. When the
+// permission gate denies a tool call, the generator produces a token ID that
+// is included in the denial message. The user can redeem the token out-of-band
+// (e.g., clicking "Allow" in the UI) to approve the operation.
+func (a *Agent) SetTokenGenerator(f func(tool, subject string) (tokenID string, err error)) {
+	a.tokenGenerator = f
+}
+
+// HealthReport returns a snapshot of the session's health. contextUsagePercent
+// is the estimated percentage of the context window in use (0–100), or -1 if
+// unknown.
+func (a *Agent) HealthReport(contextUsagePercent int) health.Report {
+	if a.healthTracker == nil {
+		return health.Report{Status: health.Healthy, ContextUsagePercent: contextUsagePercent}
+	}
+	return a.healthTracker.Report(contextUsagePercent)
+}
 
 // SetMemoryQueue installs the sink the remember/forget tools use to apply a
 // memory change in the current session. The controller wires itself in.
@@ -329,8 +390,11 @@ type Options struct {
 	Gate Gate
 
 	// Context management. ContextWindow <= 0 disables compaction. Ratios and
-	// RecentKeep fall back to defaults when unset.
+	// RecentKeep fall back to defaults when unset. CompletionBudget reserves
+	// tokens for model output so compaction thresholds account for the total
+	// request (prompt + completion) staying within the context window.
 	ContextWindow     int
+	CompletionBudget  int
 	SoftCompactRatio  float64
 	CompactRatio      float64
 	CompactForceRatio float64
@@ -347,8 +411,20 @@ type Options struct {
 	// ProjectChecks are host-observable structured checks extracted during boot.
 	ProjectChecks []instruction.VerifyCheck
 
+	// ReadinessLevel is the quality bar for accepting a final answer.
+	// Basic (default) requires only a visible answer; Verified additionally
+	// requires complete_step after writes; MergeReady requires Verified plus
+	// project checks and no incomplete todos.
+	ReadinessLevel readiness.Level
+
 	// SandboxMode is the confinement level for tool execution.
 	SandboxMode sandbox.SandboxMode
+
+	// TokenGenerator, when set, is called when the permission gate denies a
+	// tool call. It returns a one-time approval token ID that the agent includes
+	// in the denial message, so the user can approve out-of-band. Nil disables
+	// token generation (denials have no token).
+	TokenGenerator func(tool, subject string) (tokenID string, err error)
 }
 
 // New constructs an Agent. MaxSteps <= 0 means no cap — the run loop continues
@@ -367,6 +443,9 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 	}
 	if opts.RecentKeep <= 0 {
 		opts.RecentKeep = minRecentKeep
+	}
+	if opts.CompletionBudget <= 0 {
+		opts.CompletionBudget = defaultCompletionBudget
 	}
 	if nilutil.IsNil(sink) {
 		sink = event.Discard
@@ -392,7 +471,11 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 		jobs:              opts.Jobs,
 		evidence:          evidence.NewLedger(),
 		projectChecks:     append([]instruction.VerifyCheck(nil), opts.ProjectChecks...),
+		readinessLevel:    opts.ReadinessLevel,
+		tokenGenerator:   opts.TokenGenerator,
+		healthTracker:    health.NewTracker(),
 		contextWindow:     opts.ContextWindow,
+		completionBudget:  opts.CompletionBudget,
 		softCompactRatio:  opts.SoftCompactRatio,
 		compactRatio:      opts.CompactRatio,
 		compactForceRatio: opts.CompactForceRatio,
@@ -413,12 +496,17 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 		a.evidence.Reset()
 	}
 	a.repeatSuccessCounts = nil
+	if a.healthTracker != nil {
+		a.healthTracker.Reset()
+	}
+	a.compactedThisTurn = false
 	a.sink.Emit(event.Event{Kind: event.TurnStarted})
 	a.session.Add(provider.Message{Role: provider.RoleUser, Content: input})
 
 	finalReadinessBlocks := 0
 	emptyFinalBlocks := 0
 	streamRecoveries := 0
+	ctxLimitRetries := 0 // bounds auto-recover from context-length 400s
 	for step := 0; a.maxSteps <= 0 || step < a.maxSteps; step++ {
 		schemas := a.tools.Schemas()
 		prefixShape := a.capturePrefixShape(schemas)
@@ -427,8 +515,64 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 			prevPrefixShape = prefixShape
 		}
 
+		// Pre-flight check: if the estimated prompt tokens would leave no room for
+		// completion within the context window, force a compaction before streaming.
+		// Only run this on the first step of a turn — later steps already had a
+		// maybeCompact after their tool round, so re-checking before every stream
+		// call causes redundant compactions that break the stuck-guard's count.
+		// Use the last stream's actual PromptTokens (if available) as a base
+		// instead of re-estimating the whole session, which can vastly overcount.
+		if step == 0 && a.contextWindow > 0 && !a.compactStuck {
+			var estimated int
+			if u := a.lastUsage.Load(); u != nil && u.PromptTokens > 0 {
+				// Start from the provider's actual count and add the messages
+				// appended since the last stream (the user turn message).
+				delta := estimateMessagesTokens(a.session.Messages[a.lastUsageMsgIdx:])
+				estimated = u.PromptTokens + delta
+			} else {
+				estimated = estimateMessagesTokens(a.session.Messages)
+			}
+			effectiveWindow := a.contextWindow - a.completionBudget
+			if effectiveWindow > 0 && estimated >= effectiveWindow {
+				a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
+					Text: fmt.Sprintf("pre-flight: prompt ~%d tokens leaves no room for %d-token completion in %d-token window; forcing compaction", estimated, a.completionBudget, a.contextWindow)})
+				a.compact(ctx, "preflight", "", true) // best-effort; error already logged by compact
+			}
+		}
+
+		a.lastUsageMsgIdx = len(a.session.Messages)
 		text, reasoning, signature, calls, usage, interrupted, partialToolStarted, err := a.stream(ctx, step+1)
 		if err != nil {
+			// If the context was cancelled (user clicked Stop), abort immediately
+			// without entering any retry/recovery path. Without this guard a
+			// StreamInterruptedError caused by the cancellation triggers an
+			// unwanted "retrying" cycle — the user sees a flicker and the session
+			// gets polluted with a recovery message before the turn finally stops.
+			if ctx.Err() != nil {
+				return err
+			}
+			// Auto-recover from "context length exceeded" 400 errors: the configured
+			// context_window may be larger than the real API limit (e.g. DeepSeek
+			// advertises 1M but the actual limit is ~202K). Parse the real limit from
+			// the error, clamp contextWindow, force a compaction, and retry once.
+			if ctxLen, ok := parseContextLimitError(err); ok && ctxLen > 0 && ctxLen < a.contextWindow && ctxLimitRetries < 2 {
+				a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn,
+					Text: fmt.Sprintf("API rejected request: context limit is %d tokens (configured %d); adjusting window and compacting", ctxLen, a.contextWindow)})
+				a.contextWindow = ctxLen
+				a.compactStuck = false
+				if a.healthTracker != nil {
+					a.healthTracker.SetCompactionStuck(false)
+				}
+				a.consecutiveCompacts = 0
+				a.compactedThisTurn = false
+				if cErr := a.compact(ctx, "auto-recover", "", true); cErr != nil {
+					a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
+						Text: fmt.Sprintf("auto-recover compaction failed: %v", cErr)})
+				}
+				ctxLimitRetries++
+				step-- // retry the same step without consuming the budget
+				continue
+			}
 			if interrupted && streamRecoveries < maxStreamRecoveries {
 				streamRecoveries++
 				if hasVisibleFinalAnswer(text) {
@@ -537,6 +681,10 @@ type finalReadinessCheck struct {
 	missingProjectChecks int
 	missingCompleteStep  bool
 	incompleteTodos      int
+	// level is the readiness level being checked (Basic by default).
+	level readiness.Level
+	// satisfied is true when all requirements for the level are met.
+	satisfied bool
 }
 
 func (c finalReadinessCheck) audit(result evidence.ReadinessAuditResult, recovered bool) evidence.ReadinessAudit {
@@ -554,6 +702,26 @@ func (a *Agent) finalReadinessCheck() finalReadinessCheck {
 	if a.evidence == nil {
 		return finalReadinessCheck{}
 	}
+
+	level := a.readinessLevel
+	// When level is Basic, the check only applies if there are project
+	// checks, todo receipts, or incomplete todos that require evidence.
+	// Verified and MergeReady always apply after a write.
+	switch level {
+	case readiness.Basic:
+		return a.finalReadinessCheckBasic()
+	case readiness.Verified:
+		return a.finalReadinessCheckVerified()
+	case readiness.MergeReady:
+		return a.finalReadinessCheckMergeReady()
+	default:
+		return a.finalReadinessCheckBasic()
+	}
+}
+
+// finalReadinessCheckBasic is the original check: only applies when there
+// are project checks, todo receipts, or incomplete todos.
+func (a *Agent) finalReadinessCheckBasic() finalReadinessCheck {
 	var missing []string
 	out := finalReadinessCheck{}
 	if !a.planMode.Load() {
@@ -597,6 +765,92 @@ func (a *Agent) finalReadinessCheck() finalReadinessCheck {
 	return out
 }
 
+// finalReadinessCheckVerified always applies after a write: it requires
+// complete_step as evidence that the work was verified, regardless of
+// whether the model used todo_write.
+func (a *Agent) finalReadinessCheckVerified() finalReadinessCheck {
+	out := finalReadinessCheck{applies: true, level: readiness.Verified}
+	var missing []string
+
+	// Incomplete todos always block at Verified level.
+	if !a.planMode.Load() {
+		if incomplete, hasTodos := a.evidence.IncompleteLatestTodos(); hasTodos && len(incomplete) > 0 {
+			out.incompleteTodos = len(incomplete)
+			missing = append(missing, finalReadinessIncompleteTodos(incomplete))
+		}
+	}
+
+	writer, hasWriter := a.evidence.LatestSuccessfulWriterIndex()
+	if hasWriter {
+		// Require complete_step after every write.
+		if !a.evidence.HasSuccessfulCompleteStepAfter(writer) {
+			out.missingCompleteStep = true
+			missing = append(missing, "call complete_step after the latest write")
+		}
+		// Project checks are enforced if configured.
+		for _, check := range a.projectChecks {
+			command := strings.TrimSpace(check.Command)
+			if command == "" {
+				continue
+			}
+			if !a.evidence.HasSuccessfulCommandAfter(command, writer) {
+				out.missingProjectChecks++
+				missing = append(missing, fmt.Sprintf("run %q from %s after the latest write", command, finalReadinessCheckSource(check)))
+			}
+		}
+	}
+
+	if len(missing) == 0 {
+		out.satisfied = true
+		return out
+	}
+	out.reason = strings.Join(missing, "; ")
+	return out
+}
+
+// finalReadinessCheckMergeReady is the highest bar: Verified + project
+// verification commands passed + no incomplete todos. This level is meant
+// for changes that are about to be merged.
+func (a *Agent) finalReadinessCheckMergeReady() finalReadinessCheck {
+	out := finalReadinessCheck{applies: true, level: readiness.MergeReady}
+	var missing []string
+
+	// No incomplete todos — every task must be marked done.
+	if !a.planMode.Load() {
+		if incomplete, hasTodos := a.evidence.IncompleteLatestTodos(); hasTodos && len(incomplete) > 0 {
+			out.incompleteTodos = len(incomplete)
+			missing = append(missing, finalReadinessIncompleteTodos(incomplete))
+		}
+	}
+
+	writer, hasWriter := a.evidence.LatestSuccessfulWriterIndex()
+	if hasWriter {
+		// Require complete_step after every write.
+		if !a.evidence.HasSuccessfulCompleteStepAfter(writer) {
+			out.missingCompleteStep = true
+			missing = append(missing, "call complete_step after the latest write")
+		}
+		// All project verification commands must have passed.
+		for _, check := range a.projectChecks {
+			command := strings.TrimSpace(check.Command)
+			if command == "" {
+				continue
+			}
+			if !a.evidence.HasSuccessfulCommandAfter(command, writer) {
+				out.missingProjectChecks++
+				missing = append(missing, fmt.Sprintf("run %q from %s after the latest write", command, finalReadinessCheckSource(check)))
+			}
+		}
+	}
+
+	if len(missing) == 0 {
+		out.satisfied = true
+		return out
+	}
+	out.reason = strings.Join(missing, "; ")
+	return out
+}
+
 func finalReadinessIncompleteTodos(items []evidence.TodoStepMatch) string {
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
@@ -628,6 +882,35 @@ func hasVisibleFinalAnswer(text string) bool {
 	return strings.TrimSpace(text) != ""
 }
 
+// contextLimitRe matches the "maximum context length of N tokens" phrase in
+// provider 400 error bodies (OpenAI-compatible format used by DeepSeek, MiMo,
+// etc.). The actual API limit may be smaller than the configured context_window.
+var contextLimitRe = regexp.MustCompile(`maximum context length of (\d+) tokens`)
+
+// parseContextLimitError checks whether err is a provider 400 whose body reports
+// the model's real context-length limit, and returns that limit if so. This lets
+// the agent dynamically correct a misconfigured context_window at runtime.
+func parseContextLimitError(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	msg := err.Error()
+	// Only treat API errors (which carry the status code and body) as context
+	// limit errors — not generic network failures.
+	if !strings.Contains(msg, "400") {
+		return 0, false
+	}
+	m := contextLimitRe.FindStringSubmatch(msg)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
 func emptyFinalRetryMessage() string {
 	return "The previous assistant response finished without any visible answer text. Continue the same task now and provide a concise visible answer to the user. Do not send reasoning only."
 }
@@ -652,10 +935,63 @@ func (a *Agent) stream(ctx context.Context, turn int) (string, string, string, [
 	ctx = provider.WithRetryNotify(ctx, func(info provider.RetryInfo) {
 		a.sink.Emit(event.Event{Kind: event.Retrying, RetryAttempt: info.Attempt, RetryMax: info.Max})
 	})
+	// Calculate the max output tokens (completion budget) so the total request
+	// (prompt + completion) stays within the context window. This prevents the
+	// "Requested token count exceeds the model's maximum context length" error.
+	//
+	// Use the provider's actual PromptTokens from the last stream when available
+	// (far more accurate than estimateMessagesTokens, which can undercount CJK
+	// text by 2-4×). Fall back to the estimate only on the first call.
+	maxTokens := a.completionBudget
+	if a.contextWindow > 0 {
+		var estimated int
+		if u := a.lastUsage.Load(); u != nil && u.PromptTokens > 0 {
+			// Start from the provider's real count and add the delta since last stream.
+			delta := estimateMessagesTokens(a.session.Messages[a.lastUsageMsgIdx:])
+			estimated = u.PromptTokens + delta
+		} else {
+			estimated = estimateMessagesTokens(a.session.Messages)
+		}
+		available := a.contextWindow - estimated
+		if available < maxTokens {
+			if available > 0 {
+				maxTokens = available
+			} else {
+				// Prompt alone exceeds the window. Compaction should have caught
+				// this, but as a last-resort safety net, force a compaction now
+				// rather than sending a request that will 400. Respect the stuck
+				// guard: if compaction already failed to help twice, retrying
+				// every stream call would loop forever.
+				if !a.compactStuck {
+					a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn,
+						Text: fmt.Sprintf("prompt ~%d tokens exceeds %d-token window; forcing emergency compaction before stream", estimated, a.contextWindow)})
+					if err := a.compact(ctx, "emergency", "", true); err != nil {
+						a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
+							Text: fmt.Sprintf("emergency compaction failed: %v", err)})
+					}
+					// Re-estimate after compaction.
+					estimated = estimateMessagesTokens(a.session.Messages)
+					available = a.contextWindow - estimated
+				}
+				if available > 0 {
+					if available < maxTokens {
+						maxTokens = available
+					}
+				} else {
+					// Even after compaction (or stuck), the prompt is too large.
+					// Set maxTokens to a minimal value so the request at least
+					// has a chance; the provider may still reject it, but we've
+					// done all we can and won't loop.
+					maxTokens = min(256, a.completionBudget)
+				}
+			}
+		}
+	}
 	ch, err := a.prov.Stream(ctx, provider.Request{
 		Messages:    a.session.Messages,
 		Tools:       a.tools.Schemas(),
 		Temperature: a.temperature,
+		MaxTokens:   maxTokens,
 	})
 	if err != nil {
 		return "", "", "", nil, nil, false, false, err
@@ -950,6 +1286,9 @@ func (a *Agent) applyStormBreaker(calls []provider.ToolCall, outcomes []toolOutc
 	a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: fmt.Sprintf(
 		"loop guard: %s failed %d× the same way — nudging the model to change approach",
 		short, a.stormCount)})
+	if a.healthTracker != nil {
+		a.healthTracker.SetLoopDetected(true)
+	}
 }
 
 // batchStormSignature returns a per-turn fixation signature — each call's
@@ -1047,17 +1386,64 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 			}
 		}
 		if !allow {
+			// Gate denied — but a PreToolUse hook may override with AllowOverride.
+			// Run the hook first; if it vouches for the call, proceed with a notice.
+			if a.hooks != nil {
+				result := a.hooks.PreToolUse(ctx, call.Name, json.RawMessage(call.Arguments))
+				if result.Block {
+					msg := result.Message
+					if msg == "" {
+						msg = "blocked by a PreToolUse hook"
+					}
+					return toolOutcome{
+						output:  "blocked: " + msg,
+						blocked: true,
+						errMsg:  "blocked by PreToolUse hook",
+					}
+				}
+				if result.AllowOverride {
+					overrideMsg := "permission override: hook allows " + call.Name
+					if result.OverrideReason != "" {
+						overrideMsg += " — " + result.OverrideReason
+					}
+					a.sink.Emit(event.Event{
+						Kind:  event.Notice,
+						Level: event.LevelWarn,
+						Text:  "⚠ " + overrideMsg + " (gate denied: " + reason + ")",
+					})
+					// Proceed with the call, using any modified args from the hook.
+					effectiveArgs := json.RawMessage(call.Arguments)
+					if result.Args != nil {
+						effectiveArgs = result.Args
+					}
+					return a.executeTool(ctx, call, t, effectiveArgs)
+				}
+			}
 			return toolOutcome{
-				output:  "blocked: " + reason,
+				output:  "blocked: " + reason + a.approvalTokenSuffix(call.Name, permission.Subject(json.RawMessage(call.Arguments))),
 				blocked: true,
 				errMsg:  "blocked by permission policy",
 			}
 		}
+		// Surface bash validation warnings as notices so the user is informed
+		// without blocking the tool call.
+		if strings.HasPrefix(reason, "warn:") {
+			a.sink.Emit(event.Event{
+				Kind:  event.Notice,
+				Level: event.LevelWarn,
+				Text:  "⚠ " + strings.TrimPrefix(reason, "warn:"),
+			})
+		}
 	}
 	// PreToolUse hooks run after permission is granted but before the call: a
 	// gating hook (exit 2) refuses it, surfaced to the model like a gate denial.
+	// The hook may also modify the tool's arguments (Result.Args) or override the
+	// permission decision (Result.AllowOverride).
+	effectiveArgs := json.RawMessage(call.Arguments)
 	if a.hooks != nil {
-		if block, msg := a.hooks.PreToolUse(ctx, call.Name, json.RawMessage(call.Arguments)); block {
+		result := a.hooks.PreToolUse(ctx, call.Name, json.RawMessage(call.Arguments))
+		if result.Block {
+			msg := result.Message
 			if msg == "" {
 				msg = "blocked by a PreToolUse hook"
 			}
@@ -1067,14 +1453,25 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 				errMsg:  "blocked by PreToolUse hook",
 			}
 		}
+		if result.Args != nil {
+			effectiveArgs = result.Args
+		}
 	}
+	return a.executeTool(ctx, call, t, effectiveArgs)
+}
+
+// executeTool runs the actual tool execution after all gating has passed.
+// It handles checkpointing, context enrichment, execution, evidence recording,
+// post-hooks, and output formatting. This is separated from executeOne so the
+// permission-override path can reuse it without duplicating the execution logic.
+func (a *Agent) executeTool(ctx context.Context, call provider.ToolCall, t tool.Tool, effectiveArgs json.RawMessage) toolOutcome {
 	// Checkpoint the file this writer is about to change, so the turn can be
 	// rewound. Fires after all gating (the edit is cleared to run) and only for
 	// tools that can describe their change; a Preview error means the edit will
 	// likely fail anyway, so we skip rather than snapshot a stale state.
 	if a.onPreEdit != nil && !t.ReadOnly() {
 		if pv, ok := t.(tool.Previewer); ok {
-			if change, perr := pv.Preview(json.RawMessage(call.Arguments)); perr == nil {
+			if change, perr := pv.Preview(effectiveArgs); perr == nil {
 				a.onPreEdit(change)
 			}
 		}
@@ -1096,7 +1493,7 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 	cctx = tool.WithProgress(cctx, func(chunk string) {
 		a.sink.Emit(event.Event{Kind: event.ToolProgress, Tool: event.Tool{ID: callID, Output: chunk}})
 	})
-	result, err := t.Execute(cctx, json.RawMessage(call.Arguments))
+	result, err := t.Execute(cctx, effectiveArgs)
 	if a.evidence != nil {
 		if call.Name == "complete_step" {
 			if err == nil {
@@ -1109,7 +1506,11 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 	// PostToolUse hooks observe the result (they can't block); fired whether the
 	// call succeeded or errored, since the tool did run.
 	if a.hooks != nil {
-		a.hooks.PostToolUse(ctx, call.Name, json.RawMessage(call.Arguments), result)
+		a.hooks.PostToolUse(ctx, call.Name, effectiveArgs, result)
+	}
+	// Record tool call outcome for health monitoring.
+	if a.healthTracker != nil {
+		a.healthTracker.RecordToolCall(err == nil)
 	}
 	if err != nil {
 		detail := result
@@ -1132,6 +1533,20 @@ func (a *Agent) executeOne(ctx context.Context, call provider.ToolCall) toolOutc
 	}
 	body, truncMsg := truncateToolOutput(result)
 	return toolOutcome{output: body, truncated: truncMsg != "", truncMsg: truncMsg}
+}
+
+// approvalTokenSuffix generates an approval token suffix for a gate denial
+// message, so the user can approve out-of-band. Returns empty string if
+// token generation is disabled.
+func (a *Agent) approvalTokenSuffix(tool, subject string) string {
+	if a.tokenGenerator == nil {
+		return ""
+	}
+	tokenID, err := a.tokenGenerator(tool, subject)
+	if err != nil || tokenID == "" {
+		return ""
+	}
+	return fmt.Sprintf(" [approval_token:%s]", tokenID)
 }
 
 func (a *Agent) repeatedSuccessBlock(call provider.ToolCall, t tool.Tool) (string, bool) {

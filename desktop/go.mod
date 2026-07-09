@@ -19,6 +19,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/minio/selfupdate v0.6.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/wailsapp/wails/v2 v2.12.0
 	github.com/xuri/excelize/v2 v2.10.1
 	golang.org/x/mod v0.36.0
@@ -56,7 +57,6 @@ require (
 	github.com/richardlehane/mscfb v1.0.6 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/signintech/gopdf v0.36.1 // indirect

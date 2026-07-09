@@ -55,6 +55,7 @@ type TaskTool struct {
 	parentReg         *tool.Registry
 	maxSteps          int
 	contextWindow     int
+	completionBudget  int
 	softCompactRatio  float64
 	compactRatio      float64
 	compactForceRatio float64
@@ -64,7 +65,7 @@ type TaskTool struct {
 	gate              Gate
 	subagentModel     string
 	subagentEffort    string
-	resolveProvider   func(modelRef, effort string) (provider.Provider, *provider.Pricing, int, error)
+	resolveProvider   func(modelRef, effort string) (provider.Provider, *provider.Pricing, int, int, error)
 }
 
 // NewTaskTool wires a task tool to the parent agent's environment so its
@@ -74,8 +75,8 @@ type TaskTool struct {
 // deny rules still bite while autonomous sub-agents are never blocked on an
 // interactive prompt (there is no UI to answer one).
 func NewTaskTool(prov provider.Provider, pricing *provider.Pricing, parentReg *tool.Registry,
-	maxSteps, contextWindow int, softCompactRatio, compactRatio, compactForceRatio, temperature float64, archiveDir, sysPrompt string, gate Gate,
-	subagentModel, subagentEffort string, resolveProvider func(string, string) (provider.Provider, *provider.Pricing, int, error)) *TaskTool {
+	maxSteps, contextWindow, completionBudget int, softCompactRatio, compactRatio, compactForceRatio, temperature float64, archiveDir, sysPrompt string, gate Gate,
+	subagentModel, subagentEffort string, resolveProvider func(string, string) (provider.Provider, *provider.Pricing, int, int, error)) *TaskTool {
 	if sysPrompt == "" {
 		sysPrompt = DefaultTaskSystemPrompt
 	}
@@ -85,6 +86,7 @@ func NewTaskTool(prov provider.Provider, pricing *provider.Pricing, parentReg *t
 		parentReg:         parentReg,
 		maxSteps:          maxSteps,
 		contextWindow:     contextWindow,
+		completionBudget:  completionBudget,
 		softCompactRatio:  softCompactRatio,
 		compactRatio:      compactRatio,
 		compactForceRatio: compactForceRatio,
@@ -291,13 +293,13 @@ func FilterReadOnlyRegistry(parent *tool.Registry, exclude ...string) *tool.Regi
 // sink, and returns its final assistant answer. Shared by the foreground and
 // background paths. modelRef and effort override the parent defaults when non-empty.
 func (t *TaskTool) runSub(ctx context.Context, prompt string, subReg *tool.Registry, sink event.Sink, maxSteps int, modelRef, effort string) (string, error) {
-	prov, pricing, ctxWin := t.prov, t.pricing, t.contextWindow
+	prov, pricing, ctxWin, compBudget := t.prov, t.pricing, t.contextWindow, t.completionBudget
 	if t.resolveProvider != nil && (modelRef != "" || effort != "") {
-		p, pr, cw, err := t.resolveProvider(modelRef, effort)
+		p, pr, cw, cb, err := t.resolveProvider(modelRef, effort)
 		if err != nil {
 			return "", fmt.Errorf("sub-agent profile: %w", err)
 		}
-		prov, pricing, ctxWin = p, pr, cw
+		prov, pricing, ctxWin, compBudget = p, pr, cw, cb
 	}
 	return RunSubAgent(ctx, prov, subReg, t.sysPrompt, prompt, Options{
 		MaxSteps:          maxSteps,
@@ -305,6 +307,7 @@ func (t *TaskTool) runSub(ctx context.Context, prompt string, subReg *tool.Regis
 		Pricing:           pricing,
 		Gate:              t.gate,
 		ContextWindow:     ctxWin,
+		CompletionBudget:  compBudget,
 		SoftCompactRatio:  t.softCompactRatio,
 		CompactRatio:      t.compactRatio,
 		CompactForceRatio: t.compactForceRatio,

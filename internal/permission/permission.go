@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+
+	bashval "rexion/internal/bashvalidation"
 )
 
 // Decision is the outcome of evaluating a tool call against a Policy.
@@ -244,6 +246,10 @@ type Gate struct {
 	Policy   Policy
 	Approver Approver
 
+	// WorkspaceRoot is the project directory used for workspace-boundary
+	// checks in bash validation. When empty, path-scope checks are skipped.
+	WorkspaceRoot string
+
 	// OnRemember, when set, is invoked with a new allow rule the user chose to
 	// remember (e.g. "bash=go build"), so the front-end can persist it.
 	OnRemember func(rule string)
@@ -254,7 +260,9 @@ func NewGate(p Policy, a Approver) *Gate { return &Gate{Policy: p, Approver: a} 
 
 // Check decides whether a tool call may run. It is the method the agent's Gate
 // interface expects. A denied or refused call returns allow=false with a short
-// reason the agent feeds back to the model.
+// reason the agent feeds back to the model. A warning (allow=true with a
+// reason prefixed "warn:") signals that the command is allowed but flagged as
+// risky; the agent should surface it to the user as a notice.
 func (g *Gate) Check(ctx context.Context, toolName string, args json.RawMessage, readOnly bool) (bool, string, error) {
 	if toolName == "bash" && !readOnly {
 		subject := Subject(args)
@@ -262,6 +270,43 @@ func (g *Gate) Check(ctx context.Context, toolName string, args json.RawMessage,
 			readOnly = true
 		}
 	}
+
+	// Bash command semantic validation: check for destructive patterns, path
+	// traversal, and read-only mode violations before the policy layer.
+	if toolName == "bash" {
+		mode := permissionModeFromReadOnly(readOnly)
+		subject := Subject(args)
+		vr := bashval.Validate(subject, mode, g.WorkspaceRoot)
+		if vr.Block != "" {
+			return false, "blocked: " + vr.Block, nil
+		}
+		if vr.Warn != "" {
+			// Allow but flag. The "warn:" prefix lets the agent distinguish
+			// warnings from deny reasons and surface them differently.
+			switch g.Policy.Decide(toolName, readOnly, args) {
+			case Deny:
+				return false, "denied by permission policy — this tool/command is on the deny list. Do not retry it; choose another approach or stop and explain.", nil
+			case Ask:
+				if g.Approver == nil {
+					return true, "warn:" + vr.Warn, nil
+				}
+				allow, remember, err := g.Approver.Approve(ctx, toolName, subject, args)
+				if err != nil {
+					return false, "approval aborted", err
+				}
+				if !allow {
+					return false, "the user declined this tool call — do not retry it; ask how they would like to proceed or choose another approach.", nil
+				}
+				if remember && g.OnRemember != nil {
+					g.OnRemember(rememberRule(toolName, subject))
+				}
+				return true, "warn:" + vr.Warn, nil
+			default:
+				return true, "warn:" + vr.Warn, nil
+			}
+		}
+	}
+
 	switch g.Policy.Decide(toolName, readOnly, args) {
 	case Deny:
 		return false, "denied by permission policy — this tool/command is on the deny list. Do not retry it; choose another approach or stop and explain.", nil
@@ -284,6 +329,18 @@ func (g *Gate) Check(ctx context.Context, toolName string, args json.RawMessage,
 	default:
 		return true, "", nil
 	}
+}
+
+// permissionModeFromReadOnly maps the agent's readOnly flag to a
+// bashvalidation PermissionMode. The agent's Gate interface doesn't carry
+// the full mode, so we infer: readOnly=true → ReadOnly, readOnly=false →
+// WorkspaceWrite (the default non-read-only mode). The WorkspaceRoot on the
+// Gate allows file-path scope checks when available.
+func permissionModeFromReadOnly(readOnly bool) bashval.PermissionMode {
+	if readOnly {
+		return bashval.ReadOnly
+	}
+	return bashval.WorkspaceWrite
 }
 
 // rememberRule builds the rule string persisted when the user picks "always

@@ -57,3 +57,92 @@ func TestExtractHostChecksIsCaseInsensitive(t *testing.T) {
 		t.Fatalf("case-insensitive heading not extracted: %#v", checks)
 	}
 }
+
+func TestExtractReadinessLevelBasic(t *testing.T) {
+	// No readiness setting → empty string
+	docs := []memory.Source{{
+		Path: "Rexion.md",
+		Body: "## Rexion host checks\n- verify: go test ./...",
+	}}
+	if got := ExtractReadinessLevel(docs); got != "" {
+		t.Fatalf("ExtractReadinessLevel = %q, want empty", got)
+	}
+}
+
+func TestExtractReadinessLevelVerified(t *testing.T) {
+	docs := []memory.Source{{
+		Path: "AGENTS.md",
+		Body: "# Project rules\n## Rexion host checks\n- verify: go test ./...\n- readiness: verified\n",
+	}}
+	if got := ExtractReadinessLevel(docs); got != "verified" {
+		t.Fatalf("ExtractReadinessLevel = %q, want %q", got, "verified")
+	}
+}
+
+func TestExtractReadinessLevelMergeReady(t *testing.T) {
+	docs := []memory.Source{{
+		Path: "AGENTS.md",
+		Body: "## Rexion host checks\n- readiness: merge-ready\n",
+	}}
+	if got := ExtractReadinessLevel(docs); got != "merge-ready" {
+		t.Fatalf("ExtractReadinessLevel = %q, want %q", got, "merge-ready")
+	}
+}
+
+func TestExtractReadinessLevelCaseInsensitive(t *testing.T) {
+	docs := []memory.Source{{
+		Path: "AGENTS.md",
+		Body: "## Rexion HOST checks\n- READINESS: verified\n",
+	}}
+	if got := ExtractReadinessLevel(docs); got != "verified" {
+		t.Fatalf("ExtractReadinessLevel = %q, want %q", got, "verified")
+	}
+}
+
+func TestExtractReadinessLevelOutsideSectionIgnored(t *testing.T) {
+	docs := []memory.Source{{
+		Path: "Rexion.md",
+		Body: "- readiness: verified\n## Rexion host checks\n- verify: go test ./...\n",
+	}}
+	if got := ExtractReadinessLevel(docs); got != "" {
+		t.Fatalf("ExtractReadinessLevel = %q, want empty (outside section)", got)
+	}
+}
+
+func TestExtractReadinessLevelPickFirstOnly(t *testing.T) {
+	// Multiple docs: only the first doc's setting is used
+	docs := []memory.Source{
+		{
+			Path: "AGENTS.md",
+			Body: "## Rexion host checks\n- readiness: merge-ready\n- verify: go test ./...\n",
+		},
+		{
+			Path: "Rexion.local.md",
+			Body: "## Rexion host checks\n- readiness: verified\n",
+		},
+	}
+	if got := ExtractReadinessLevel(docs); got != "merge-ready" {
+		t.Fatalf("ExtractReadinessLevel = %q, want %q", got, "merge-ready")
+	}
+}
+
+func TestReadinessBullet(t *testing.T) {
+	tests := []struct {
+		line string
+		val  string
+		ok   bool
+	}{
+		{"- readiness: verified", "verified", true},
+		{"* readiness: merge-ready", "merge-ready", true},
+		{"- READINESS: verified", "verified", true},
+		{"- verify: go test ./...", "", false},
+		{"- readiness:", "", false},
+		{"regular text", "", false},
+	}
+	for _, tt := range tests {
+		val, ok := readinessBullet(tt.line)
+		if ok != tt.ok || val != tt.val {
+			t.Errorf("readinessBullet(%q) = (%q, %v), want (%q, %v)", tt.line, val, ok, tt.val, tt.ok)
+		}
+	}
+}

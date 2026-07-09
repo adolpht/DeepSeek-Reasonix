@@ -1420,6 +1420,11 @@ export const en = {
   "scheduler.cronEveryDay9am": "Every day at 9am",
   "scheduler.cronEveryMonday": "Every Monday",
   "scheduler.cronEveryMonthFirst": "1st of every month",
+  "scheduler.aiGenerate": "AI generate",
+  "scheduler.aiPlaceholder": "Describe the task in natural language, e.g. \"Check code every day at 9am\"",
+  "scheduler.aiGenerating": "Generating…",
+  "scheduler.aiPreviewTitle": "AI Generated Task",
+  "scheduler.aiAccept": "Accept & Edit",
 
   // Calendar panel
   "calendarPanel.month": "Month",

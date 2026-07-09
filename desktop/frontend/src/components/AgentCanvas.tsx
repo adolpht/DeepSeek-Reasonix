@@ -218,6 +218,16 @@ function NodeDetail({
   const t = useT();
   const errRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
+  // Must be declared before any early returns to keep hook count stable.
+  const err = node?.data?.error?.trim();
+  const copyError = useCallback(async () => {
+    if (!err) return;
+    try {
+      await navigator.clipboard.writeText(err);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard may be unavailable */ }
+  }, [err]);
   if (!node) {
     return (
       <aside className="agent-detail agent-detail--empty">
@@ -239,16 +249,6 @@ function NodeDetail({
   const isStep = d.kind === "step";
   const isAgent = d.kind === "agent";
   const args = d.args?.trim() || "";
-  const err = d.error?.trim();
-
-  const copyError = useCallback(async () => {
-    if (!err) return;
-    try {
-      await navigator.clipboard.writeText(err);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch { /* clipboard may be unavailable */ }
-  }, [err]);
 
   return (
     <aside className="agent-detail">

@@ -156,7 +156,7 @@ func TestCacheHitPrefixStable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(mock.handler))
 	defer srv.Close()
 
-	a, sink := newAgent(t, srv.URL, mock.tools(), 0 /*no compaction*/, 0)
+	a, sink := newAgent(t, srv.URL, mock.tools(), 0 /*no compaction*/, 0, 0)
 	if err := a.Run(context.Background(), "echo a couple things then finish"); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestCacheHitClimbsWithoutCompaction(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(mock.handler))
 	defer srv.Close()
 
-	a, sink := newAgent(t, srv.URL, mock.tools(), 0 /*no compaction*/, 0)
+	a, sink := newAgent(t, srv.URL, mock.tools(), 0 /*no compaction*/, 0, 0)
 
 	const turns = 14
 	for i := 0; i < turns; i++ {
@@ -233,7 +233,7 @@ func TestCacheHitSurvivesTooSmallWindow(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(mock.handler))
 	defer srv.Close()
 
-	a, sink := newAgent(t, srv.URL, mock.tools(), 900 /*window tok*/, 4 /*recentKeep*/)
+	a, sink := newAgent(t, srv.URL, mock.tools(), 900 /*window tok*/, 4 /*recentKeep*/, 0)
 
 	if err := a.Run(context.Background(), strings.Repeat("please consider this requirement. ", 6)); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -284,7 +284,7 @@ func TestReasoningRoundTripCost(t *testing.T) {
 		mock := &mockDeepSeek{t: t, reasoning: reasoning}
 		srv := httptest.NewServer(http.HandlerFunc(mock.handler))
 		defer srv.Close()
-		a, sink := newAgent(t, srv.URL, mock.tools(), 0, 0)
+		a, sink := newAgent(t, srv.URL, mock.tools(), 0, 0, 0)
 		const turns = 12
 		for i := 0; i < turns; i++ {
 			if err := a.Run(context.Background(), strings.Repeat("please consider this requirement. ", 6)); err != nil {
@@ -327,7 +327,7 @@ func TestSessionAggregateCacheRate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(mock.handler))
 	defer srv.Close()
 
-	a, sink := newAgent(t, srv.URL, mock.tools(), 0, 0)
+	a, sink := newAgent(t, srv.URL, mock.tools(), 0, 0, 0)
 	const turns = 8
 	for i := 0; i < turns; i++ {
 		if err := a.Run(context.Background(), strings.Repeat("please consider this requirement. ", 6)); err != nil {
@@ -473,7 +473,7 @@ func cacheCurveWithMessages(t *testing.T, mock *mockDeepSeek, messages []string)
 	srv := httptest.NewServer(http.HandlerFunc(mock.handler))
 	defer srv.Close()
 
-	a, sink := newAgent(t, srv.URL, mock.tools(), 0, 0)
+	a, sink := newAgent(t, srv.URL, mock.tools(), 0, 0, 0)
 	for i, userMsg := range messages {
 		if err := a.Run(context.Background(), userMsg); err != nil {
 			t.Fatalf("Run %d: %v", i, err)
@@ -487,7 +487,7 @@ func toolLoopCurve(t *testing.T, mock *mockDeepSeek) []int {
 	srv := httptest.NewServer(http.HandlerFunc(mock.handler))
 	defer srv.Close()
 
-	a, sink := newAgent(t, srv.URL, mock.tools(), 0, 0)
+	a, sink := newAgent(t, srv.URL, mock.tools(), 0, 0, 0)
 	if err := a.Run(context.Background(), strings.Repeat("please consider this requirement. ", 6)); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -529,7 +529,7 @@ func envInt(name string, fallback int) int {
 }
 
 // newAgent wires a real openai.Provider at url into a real Agent.
-func newAgent(t *testing.T, url string, reg *tool.Registry, contextWindow, recentKeep int) (*Agent, *collectSink) {
+func newAgent(t *testing.T, url string, reg *tool.Registry, contextWindow, recentKeep, completionBudget int) (*Agent, *collectSink) {
 	t.Helper()
 	prov, err := openai.New(provider.Config{
 		Name:    "deepseek",
@@ -543,9 +543,10 @@ func newAgent(t *testing.T, url string, reg *tool.Registry, contextWindow, recen
 	}
 	sink := &collectSink{}
 	a := New(prov, reg, NewSession(systemPrompt), Options{
-		Temperature:   0,
-		ContextWindow: contextWindow,
-		RecentKeep:    recentKeep,
+		Temperature:      0,
+		ContextWindow:    contextWindow,
+		RecentKeep:       recentKeep,
+		CompletionBudget: completionBudget,
 	}, sink)
 	return a, sink
 }
