@@ -67,6 +67,7 @@ type Workflow struct {
 	Edges         []WorkflowEdge `json:"edges"`         // DAG edges
 	Trigger       TriggerType    `json:"trigger,omitempty"`       // How this workflow is activated (default "manual")
 	TriggerConfig TriggerConfig  `json:"triggerConfig,omitempty"` // Trigger-specific configuration
+	ErrorStrategy ErrorStrategy  `json:"errorStrategy,omitempty"` // How to handle node failures: "continue" (default) | "stop"
 	Version       int            `json:"version,omitempty"`       // P3: schema version for forward-compat migrations (current 1)
 	AllowedSkills []string       `json:"allowedSkills,omitempty"` // P3: when non-empty, skill nodes may only invoke these skills
 	CreatedAt     int64          `json:"createdAt"`     // Unix milliseconds
@@ -77,6 +78,55 @@ type Workflow struct {
 // Older files (Version 0 / missing) are still loadable; the runtime treats
 // them as Version 1. Bump when a breaking change needs an explicit migration.
 const CurrentWorkflowVersion = 1
+
+// ── Run state ──────────────────────────────────────────────
+
+// RunStatus represents the current state of a workflow execution.
+type RunStatus string
+
+const (
+	RunStatusRunning   RunStatus = "running"
+	RunStatusCompleted RunStatus = "completed"
+	RunStatusFailed    RunStatus = "failed"
+	RunStatusAborted   RunStatus = "aborted"
+	RunStatusSkipped   RunStatus = "skipped"
+)
+
+// ErrorStrategy defines how the workflow runtime handles a node execution failure.
+type ErrorStrategy string
+
+const (
+	// ErrorContinue skips the failed node and continues with the next reachable
+	// node. The failed node's output is empty, so downstream ${ref} substitutions
+	// resolve to "". This is the default (backward-compatible) behaviour.
+	ErrorContinue ErrorStrategy = "continue"
+	// ErrorStop aborts the entire workflow when any executable node fails. The
+	// workflow status is set to "failed".
+	ErrorStop ErrorStrategy = "stop"
+)
+
+// NodeRunState records the execution state of a single node within a run.
+type NodeRunState struct {
+	ID     string    `json:"id"`
+	Label  string    `json:"label"`
+	Kind   string    `json:"kind"`
+	Status RunStatus `json:"status"` // running / completed / failed / skipped
+	Error  string    `json:"error,omitempty"`
+	Output string    `json:"output,omitempty"` // captured assistant reply (truncated for status)
+}
+
+// RunState tracks the execution state of a running or completed workflow.
+// It is maintained in-memory by the desktop App and exposed to the frontend
+// so the WorkflowEditor can render live progress.
+type RunState struct {
+	WorkflowName string         `json:"workflowName"`
+	TabID        string         `json:"tabId"`
+	Status       RunStatus      `json:"status"`
+	Nodes        []NodeRunState `json:"nodes"`
+	StartedAt    int64          `json:"startedAt"`  // Unix ms
+	FinishedAt   int64          `json:"finishedAt"` // Unix ms, 0 while running
+	Error        string         `json:"error,omitempty"`
+}
 
 // Store manages workflow persistence in ~/.rexion/workflows/.
 type Store struct {
@@ -102,12 +152,11 @@ func NewStore(dir string) (*Store, error) {
 
 // Save persists a workflow to <dir>/<name>.json.
 // If the workflow already exists, it is overwritten.
+// The workflow is validated before saving; validation errors are returned
+// without writing the file.
 func (s *Store) Save(w Workflow) error {
-	if w.Name == "" {
-		return fmt.Errorf("workflow name is required")
-	}
-	if strings.ContainsAny(w.Name, "/\\:*?\"<>|") {
-		return fmt.Errorf("workflow name contains invalid characters")
+	if err := Validate(w); err != nil {
+		return fmt.Errorf("validation: %w", err)
 	}
 	w.UpdatedAt = time.Now().UnixMilli()
 	if w.CreatedAt == 0 {
@@ -267,4 +316,42 @@ func (s *Store) FindMatchingEventWorkflows(eventType string, context map[string]
 		matched = make([]Workflow, 0)
 	}
 	return matched, nil
+}
+
+// ValidateWorkflow checks a workflow for structural problems without saving it.
+// Returns nil when valid, or a ValidationErrors describing the problems.
+// This is the read-only counterpart to Save's built-in validation — use it
+// when the frontend wants to show validation feedback before the user clicks Save.
+func (s *Store) ValidateWorkflow(wf Workflow) error {
+	return Validate(wf)
+}
+
+// Duplicate creates a copy of an existing workflow under a new name. The new
+// workflow's CreatedAt/UpdatedAt are reset to now, and the name is set to
+// newName. If newName is empty, a default is derived by appending " (copy)" to
+// the source name. Returns the new workflow's name on success.
+func (s *Store) Duplicate(srcName, newName string) (string, error) {
+	src, err := s.Load(srcName)
+	if err != nil {
+		return "", fmt.Errorf("load source workflow: %w", err)
+	}
+	if newName == "" {
+		newName = srcName + " (copy)"
+	}
+	// Sanitise the new name.
+	newName = strings.Map(func(r rune) rune {
+		if strings.ContainsRune("/\\:*?\"<>|", r) {
+			return '_'
+		}
+		return r
+	}, newName)
+
+	dup := src
+	dup.Name = newName
+	dup.CreatedAt = 0 // will be set by Save
+	dup.UpdatedAt = 0
+	if err := s.Save(dup); err != nil {
+		return "", fmt.Errorf("save duplicated workflow: %w", err)
+	}
+	return newName, nil
 }

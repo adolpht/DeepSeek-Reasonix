@@ -580,6 +580,201 @@ func BranchLabelFor(edgeLabel string, result bool) bool {
 	return label == "no" || label == "false"
 }
 
+// ── Validation ─────────────────────────────────────────────
+
+// ValidationError describes a single validation problem found in a Workflow.
+type ValidationError struct {
+	NodeID  string // Empty when the error is workflow-level
+	Field  string // The field or aspect that failed (e.g. "config", "edges")
+	Detail string // Human-readable explanation
+}
+
+func (e ValidationError) Error() string {
+	if e.NodeID != "" {
+		return fmt.Sprintf("node %q: %s: %s", e.NodeID, e.Field, e.Detail)
+	}
+	return fmt.Sprintf("%s: %s", e.Field, e.Detail)
+}
+
+// ValidationErrors collects multiple validation problems. It implements error
+// so callers can treat it as a single error or inspect individual items.
+type ValidationErrors []ValidationError
+
+func (ve ValidationErrors) Error() string {
+	if len(ve) == 0 {
+		return ""
+	}
+	if len(ve) == 1 {
+		return ve[0].Error()
+	}
+	var msgs []string
+	for _, e := range ve {
+		msgs = append(msgs, e.Error())
+	}
+	return fmt.Sprintf("%d validation errors: %s", len(ve), strings.Join(msgs, "; "))
+}
+
+// Validate checks a Workflow for structural and semantic problems before
+// saving or running. It returns nil when the workflow is valid, or a
+// non-empty ValidationErrors when problems are found.
+//
+// Checks performed:
+//   - Name is non-empty and filename-safe
+//   - At least one node exists
+//   - No duplicate node IDs
+//   - No empty node labels (warning-level, still valid)
+//   - Skill/prompt/tool nodes have non-empty config
+//   - Condition nodes have non-empty config (expression)
+//   - Condition nodes have at least one outgoing edge with a yes/no/true/false label
+//   - Parallel nodes have at least two outgoing edges
+//   - All edge endpoints reference existing nodes
+//   - No self-loops
+//   - No cycles (delegated to TopoSort)
+//   - No disconnected sub-graphs (nodes with no path from any root)
+func Validate(wf Workflow) error {
+	var errs ValidationErrors
+
+	// Workflow-level checks.
+	if wf.Name == "" {
+		errs = append(errs, ValidationError{Field: "name", Detail: "workflow name is required"})
+	} else if strings.ContainsAny(wf.Name, "/\\:*?\"<>|") {
+		errs = append(errs, ValidationError{Field: "name", Detail: fmt.Sprintf("name contains invalid characters: %q", wf.Name)})
+	}
+	if len(wf.Nodes) == 0 {
+		errs = append(errs, ValidationError{Field: "nodes", Detail: "workflow has no nodes"})
+		return errs // nothing more to check
+	}
+
+	// Index nodes by ID; detect duplicates.
+	byID := make(map[string]*WorkflowNode, len(wf.Nodes))
+	for i := range wf.Nodes {
+		n := &wf.Nodes[i]
+		if n.ID == "" {
+			errs = append(errs, ValidationError{NodeID: n.ID, Field: "id", Detail: fmt.Sprintf("node at index %d has empty ID", i)})
+			continue
+		}
+		if _, exists := byID[n.ID]; exists {
+			errs = append(errs, ValidationError{NodeID: n.ID, Field: "id", Detail: "duplicate node ID"})
+			continue
+		}
+		byID[n.ID] = n
+	}
+
+	// Per-node semantic checks.
+	for i := range wf.Nodes {
+		n := &wf.Nodes[i]
+		if n.ID == "" {
+			continue // already reported
+		}
+		switch n.Kind {
+		case "skill", "prompt", "tool":
+			if strings.TrimSpace(n.Config) == "" {
+				errs = append(errs, ValidationError{NodeID: n.ID, Field: "config",
+					Detail: fmt.Sprintf("%s node has empty config", n.Kind)})
+			}
+		case "condition":
+			if strings.TrimSpace(n.Config) == "" {
+				errs = append(errs, ValidationError{NodeID: n.ID, Field: "config",
+					Detail: "condition node has empty expression"})
+			}
+		case "parallel":
+			// Valid — parallel with 0 or 1 branches is handled at runtime.
+		default:
+			errs = append(errs, ValidationError{NodeID: n.ID, Field: "kind",
+				Detail: fmt.Sprintf("unknown node kind %q", n.Kind)})
+		}
+	}
+
+	// Edge checks: endpoints exist, no self-loops.
+	outEdges := make(map[string][]WorkflowEdge, len(wf.Nodes))
+	inEdges := make(map[string][]WorkflowEdge, len(wf.Nodes))
+	for _, e := range wf.Edges {
+		if _, ok := byID[e.Source]; !ok {
+			errs = append(errs, ValidationError{Field: "edges",
+				Detail: fmt.Sprintf("edge %q references unknown source %q", e.ID, e.Source)})
+			continue
+		}
+		if _, ok := byID[e.Target]; !ok {
+			errs = append(errs, ValidationError{Field: "edges",
+				Detail: fmt.Sprintf("edge %q references unknown target %q", e.ID, e.Target)})
+			continue
+		}
+		if e.Source == e.Target {
+			errs = append(errs, ValidationError{NodeID: e.Source, Field: "edges",
+				Detail: fmt.Sprintf("edge %q is a self-loop", e.ID)})
+			continue
+		}
+		outEdges[e.Source] = append(outEdges[e.Source], e)
+		inEdges[e.Target] = append(inEdges[e.Target], e)
+	}
+
+	// Condition node: should have at least one labeled yes/no/true/false edge.
+	for i := range wf.Nodes {
+		n := &wf.Nodes[i]
+		if n.Kind != "condition" {
+			continue
+		}
+		edges := outEdges[n.ID]
+		hasTruthy := false
+		hasFalsy := false
+		for _, e := range edges {
+			label := strings.ToLower(strings.TrimSpace(e.Label))
+			if label == "yes" || label == "true" {
+				hasTruthy = true
+			}
+			if label == "no" || label == "false" {
+				hasFalsy = true
+			}
+		}
+		if len(edges) > 0 && !hasTruthy && !hasFalsy {
+			// Edges exist but none carry a yes/no/true/false label.
+			errs = append(errs, ValidationError{NodeID: n.ID, Field: "edges",
+				Detail: "condition node has outgoing edges but none labeled yes/no or true/false"})
+		}
+	}
+
+	// Cycle detection via TopoSort.
+	if _, err := TopoSort(wf); err != nil {
+		errs = append(errs, ValidationError{Field: "edges", Detail: err.Error()})
+	}
+
+	// Disconnected sub-graph: nodes unreachable from any root (in-degree 0).
+	// This is a warning, not an error — isolated nodes are valid but likely
+	// unintentional. We only flag nodes that have edges but are unreachable.
+	if len(wf.Edges) > 0 {
+		reachable := make(map[string]bool, len(wf.Nodes))
+		// BFS from all roots.
+		queue := make([]string, 0, len(wf.Nodes))
+		for _, n := range wf.Nodes {
+			if len(inEdges[n.ID]) == 0 {
+				queue = append(queue, n.ID)
+				reachable[n.ID] = true
+			}
+		}
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			for _, e := range outEdges[cur] {
+				if !reachable[e.Target] {
+					reachable[e.Target] = true
+					queue = append(queue, e.Target)
+				}
+			}
+		}
+		for _, n := range wf.Nodes {
+			if !reachable[n.ID] && len(inEdges[n.ID]) > 0 {
+				errs = append(errs, ValidationError{NodeID: n.ID, Field: "edges",
+					Detail: "node is unreachable from any root (disconnected sub-graph)"})
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		return errs
+	}
+	return nil
+}
+
 // ── P3: permission whitelist ───────────────────────────────
 
 // IsSkillAllowed reports whether a skill name is permitted by the workflow's

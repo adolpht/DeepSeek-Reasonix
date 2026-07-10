@@ -90,6 +90,7 @@ interface WorkflowView {
   cronExpr?: string;
   eventType?: string;
   matchRules?: Record<string, string>;
+  errorStrategy?: "continue" | "stop";
   version?: number;
   allowedSkills?: string[];
   createdAt: number;
@@ -127,6 +128,26 @@ interface RecipeView {
   trigger: string;
 }
 
+// WorkflowRunStateView mirrors desktop WorkflowRunStateView.
+interface WorkflowRunStateView {
+  workflowName: string;
+  tabId: string;
+  status: "running" | "completed" | "failed" | "aborted" | "skipped";
+  nodes: WorkflowNodeRunView[];
+  startedAt: number;
+  finishedAt: number;
+  error?: string;
+}
+
+// WorkflowNodeRunView mirrors desktop WorkflowNodeRunView.
+interface WorkflowNodeRunView {
+  id: string;
+  label: string;
+  kind: string;
+  status: "running" | "completed" | "failed" | "aborted" | "skipped";
+  error?: string;
+}
+
 type WorkflowEditorNodeType = Node<WorkflowEditorNodeData, "wfNode">;
 
 // ── Kind metadata ────────────────────────────────────────────
@@ -160,6 +181,25 @@ const wails = {
   },
   async runWorkflow(name: string, input?: string): Promise<void> {
     await (window as any).go.main.App.RunWorkflow(name, input ?? "");
+  },
+  async stopWorkflow(name: string): Promise<void> {
+    await (window as any).go.main.App.StopWorkflow(name);
+  },
+  async getWorkflowRunState(name: string): Promise<WorkflowRunStateView | null> {
+    const result = await (window as any).go.main.App.GetWorkflowRunState(name);
+    return result ?? null;
+  },
+  async validateWorkflow(wf: WorkflowView): Promise<string | null> {
+    try {
+      await (window as any).go.main.App.ValidateWorkflow(wf);
+      return null;
+    } catch (e: any) {
+      return e?.message ?? String(e);
+    }
+  },
+  async duplicateWorkflow(srcName: string, newName: string): Promise<string> {
+    const result = await (window as any).go.main.App.DuplicateWorkflow(srcName, newName);
+    return result ?? "";
   },
   async capabilities(): Promise<CapabilitiesView> {
     const result = await (window as any).go.main.App.Capabilities();
@@ -501,6 +541,7 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
   const [selectedNode, setSelectedNode] = useState<WorkflowEditorNodeType | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<string | null>(null);
   // Available skills + models loaded once for the node detail panel's pickers.
   // Both come from the active tab's configuration, so they stay valid across
   // workflow switches.
@@ -512,6 +553,10 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
   // written to currentWorkflow.allowedSkills on every change, this just keeps
   // the textbox text stable between keystrokes.
   const [allowedSkillsText, setAllowedSkillsText] = useState("");
+  // Run state for the current workflow (null when not running / never run).
+  const [runState, setRunState] = useState<WorkflowRunStateView | null>(null);
+  // Polling timer ref for run state updates.
+  const runStateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Canvas state lives in the main component (not inside the canvas child) so
   // that handleAddNode / handleNodeDataUpdate can mutate it directly without
@@ -603,8 +648,14 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
       // Safe to fire-and-forget; ReloadWorkflowTriggers is best-effort.
       void wails.reloadWorkflowTriggers();
       setError(null);
+      setValidationErrors(null);
     } catch (e: any) {
-      setError(e?.message ?? t("wf.errSave"));
+      const msg = e?.message ?? t("wf.errSave");
+      setError(msg);
+      // If the error is a validation error, also set validation errors.
+      if (msg.includes("validation")) {
+        setValidationErrors(msg);
+      }
     }
   }, [currentWorkflow, refreshList, t, nodes, edges]);
 
@@ -643,10 +694,102 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
       setCurrentWorkflow(wf);
       await wails.runWorkflow(wf.name);
       setError(null);
+      setValidationErrors(null);
+      // Start polling run state.
+      startRunStatePolling(wf.name);
     } catch (e: any) {
       setError(e?.message ?? t("wf.errRun"));
     }
   }, [currentWorkflow, t, nodes, edges]);
+
+  const handleStop = useCallback(async () => {
+    if (!currentWorkflow) return;
+    try {
+      await wails.stopWorkflow(currentWorkflow.name);
+      // One final poll to get the aborted state.
+      const rs = await wails.getWorkflowRunState(currentWorkflow.name);
+      setRunState(rs);
+      stopRunStatePolling();
+    } catch (e: any) {
+      setError(e?.message ?? t("wf.errStop"));
+    }
+  }, [currentWorkflow, t]);
+
+  const handleDuplicate = useCallback(async () => {
+    if (!currentWorkflow) return;
+    try {
+      const newName = await wails.duplicateWorkflow(currentWorkflow.name, "");
+      await refreshList();
+      // Load the duplicated workflow.
+      const wf = await wails.loadWorkflow(newName);
+      if (wf) {
+        setCurrentWorkflow(wf);
+        setSelectedNode(null);
+      }
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message ?? t("wf.errDuplicate"));
+    }
+  }, [currentWorkflow, refreshList, t]);
+
+  const handleValidate = useCallback(async () => {
+    if (!currentWorkflow) return;
+    const wf: WorkflowView = {
+      ...currentWorkflow,
+      nodes: nodesToView(nodes),
+      edges: edgesToView(edges),
+    };
+    const errMsg = await wails.validateWorkflow(wf);
+    setValidationErrors(errMsg);
+  }, [currentWorkflow, nodes, edges]);
+
+  // Run state polling: while a workflow is running, poll every 1s.
+  const startRunStatePolling = useCallback((name: string) => {
+    stopRunStatePolling();
+    const poll = async () => {
+      try {
+        const rs = await wails.getWorkflowRunState(name);
+        setRunState(rs);
+        if (rs && rs.status !== "running") {
+          stopRunStatePolling();
+        }
+      } catch {
+        // Silently ignore — the run may have just finished.
+        stopRunStatePolling();
+      }
+    };
+    void poll();
+    runStateTimerRef.current = setInterval(poll, 1000);
+  }, []);
+
+  const stopRunStatePolling = useCallback(() => {
+    if (runStateTimerRef.current !== null) {
+      clearInterval(runStateTimerRef.current);
+      runStateTimerRef.current = null;
+    }
+  }, []);
+
+  // Clean up polling on unmount.
+  useEffect(() => {
+    return () => stopRunStatePolling();
+  }, [stopRunStatePolling]);
+
+  // Load run state when switching workflows.
+  useEffect(() => {
+    if (currentWorkflow) {
+      wails.getWorkflowRunState(currentWorkflow.name).then((rs) => {
+        setRunState(rs);
+        if (rs && rs.status === "running") {
+          startRunStatePolling(currentWorkflow.name);
+        } else {
+          stopRunStatePolling();
+        }
+      });
+    } else {
+      setRunState(null);
+      stopRunStatePolling();
+    }
+  }, [currentWorkflow?.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // handleTriggerChange updates the workflow-level trigger fields. An empty
   // trigger value is normalized to "manual" so the saved file always carries
@@ -907,13 +1050,28 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
           <div className="wf-toolbar__right">
             {currentWorkflow && (
               <>
+                <button className="wf-btn wf-btn--ghost" onClick={handleValidate} title={t("wf.validateTitle")}>
+                  <Sparkles size={13} />
+                  {t("wf.validate")}
+                </button>
                 <button className="wf-btn wf-btn--ghost" onClick={handleSave} title={t("wf.saveTitle")}>
                   <Save size={13} />
                   {t("wf.save")}
                 </button>
-                <button className="wf-btn wf-btn--ghost" onClick={handleRun} title={t("wf.runTitle")}>
-                  <Play size={13} />
-                  {t("wf.run")}
+                {runState?.status === "running" ? (
+                  <button className="wf-btn wf-btn--danger" onClick={handleStop} title={t("wf.stopTitle")}>
+                    <Trash2 size={13} />
+                    {t("wf.stop")}
+                  </button>
+                ) : (
+                  <button className="wf-btn wf-btn--ghost" onClick={handleRun} title={t("wf.runTitle")}>
+                    <Play size={13} />
+                    {t("wf.run")}
+                  </button>
+                )}
+                <button className="wf-btn wf-btn--ghost" onClick={handleDuplicate} title={t("wf.duplicateTitle")}>
+                  <Plus size={13} />
+                  {t("wf.duplicate")}
                 </button>
                 <button className="wf-btn wf-btn--danger" onClick={handleDelete} title={t("wf.deleteTitle")}>
                   <Trash2 size={13} />
@@ -980,6 +1138,49 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
               }}
               placeholder={t("wf.allowedSkillsPlaceholder")}
             />
+          </div>
+        )}
+
+        {/* Error strategy bar — how to handle node failures. */}
+        {currentWorkflow && (
+          <div className="wf-trigger-bar">
+            <span className="wf-trigger-bar__label">{t("wf.errorStrategy")}</span>
+            <select
+              className="wf-detail__select wf-trigger-bar__select"
+              value={currentWorkflow.errorStrategy ?? "continue"}
+              onChange={(e) => setCurrentWorkflow((prev) => (prev ? { ...prev, errorStrategy: e.target.value as "continue" | "stop" } : prev))}
+            >
+              <option value="continue">{t("wf.errorContinue")}</option>
+              <option value="stop">{t("wf.errorStop")}</option>
+            </select>
+          </div>
+        )}
+
+        {/* Run state bar — shows execution progress when a workflow is running or recently completed. */}
+        {currentWorkflow && runState && (
+          <div className={`wf-trigger-bar wf-run-bar wf-run-bar--${runState.status}`}>
+            <span className="wf-trigger-bar__label">
+              {runState.status === "running" && `⏳ ${t("wf.runRunning")}`}
+              {runState.status === "completed" && `✅ ${t("wf.runCompleted")}`}
+              {runState.status === "failed" && `❌ ${t("wf.runFailed")}`}
+              {runState.status === "aborted" && `⏹ ${t("wf.runAborted")}`}
+            </span>
+            <span className="wf-run-bar__progress">
+              {runState.nodes.filter((n) => n.status === "completed").length}/{runState.nodes.length}
+            </span>
+            {runState.status === "running" && (
+              <button className="wf-btn wf-btn--danger wf-btn--sm" onClick={handleStop}>
+                {t("wf.stop")}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Validation errors bar */}
+        {validationErrors && (
+          <div className="wf-error-bar wf-error-bar--validation">
+            <span>{validationErrors}</span>
+            <button onClick={() => setValidationErrors(null)} className="wf-error-bar__close">✕</button>
           </div>
         )}
 

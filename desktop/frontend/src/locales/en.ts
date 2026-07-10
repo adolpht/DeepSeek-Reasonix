@@ -1595,6 +1595,21 @@ export const en = {
   "wf.defaultName": "Workflow {ts}",
   "wf.close": "Close",
   "wf.closeTitle": "Close workflow editor",
+  "wf.stop": "Stop",
+  "wf.stopTitle": "Stop running workflow",
+  "wf.errStop": "Failed to stop workflow",
+  "wf.validate": "Validate",
+  "wf.validateTitle": "Validate workflow before saving",
+  "wf.duplicate": "Duplicate",
+  "wf.duplicateTitle": "Duplicate this workflow",
+  "wf.errDuplicate": "Failed to duplicate workflow",
+  "wf.errorStrategy": "On error",
+  "wf.errorContinue": "Continue (skip failed nodes)",
+  "wf.errorStop": "Stop (abort on first failure)",
+  "wf.runRunning": "Running…",
+  "wf.runCompleted": "Completed",
+  "wf.runFailed": "Failed",
+  "wf.runAborted": "Aborted",
 };
 
 export type DictKey = keyof typeof en;

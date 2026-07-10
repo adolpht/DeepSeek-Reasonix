@@ -69,6 +69,7 @@ import type {
   WorkspaceType,
   WorkspaceView,
   WorkflowView,
+  WorkflowRunStateView,
 } from "./types";
 
 // AppBindings is derived from the Wails-generated Go → TS method signatures, so
@@ -390,6 +391,11 @@ export interface AppBindings {
   LoadWorkflow(id: string): Promise<WorkflowView>;
   SaveWorkflow(wf: WorkflowView): Promise<void>;
   RunWorkflow(id: string, input: string): Promise<void>;
+  StopWorkflow(name: string): Promise<void>;
+  GetWorkflowRunState(name: string): Promise<WorkflowRunStateView | null>;
+  ListWorkflowRunStates(): Promise<WorkflowRunStateView[]>;
+  ValidateWorkflow(wf: WorkflowView): Promise<void>;
+  DuplicateWorkflow(srcName: string, newName: string): Promise<string>;
   DeleteWorkflow(id: string): Promise<void>;
 
   // --- Voice hotkey bindings (desktop/voice_input.go) ---
@@ -2408,6 +2414,17 @@ function makeMockApp(): AppBindings {
     },
     async SaveWorkflow(_wf: WorkflowView): Promise<void> {},
     async RunWorkflow(_id: string, _input: string): Promise<void> {},
+    async StopWorkflow(_name: string): Promise<void> {},
+    async GetWorkflowRunState(_name: string): Promise<WorkflowRunStateView | null> {
+      return null;
+    },
+    async ListWorkflowRunStates(): Promise<WorkflowRunStateView[]> {
+      return [];
+    },
+    async ValidateWorkflow(_wf: WorkflowView): Promise<void> {},
+    async DuplicateWorkflow(_srcName: string, _newName: string): Promise<string> {
+      return "";
+    },
     async DeleteWorkflow(_id: string): Promise<void> {},
     async RegisterVoiceHotkey(): Promise<void> {},
     async UnregisterVoiceHotkey(): Promise<void> {},

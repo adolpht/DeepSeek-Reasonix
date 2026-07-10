@@ -851,8 +851,27 @@ export interface WorkflowView {
   description: string;
   nodes: WorkflowNodeView[];
   edges: WorkflowEdgeView[];
+  errorStrategy?: "continue" | "stop";
   createdAt: number;
   updatedAt: number;
+}
+
+export interface WorkflowRunStateView {
+  workflowName: string;
+  tabId: string;
+  status: string;
+  nodes: WorkflowNodeRunView[];
+  startedAt: number;
+  finishedAt: number;
+  error?: string;
+}
+
+export interface WorkflowNodeRunView {
+  id: string;
+  label: string;
+  kind: string;
+  status: string;
+  error?: string;
 }
 
 export interface HomePageData {

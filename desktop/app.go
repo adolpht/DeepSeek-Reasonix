@@ -92,6 +92,12 @@ type App struct {
 	clipboardHistory *ClipboardHistory
 	terminals        *terminalManager
 
+	// workflowRuns tracks in-progress and recently-completed workflow executions.
+	// Keyed by workflow name; only the latest run per workflow is kept.
+	wfRunMu  sync.Mutex
+	wfRuns   map[string]*workflow.RunState
+	wfCancel map[string]context.CancelFunc // per-run cancel for StopWorkflow
+
 	// imProcessor is the App-level single IM background processor. It owns the
 	// sole IM plugin connection + poll watcher, keeping IM message handling
 	// isolated from user tab conversations. Nil until startIMProcessor runs.
@@ -344,7 +350,7 @@ func NewApp() *App {
 			_ = ch.EnforceMaxEntries(cfg.ClipboardHistory.MaxEntriesOrDefault())
 		}
 	}
-	app := &App{tabs: map[string]*WorkspaceTab{}, mediaTokens: newMediaTokenStore(), dataStore: ds, recipeStore: rs, workflowStore: ws, clipboardHistory: ch, terminals: newTerminalManager()}
+	app := &App{tabs: map[string]*WorkspaceTab{}, mediaTokens: newMediaTokenStore(), dataStore: ds, recipeStore: rs, workflowStore: ws, clipboardHistory: ch, terminals: newTerminalManager(), wfRuns: map[string]*workflow.RunState{}, wfCancel: map[string]context.CancelFunc{}}
 	if ds != nil {
 		app.sched = scheduler.NewScheduler(ds,
 			func(name, skill, params string) string {
@@ -5776,7 +5782,7 @@ func (a *App) GitGenerateCommitMessage() (string, error) {
 		return "", fmt.Errorf("provider %q has no API key configured", entry.Name)
 	}
 
-	return generateCommitMessage(a.reqCtx(), entry.BaseURL, apiKey, entry.Model, summary)
+	return generateCommitMessage(a.reqCtx(), entry.Kind, entry.BaseURL, apiKey, entry.Model, summary)
 }
 
 // --- data model bindings (Tasks 21-22) ---
@@ -6346,6 +6352,7 @@ type WorkflowView struct {
 	CronExpr      string             `json:"cronExpr,omitempty"`
 	EventType     string             `json:"eventType,omitempty"`
 	MatchRules    map[string]string  `json:"matchRules,omitempty"`
+	ErrorStrategy string             `json:"errorStrategy,omitempty"`
 	Version       int                `json:"version,omitempty"`
 	AllowedSkills []string           `json:"allowedSkills,omitempty"`
 	CreatedAt     int64              `json:"createdAt"`
@@ -6412,6 +6419,7 @@ func (a *App) SaveWorkflow(w WorkflowView) error {
 			EventType:  w.EventType,
 			MatchRules: w.MatchRules,
 		},
+		ErrorStrategy: workflow.ErrorStrategy(w.ErrorStrategy),
 		Version:       workflow.CurrentWorkflowVersion,
 		AllowedSkills: w.AllowedSkills,
 		CreatedAt:     w.CreatedAt,
@@ -6494,7 +6502,32 @@ func (a *App) RunWorkflow(name string, input string) error {
 		return fmt.Errorf("create tab for workflow: %w", topicErr)
 	}
 
-	go a.executeWorkflowSteps(topic.ID, wf, order, input)
+	// Initialise run state for live progress tracking.
+	nodeStates := make([]workflow.NodeRunState, len(order))
+	for i, n := range order {
+		nodeStates[i] = workflow.NodeRunState{ID: n.ID, Label: n.Label, Kind: n.Kind, Status: workflow.RunStatusRunning}
+	}
+	runState := &workflow.RunState{
+		WorkflowName: name,
+		TabID:        topic.ID,
+		Status:       workflow.RunStatusRunning,
+		Nodes:        nodeStates,
+		StartedAt:    time.Now().UnixMilli(),
+	}
+
+	// Create a cancellable context for this run.
+	runCtx, runCancel := context.WithCancel(a.ctx)
+
+	a.wfRunMu.Lock()
+	// Cancel any previous run of the same workflow.
+	if prevCancel, ok := a.wfCancel[name]; ok {
+		prevCancel()
+	}
+	a.wfRuns[name] = runState
+	a.wfCancel[name] = runCancel
+	a.wfRunMu.Unlock()
+
+	go a.executeWorkflowSteps(runCtx, topic.ID, wf, order, input, runState)
 	return nil
 }
 
@@ -6524,8 +6557,7 @@ func (a *App) RunWorkflow(name string, input string) error {
 //
 // P3 projection: every executed node emits a StepProgress event (in_progress
 // → completed) so the AgentCanvas graph renders workflow progress live.
-func (a *App) executeWorkflowSteps(tabID string, wf workflow.Workflow, order []workflow.WorkflowNode, input string) {
-	ctx := a.ctx
+func (a *App) executeWorkflowSteps(ctx context.Context, tabID string, wf workflow.Workflow, order []workflow.WorkflowNode, input string, runState *workflow.RunState) {
 	outputs := make(map[string]string, len(order))
 	reachable := make(map[string]bool, len(order))
 	executed := make(map[string]bool, len(order))
@@ -6548,12 +6580,38 @@ func (a *App) executeWorkflowSteps(tabID string, wf workflow.Workflow, order []w
 		}
 	}
 
+	// Helper to update a node's run state.
+	updateNodeState := func(nodeID string, status workflow.RunStatus, errMsg string) {
+		for i := range runState.Nodes {
+			if runState.Nodes[i].ID == nodeID {
+				runState.Nodes[i].Status = status
+				if errMsg != "" {
+					runState.Nodes[i].Error = errMsg
+				}
+				break
+			}
+		}
+	}
+
+	// Error strategy: default to continue for backward compatibility.
+	errStrategy := wf.ErrorStrategy
+	if errStrategy == "" {
+		errStrategy = workflow.ErrorContinue
+	}
+	workflowFailed := false
+
 	executedCount := 0
 	total := len(order)
 	for _, node := range order {
 		select {
 		case <-ctx.Done():
 			a.workflowNotice(tabID, "⏹ workflow %q aborted: %v", wf.Name, ctx.Err())
+			updateNodeState(node.ID, workflow.RunStatusAborted, "workflow aborted")
+			runState.Status = workflow.RunStatusAborted
+			runState.FinishedAt = time.Now().UnixMilli()
+			a.wfRunMu.Lock()
+			delete(a.wfCancel, wf.Name)
+			a.wfRunMu.Unlock()
 			return
 		default:
 		}
@@ -6567,25 +6625,54 @@ func (a *App) executeWorkflowSteps(tabID string, wf workflow.Workflow, order []w
 			// This node sits on a branch that no condition selected. Skip
 			// it silently — no Notice, no StepProgress — so the transcript
 			// isn't cluttered with pruned nodes.
+			updateNodeState(node.ID, "skipped", "")
+			continue
+		}
+
+		if workflowFailed {
+			// Error strategy is "stop" and a previous node failed — skip remaining.
+			updateNodeState(node.ID, "skipped", "skipped due to previous failure")
 			continue
 		}
 
 		switch node.Kind {
 		case "condition":
 			a.runConditionNode(ctx, tabID, node, outputs, input, adjacency, reachable)
+			updateNodeState(node.ID, workflow.RunStatusCompleted, "")
 			executedCount++
 		case "parallel":
 			a.runParallelNode(ctx, tabID, node, order, outputs, input, adjacency, reachable, executed, wf.AllowedSkills)
+			updateNodeState(node.ID, workflow.RunStatusCompleted, "")
 			executedCount++
 		default:
 			// skill / prompt / tool
 			if a.runExecutableNode(ctx, tabID, node, outputs, input, adjacency, reachable, wf.AllowedSkills) {
+				updateNodeState(node.ID, workflow.RunStatusCompleted, "")
 				executedCount++
+			} else {
+				// Node was skipped (unsupported, blocked, or denied).
+				updateNodeState(node.ID, workflow.RunStatusFailed, "node skipped or blocked")
+				if errStrategy == workflow.ErrorStop {
+					workflowFailed = true
+					a.workflowNotice(tabID, "🛑 workflow %q stopping: node %q failed (error strategy: stop)", wf.Name, node.Label)
+				}
 			}
 		}
 	}
 
-	a.workflowNotice(tabID, "✅ workflow %q finished — %d/%d nodes executed", wf.Name, executedCount, total)
+	// Finalise run state.
+	if workflowFailed {
+		runState.Status = workflow.RunStatusFailed
+		a.workflowNotice(tabID, "❌ workflow %q failed — %d/%d nodes executed", wf.Name, executedCount, total)
+	} else {
+		runState.Status = workflow.RunStatusCompleted
+		a.workflowNotice(tabID, "✅ workflow %q finished — %d/%d nodes executed", wf.Name, executedCount, total)
+	}
+	runState.FinishedAt = time.Now().UnixMilli()
+
+	a.wfRunMu.Lock()
+	delete(a.wfCancel, wf.Name)
+	a.wfRunMu.Unlock()
 }
 
 // runConditionNode evaluates the node's expression, stores "true"/"false" as
@@ -6937,9 +7024,141 @@ func workflowViewFromModel(wf workflow.Workflow) WorkflowView {
 		CronExpr:      wf.TriggerConfig.CronExpr,
 		EventType:     wf.TriggerConfig.EventType,
 		MatchRules:    wf.TriggerConfig.MatchRules,
+		ErrorStrategy: string(wf.ErrorStrategy),
 		Version:       wf.Version,
 		AllowedSkills: wf.AllowedSkills,
 		CreatedAt:     wf.CreatedAt,
 		UpdatedAt:     wf.UpdatedAt,
+	}
+}
+
+// ── Workflow run control & status ──────────────────────────
+
+// WorkflowRunStateView is the wire format for workflow run state sent to the frontend.
+type WorkflowRunStateView struct {
+	WorkflowName string                `json:"workflowName"`
+	TabID        string                `json:"tabId"`
+	Status       string                `json:"status"`
+	Nodes        []WorkflowNodeRunView `json:"nodes"`
+	StartedAt    int64                 `json:"startedAt"`
+	FinishedAt   int64                 `json:"finishedAt"`
+	Error        string                `json:"error,omitempty"`
+}
+
+// WorkflowNodeRunView is the wire format for a single node's run state.
+type WorkflowNodeRunView struct {
+	ID     string `json:"id"`
+	Label  string `json:"label"`
+	Kind   string `json:"kind"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+// StopWorkflow cancels a running workflow execution. If the workflow is not
+// currently running, it returns nil (no-op). The workflow's run state is
+// updated to "aborted".
+func (a *App) StopWorkflow(name string) error {
+	a.wfRunMu.Lock()
+	cancel, ok := a.wfCancel[name]
+	if ok {
+		cancel()
+		delete(a.wfCancel, name)
+	}
+	rs, hasRun := a.wfRuns[name]
+	if hasRun && rs.Status == workflow.RunStatusRunning {
+		rs.Status = workflow.RunStatusAborted
+		rs.FinishedAt = time.Now().UnixMilli()
+	}
+	a.wfRunMu.Unlock()
+
+	if !ok && !hasRun {
+		return fmt.Errorf("workflow %q is not running", name)
+	}
+	return nil
+}
+
+// GetWorkflowRunState returns the run state for the most recent (or current)
+// execution of the named workflow. Returns nil if the workflow has never been run.
+func (a *App) GetWorkflowRunState(name string) (*WorkflowRunStateView, error) {
+	a.wfRunMu.Lock()
+	rs, ok := a.wfRuns[name]
+	a.wfRunMu.Unlock()
+	if !ok {
+		return nil, nil
+	}
+	return runStateToView(rs), nil
+}
+
+// ListWorkflowRunStates returns the run states for all workflows that have
+// been executed (or are currently running) in this session.
+func (a *App) ListWorkflowRunStates() ([]WorkflowRunStateView, error) {
+	a.wfRunMu.Lock()
+	defer a.wfRunMu.Unlock()
+	views := make([]WorkflowRunStateView, 0, len(a.wfRuns))
+	for _, rs := range a.wfRuns {
+		views = append(views, *runStateToView(rs))
+	}
+	return views, nil
+}
+
+// ValidateWorkflow checks a workflow for structural problems without saving it.
+// Returns nil when valid, or a JSON-encoded list of validation errors.
+// The frontend can call this to show validation feedback before the user clicks Save.
+func (a *App) ValidateWorkflow(w WorkflowView) error {
+	if a.workflowStore == nil {
+		return fmt.Errorf("workflow store not initialized")
+	}
+	nodes := make([]workflow.WorkflowNode, len(w.Nodes))
+	for i, n := range w.Nodes {
+		nodes[i] = workflow.WorkflowNode{
+			ID:     n.ID,
+			Label:  n.Label,
+			Kind:   n.Kind,
+			Config: n.Config,
+		}
+	}
+	edges := make([]workflow.WorkflowEdge, len(w.Edges))
+	for i, e := range w.Edges {
+		edges[i] = workflow.WorkflowEdge{ID: e.ID, Source: e.Source, Target: e.Target, Label: e.Label}
+	}
+	wf := workflow.Workflow{
+		Name:   w.Name,
+		Nodes:  nodes,
+		Edges:  edges,
+		Trigger: workflow.TriggerType(w.Trigger),
+	}
+	return workflow.Validate(wf)
+}
+
+// DuplicateWorkflow creates a copy of an existing workflow under a new name.
+// If newName is empty, a default is derived by appending " (copy)" to the
+// source name. Returns the new workflow's name on success.
+func (a *App) DuplicateWorkflow(srcName, newName string) (string, error) {
+	if a.workflowStore == nil {
+		return "", fmt.Errorf("workflow store not initialized")
+	}
+	return a.workflowStore.Duplicate(srcName, newName)
+}
+
+// runStateToView converts an internal RunState to the wire format.
+func runStateToView(rs *workflow.RunState) *WorkflowRunStateView {
+	nodes := make([]WorkflowNodeRunView, len(rs.Nodes))
+	for i, n := range rs.Nodes {
+		nodes[i] = WorkflowNodeRunView{
+			ID:     n.ID,
+			Label:  n.Label,
+			Kind:   n.Kind,
+			Status: string(n.Status),
+			Error:  n.Error,
+		}
+	}
+	return &WorkflowRunStateView{
+		WorkflowName: rs.WorkflowName,
+		TabID:        rs.TabID,
+		Status:       string(rs.Status),
+		Nodes:        nodes,
+		StartedAt:    rs.StartedAt,
+		FinishedAt:   rs.FinishedAt,
+		Error:        rs.Error,
 	}
 }

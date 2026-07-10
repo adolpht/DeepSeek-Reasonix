@@ -636,13 +636,13 @@ func TestStore_ListByTrigger(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	// Save one manual + one cron + one event workflow.
-	if err := store.Save(Workflow{Name: "w-manual", Trigger: TriggerManual}); err != nil {
+	if err := store.Save(Workflow{Name: "w-manual", Trigger: TriggerManual, Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}); err != nil {
 		t.Fatalf("save manual: %v", err)
 	}
-	if err := store.Save(Workflow{Name: "w-cron", Trigger: TriggerCron, TriggerConfig: TriggerConfig{CronExpr: "0 * * * *"}}); err != nil {
+	if err := store.Save(Workflow{Name: "w-cron", Trigger: TriggerCron, TriggerConfig: TriggerConfig{CronExpr: "0 * * * *"}, Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}); err != nil {
 		t.Fatalf("save cron: %v", err)
 	}
-	if err := store.Save(Workflow{Name: "w-event", Trigger: TriggerEvent, TriggerConfig: TriggerConfig{EventType: "mail_received"}}); err != nil {
+	if err := store.Save(Workflow{Name: "w-event", Trigger: TriggerEvent, TriggerConfig: TriggerConfig{EventType: "mail_received"}, Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}); err != nil {
 		t.Fatalf("save event: %v", err)
 	}
 
@@ -678,22 +678,23 @@ func TestStore_FindMatchingEventWorkflows(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	// Event workflow with no match rules — matches any mail_received.
-	if err := store.Save(Workflow{Name: "w-all-mail", Trigger: TriggerEvent, TriggerConfig: TriggerConfig{EventType: "mail_received"}}); err != nil {
+	if err := store.Save(Workflow{Name: "w-all-mail", Trigger: TriggerEvent, TriggerConfig: TriggerConfig{EventType: "mail_received"}, Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	// Event workflow filtering by sender substring.
 	if err := store.Save(Workflow{
-		Name: "w-boss-mail",
+		Name:   "w-boss-mail",
 		Trigger: TriggerEvent,
 		TriggerConfig: TriggerConfig{
 			EventType:  "mail_received",
 			MatchRules: map[string]string{"sender": "boss@company.com"},
 		},
+		Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}},
 	}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	// Different event type — should never match mail_received.
-	if err := store.Save(Workflow{Name: "w-other", Trigger: TriggerEvent, TriggerConfig: TriggerConfig{EventType: "mail_sent"}}); err != nil {
+	if err := store.Save(Workflow{Name: "w-other", Trigger: TriggerEvent, TriggerConfig: TriggerConfig{EventType: "mail_sent"}, Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 
@@ -746,4 +747,261 @@ func indexOf(slice []string, v string) int {
 		}
 	}
 	return -1
+}
+
+// ── Validate ───────────────────────────────────────────────
+
+func TestValidate_EmptyName(t *testing.T) {
+	wf := Workflow{Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("empty name: expected error")
+	}
+	if !strings.Contains(err.Error(), "name") {
+		t.Fatalf("expected name error, got %v", err)
+	}
+}
+
+func TestValidate_InvalidName(t *testing.T) {
+	wf := Workflow{Name: "bad/name", Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("invalid name: expected error")
+	}
+}
+
+func TestValidate_NoNodes(t *testing.T) {
+	wf := Workflow{Name: "test"}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("no nodes: expected error")
+	}
+	if !strings.Contains(err.Error(), "no nodes") {
+		t.Fatalf("expected 'no nodes' error, got %v", err)
+	}
+}
+
+func TestValidate_DuplicateNodeID(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}, {ID: "a", Kind: "prompt", Config: "y"}},
+	}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("duplicate ID: expected error")
+	}
+}
+
+func TestValidate_EmptyConfig(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{{ID: "a", Kind: "skill", Config: ""}},
+	}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("empty config: expected error")
+	}
+	if !strings.Contains(err.Error(), "config") {
+		t.Fatalf("expected config error, got %v", err)
+	}
+}
+
+func TestValidate_ConditionEmptyConfig(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{{ID: "a", Kind: "condition", Config: ""}},
+	}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("condition empty config: expected error")
+	}
+}
+
+func TestValidate_UnknownKind(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{{ID: "a", Kind: "unknown", Config: "x"}},
+	}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("unknown kind: expected error")
+	}
+}
+
+func TestValidate_SelfLoop(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}},
+		Edges: []WorkflowEdge{{ID: "e1", Source: "a", Target: "a"}},
+	}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("self-loop: expected error")
+	}
+}
+
+func TestValidate_Cycle(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}, {ID: "b", Kind: "prompt", Config: "y"}},
+		Edges: []WorkflowEdge{{ID: "e1", Source: "a", Target: "b"}, {ID: "e2", Source: "b", Target: "a"}},
+	}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("cycle: expected error")
+	}
+}
+
+func TestValidate_ValidWorkflow(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "hello"}, {ID: "b", Kind: "skill", Config: `{"name":"explore"}`}},
+		Edges: []WorkflowEdge{{ID: "e1", Source: "a", Target: "b"}},
+	}
+	if err := Validate(wf); err != nil {
+		t.Fatalf("valid workflow: unexpected error %v", err)
+	}
+}
+
+func TestValidate_ConditionWithBranchLabels(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{
+			{ID: "c", Kind: "condition", Config: `${a.output} == "yes"`},
+			{ID: "y", Kind: "prompt", Config: "yes path"},
+			{ID: "n", Kind: "prompt", Config: "no path"},
+		},
+		Edges: []WorkflowEdge{
+			{ID: "e1", Source: "c", Target: "y", Label: "yes"},
+			{ID: "e2", Source: "c", Target: "n", Label: "no"},
+		},
+	}
+	if err := Validate(wf); err != nil {
+		t.Fatalf("condition with branches: unexpected error %v", err)
+	}
+}
+
+func TestValidate_ConditionWithUnlabeledEdges(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{
+			{ID: "c", Kind: "condition", Config: `${a.output} == "yes"`},
+			{ID: "y", Kind: "prompt", Config: "path"},
+		},
+		Edges: []WorkflowEdge{
+			{ID: "e1", Source: "c", Target: "y", Label: "maybe"},
+		},
+	}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("condition with unlabeled edges: expected error")
+	}
+}
+
+func TestValidate_UnknownEdgeEndpoint(t *testing.T) {
+	wf := Workflow{
+		Name:  "test",
+		Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}},
+		Edges: []WorkflowEdge{{ID: "e1", Source: "a", Target: "ghost"}},
+	}
+	err := Validate(wf)
+	if err == nil {
+		t.Fatal("unknown edge target: expected error")
+	}
+}
+
+func TestValidate_DisconnectedSubGraph(t *testing.T) {
+	// a → b is connected; c → d is disconnected (has in-edges but unreachable from root).
+	wf := Workflow{
+		Name: "test",
+		Nodes: []WorkflowNode{
+			{ID: "a", Kind: "prompt", Config: "x"},
+			{ID: "b", Kind: "prompt", Config: "y"},
+			{ID: "c", Kind: "prompt", Config: "z"},
+			{ID: "d", Kind: "prompt", Config: "w"},
+		},
+		Edges: []WorkflowEdge{
+			{ID: "e1", Source: "a", Target: "b"},
+			{ID: "e2", Source: "c", Target: "d"},
+		},
+	}
+	// This should NOT error — c is a root (in-degree 0), so it's reachable.
+	if err := Validate(wf); err != nil {
+		t.Fatalf("two independent chains should be valid, got %v", err)
+	}
+}
+
+// ── Store.Duplicate ────────────────────────────────────────
+
+func TestStore_Duplicate(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	wf := Workflow{
+		Name:  "original",
+		Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "hello"}},
+	}
+	if err := store.Save(wf); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	newName, err := store.Duplicate("original", "copy")
+	if err != nil {
+		t.Fatalf("duplicate: %v", err)
+	}
+	if newName != "copy" {
+		t.Fatalf("expected name 'copy', got %q", newName)
+	}
+
+	dup, err := store.Load("copy")
+	if err != nil {
+		t.Fatalf("load copy: %v", err)
+	}
+	if len(dup.Nodes) != 1 || dup.Nodes[0].Config != "hello" {
+		t.Fatalf("copy should have same nodes, got %+v", dup.Nodes)
+	}
+	if dup.CreatedAt == wf.CreatedAt {
+		t.Fatal("copy should have different CreatedAt")
+	}
+}
+
+func TestStore_DuplicateDefaultName(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Save(Workflow{Name: "original", Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	newName, err := store.Duplicate("original", "")
+	if err != nil {
+		t.Fatalf("duplicate: %v", err)
+	}
+	if newName != "original (copy)" {
+		t.Fatalf("expected default name, got %q", newName)
+	}
+}
+
+// ── Store.ValidateWorkflow ─────────────────────────────────
+
+func TestStore_ValidateWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	// Valid workflow.
+	wf := Workflow{Name: "test", Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}
+	if err := store.ValidateWorkflow(wf); err != nil {
+		t.Fatalf("valid: %v", err)
+	}
+	// Invalid workflow.
+	wf2 := Workflow{Name: "", Nodes: []WorkflowNode{{ID: "a", Kind: "prompt", Config: "x"}}}
+	if err := store.ValidateWorkflow(wf2); err == nil {
+		t.Fatal("invalid: expected error")
+	}
 }

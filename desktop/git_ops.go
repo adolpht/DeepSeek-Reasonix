@@ -461,9 +461,9 @@ func gitDiffSummaryForCommit(dir string) string {
 	return sb.String()
 }
 
-// generateCommitMessage calls the OpenAI-compatible chat completion API to
-// generate a commit message from the given diff summary.
-func generateCommitMessage(ctx context.Context, baseURL, apiKey, model, diffSummary string) (string, error) {
+// generateCommitMessage calls the AI API (OpenAI- or Anthropic-compatible)
+// to generate a commit message from the given diff summary.
+func generateCommitMessage(ctx context.Context, kind, baseURL, apiKey, model, diffSummary string) (string, error) {
 	prompt := `你是一个擅长撰写简洁、准确的 git 提交消息的专家。
 分析下面的代码变更，生成一条提交消息，要求：
 1. 使用 conventional commits 格式：type(scope): description
@@ -480,6 +480,16 @@ func generateCommitMessage(ctx context.Context, baseURL, apiKey, model, diffSumm
 变更内容：
 ` + diffSummary
 
+	switch kind {
+	case "anthropic":
+		return generateCommitMessageAnthropic(ctx, baseURL, apiKey, model, prompt)
+	default:
+		return generateCommitMessageOpenAI(ctx, baseURL, apiKey, model, prompt)
+	}
+}
+
+// generateCommitMessageOpenAI calls an OpenAI-compatible /chat/completions endpoint.
+func generateCommitMessageOpenAI(ctx context.Context, baseURL, apiKey, model, prompt string) (string, error) {
 	type msg struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -538,6 +548,84 @@ func generateCommitMessage(ctx context.Context, baseURL, apiKey, model, diffSumm
 	}
 
 	message := strings.TrimSpace(result.Choices[0].Message.Content)
+	// Strip markdown code block wrappers if the model wraps them.
+	message = strings.TrimPrefix(message, "```")
+	message = strings.TrimPrefix(message, "git\n")
+	message = strings.TrimSuffix(message, "```")
+	return strings.TrimSpace(message), nil
+}
+
+// generateCommitMessageAnthropic calls an Anthropic-compatible /v1/messages endpoint.
+func generateCommitMessageAnthropic(ctx context.Context, baseURL, apiKey, model, prompt string) (string, error) {
+	type textBlock struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	type anthMessage struct {
+		Role    string      `json:"role"`
+		Content []textBlock `json:"content"`
+	}
+	type reqBody struct {
+		Model     string        `json:"model"`
+		MaxTokens int           `json:"max_tokens"`
+		System    string        `json:"system"`
+		Messages  []anthMessage `json:"messages"`
+	}
+
+	body, _ := json.Marshal(reqBody{
+		Model:     model,
+		MaxTokens: 512,
+		System:    "你是一个提交消息生成器。只输出提交消息文本，不要输出其他内容。",
+		Messages: []anthMessage{
+			{Role: "user", Content: []textBlock{{Type: "text", Text: prompt}}},
+		},
+	})
+
+	// Anthropic-compatible base URLs may already include a path like /anthropic;
+	// append /v1/messages directly (no normalizeBaseURL which adds /v1 for OpenAI).
+	url := strings.TrimRight(baseURL, "/") + "/v1/messages"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	var parts []string
+	for _, b := range result.Content {
+		if b.Type == "text" {
+			parts = append(parts, b.Text)
+		}
+	}
+	if len(parts) == 0 {
+		return "", fmt.Errorf("no text content in response")
+	}
+
+	message := strings.TrimSpace(strings.Join(parts, "\n"))
 	// Strip markdown code block wrappers if the model wraps them.
 	message = strings.TrimPrefix(message, "```")
 	message = strings.TrimPrefix(message, "git\n")
