@@ -31,11 +31,25 @@ type TaskStore interface {
 	ListScheduledTasks() ([]datastore.ScheduledTask, error)
 	UpdateScheduledTask(t datastore.ScheduledTask) error
 	AddNotification(kind, title, body string) error
+	AddTaskExecLog(l datastore.TaskExecLog) error
 }
 
 // ScheduledTask is a copy of the persistent model, kept here so callers don't
 // need to import datastore directly.
 type ScheduledTask = datastore.ScheduledTask
+
+// ParseCronExpr parses a cron expression, accepting both the standard
+// 5-field format (min hour dom month dow) and the 6-field format with a
+// leading seconds field. The standard 5-field form is what the frontend
+// presets, UI placeholders, and AI-generated expressions use; the 6-field
+// form is accepted as a fallback for hand-written entries.
+func ParseCronExpr(cronExpr string) (cron.Schedule, error) {
+	if sched, err := cron.ParseStandard(cronExpr); err == nil {
+		return sched, nil
+	}
+	parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+	return parser.Parse(cronExpr)
+}
 
 // NewScheduler creates a scheduler backed by store. onExec is called for each
 // task tick; its return value is recorded as the execution result. If onExec is
@@ -52,7 +66,12 @@ func NewScheduler(store TaskStore, onExec func(name, skill, params string) strin
 		onTaskDone = func(_, _, _ string) {}
 	}
 	return &Scheduler{
-		cron:        cron.New(cron.WithSeconds(), cron.WithLocation(time.Local)),
+		// Use the standard 5-field parser as the engine default. AddFunc still
+		// passes the raw expression through ParseCronExpr below, so 6-field
+		// expressions are accepted too — but the engine itself no longer
+		// *requires* a leading seconds field, which is the common case for
+		// frontend presets and AI-generated expressions.
+		cron:        cron.New(cron.WithLocation(time.Local)),
 		entries:     make(map[string]cron.EntryID),
 		store:       store,
 		onExec:      onExec,
@@ -104,9 +123,14 @@ func (s *Scheduler) registerLocked(name, cronExpr, skill, params string) error {
 		delete(s.entries, name)
 	}
 
-	id, err := s.cron.AddFunc(cronExpr, func() {
+	sched, err := ParseCronExpr(cronExpr)
+	if err != nil {
+		return fmt.Errorf("invalid cron %q: %w", cronExpr, err)
+	}
+	id, err := s.cron.AddJob(cronExpr, cron.FuncJob(func() {
+		_ = sched // schedule already resolved; AddJob re-parses internally
 		s.executeTask(name, skill, params)
-	})
+	}))
 	if err != nil {
 		return fmt.Errorf("invalid cron %q: %w", cronExpr, err)
 	}
@@ -142,8 +166,9 @@ func (s *Scheduler) Disable(name string) error {
 // execution time, and sends a completion notification.
 func (s *Scheduler) executeTask(name, skill, params string) {
 	s.onTaskStart(name, skill)
-	now := time.Now()
+	startTime := time.Now()
 	result := s.onExec(name, skill, params)
+	duration := time.Since(startTime)
 
 	s.mu.Lock()
 	tasks, err := s.store.ListScheduledTasks()
@@ -159,26 +184,35 @@ func (s *Scheduler) executeTask(name, skill, params string) {
 		}
 		// Compute next run from the cron schedule.
 		var nextRun int64
-		sched, pErr := cron.ParseStandard(t.Cron)
-		if pErr != nil {
-			// Try the full syntax (with seconds).
-			parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
-			sched, pErr = parser.Parse(t.Cron)
-		}
-		if pErr == nil {
-			nextRun = sched.Next(now).UnixMilli()
+		if sched, pErr := ParseCronExpr(t.Cron); pErr == nil {
+			nextRun = sched.Next(startTime).UnixMilli()
 		}
 
-		t.LastRun = now.UnixMilli()
+		t.LastRun = startTime.UnixMilli()
+		t.LastResult = result
 		t.NextRun = nextRun
 
 		s.mu.Lock()
 		if uErr := s.store.UpdateScheduledTask(t); uErr != nil {
-			log.Printf("scheduler: update last_run for %q: %v", name, uErr)
+			log.Printf("scheduler: update last_run/last_result for %q: %v", name, uErr)
 		}
 		s.mu.Unlock()
 		break
 	}
+
+	// Record execution log.
+	s.mu.Lock()
+	if lErr := s.store.AddTaskExecLog(datastore.TaskExecLog{
+		ID:       datastore.NewID(),
+		TaskName: name,
+		Skill:    skill,
+		Result:   result,
+		RunAt:    startTime.UnixMilli(),
+		Duration: duration.Milliseconds(),
+	}); lErr != nil {
+		log.Printf("scheduler: write exec log for %q: %v", name, lErr)
+	}
+	s.mu.Unlock()
 
 	// Send notification.
 	title := fmt.Sprintf("Task %q completed", name)

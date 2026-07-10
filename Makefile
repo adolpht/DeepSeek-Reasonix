@@ -7,31 +7,37 @@ GOEXE := $(shell go env GOEXE)
 CODEGRAPH_VERSION := v0.9.7
 
 # Main-module plugins (built from the root go.mod)
-MAIN_PLUGINS := rexon-plugin-office rexon-plugin-sheet rexon-plugin-mail rexon-plugin-im rexon-plugin-dws
+# Source dirs are cmd/rexon-plugin-* but output is renamed to rexion-plugin-*
+# for consistent naming across the NSIS installer and plugin discovery.
+MAIN_PLUGINS_SRC := rexon-plugin-office rexon-plugin-sheet rexon-plugin-mail rexon-plugin-im rexon-plugin-dws
+MAIN_PLUGINS_OUT := rexion-plugin-office rexion-plugin-sheet rexion-plugin-mail rexion-plugin-im rexion-plugin-dws
 
 # Standalone-module plugins (each has its own go.mod under cmd/)
-STANDALONE_PLUGINS := rexon-plugin-calendar rexon-plugin-slides rexon-plugin-search
+STANDALONE_PLUGINS_SRC := rexon-plugin-calendar rexon-plugin-slides rexon-plugin-search
+STANDALONE_PLUGINS_OUT := rexion-plugin-calendar rexion-plugin-slides rexion-plugin-search
 
-ALL_PLUGINS := $(MAIN_PLUGINS) $(STANDALONE_PLUGINS)
+ALL_PLUGINS := $(MAIN_PLUGINS_OUT) $(STANDALONE_PLUGINS_OUT)
 
 .PHONY: build plugins vet fmt test hooks cross clean e2e-codegraph
 
 build: plugins
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o bin/rexion$(GOEXE) ./cmd/rexion
 
-plugins: $(foreach p,$(ALL_PLUGINS),bin/$p$(GOEXE))
+plugins: $(foreach p,$(ALL_PLUGINS),bin/plugins/$p$(GOEXE))
 
-# Main-module plugins: build from root module
-$(foreach p,$(MAIN_PLUGINS),bin/$p$(GOEXE)):
-	@mkdir -p bin
-	$(eval PLUGIN := $(notdir $(patsubst %$(GOEXE),%,$@)))
-	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $@ ./cmd/$(PLUGIN)
+# Main-module plugins: build from root module, output to bin/plugins/rexion-plugin-*
+$(foreach p,$(MAIN_PLUGINS_OUT),bin/plugins/$p$(GOEXE)):
+	@mkdir -p bin/plugins
+	$(eval IDX := $(words $(filter $(MAIN_PLUGINS_OUT),$(patsubst bin/plugins/%$(GOEXE),%,$@))))
+	$(eval SRC := $(word $(IDX),$(MAIN_PLUGINS_SRC)))
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $@ ./cmd/$(SRC)
 
 # Standalone-module plugins: build from their own module directory
-$(foreach p,$(STANDALONE_PLUGINS),bin/$p$(GOEXE)):
-	@mkdir -p bin
-	$(eval PLUGIN := $(notdir $(patsubst %$(GOEXE),%,$@)))
-	cd cmd/$(PLUGIN) && go build -o ../../$@ .
+$(foreach p,$(STANDALONE_PLUGINS_OUT),bin/plugins/$p$(GOEXE)):
+	@mkdir -p bin/plugins
+	$(eval IDX := $(words $(filter $(STANDALONE_PLUGINS_OUT),$(patsubst bin/plugins/%$(GOEXE),%,$@))))
+	$(eval SRC := $(word $(IDX),$(STANDALONE_PLUGINS_SRC)))
+	cd cmd/$(SRC) && go build -o ../../$@ .
 
 vet:
 	go vet ./...

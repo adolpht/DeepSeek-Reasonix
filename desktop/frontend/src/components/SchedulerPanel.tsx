@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Clock, Pause, Pencil, Play, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock, History, Pause, Pencil, Play, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { useT } from "../lib/i18n";
 import { app } from "../lib/bridge";
-import type { GeneratedScheduledTaskView, RecipeView, ScheduledTaskView, WorkspaceView } from "../lib/types";
+import type { GeneratedScheduledTaskView, RecipeView, ScheduledTaskView, TaskExecLogView, WorkspaceView } from "../lib/types";
 import { ResizableDrawer } from "./ResizableDrawer";
 import { Tooltip } from "./Tooltip";
 
@@ -82,6 +82,14 @@ function formatTime(ms: number, t: (key: "scheduler.justNow" | "scheduler.minute
   return d.toLocaleString();
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const mins = Math.floor(ms / 60_000);
+  const secs = Math.round((ms % 60_000) / 1000);
+  return `${mins}m${secs > 0 ? ` ${secs}s` : ""}`;
+}
+
 interface FormData {
   name: string;
   cron: string;
@@ -108,6 +116,10 @@ export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiPreview, setAiPreview] = useState<GeneratedScheduledTaskView | null>(null);
   const [aiError, setAiError] = useState("");
+  // Execution history per task
+  const [expandedTask, setExpandedTask] = useState<string | null>(null);
+  const [execLogs, setExecLogs] = useState<TaskExecLogView[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -142,6 +154,43 @@ export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
     refreshRecipes();
     refreshWorkspaces();
   }, [refresh, refreshRecipes, refreshWorkspaces]);
+
+  // Auto-refresh when a scheduled task completes.
+  useEffect(() => {
+    if (!window.runtime?.EventsOn) return;
+    const unsub = window.runtime.EventsOn("scheduled_task_completed", () => {
+      refresh();
+      // If the completed task is currently expanded, refresh its logs too.
+      if (expandedTask) {
+        loadExecLogs(expandedTask);
+      }
+    });
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, [refresh, expandedTask]);
+
+  const loadExecLogs = useCallback(async (taskName: string) => {
+    setLogsLoading(true);
+    try {
+      const logs = await app.ListTaskExecLogs(taskName, 20);
+      setExecLogs(logs);
+    } catch {
+      setExecLogs([]);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, []);
+
+  const toggleExpand = (task: ScheduledTaskView) => {
+    if (expandedTask === task.name) {
+      setExpandedTask(null);
+      setExecLogs([]);
+    } else {
+      setExpandedTask(task.name);
+      loadExecLogs(task.name);
+    }
+  };
 
   // Open the form for a new task.
   const handleAdd = () => {
@@ -232,6 +281,7 @@ export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
       parameters: mergedParams,
       enabled: true,
     });
+    setEditing(null); // AI-generated task is always a new task, not an edit
     setAiPreview(null);
     setAiInput("");
     setShowForm(true);
@@ -305,7 +355,20 @@ export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
                 {t("scheduler.nextRun")}: {formatTime(task.nextRun, t)}
               </span>
             </div>
+            {task.lastResult && (
+              <div className="scheduler-panel__task-result" title={task.lastResult}>
+                {task.lastResult}
+              </div>
+            )}
             <div className="scheduler-panel__task-actions">
+              <button
+                className="scheduler-panel__btn scheduler-panel__btn--small"
+                onClick={() => toggleExpand(task)}
+                title={t("scheduler.execHistory")}
+              >
+                <History size={13} />
+                {expandedTask === task.name ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              </button>
               <button className="scheduler-panel__btn scheduler-panel__btn--small" onClick={() => handleEdit(task)} title={t("common.edit")}>
                 <Pencil size={13} />
               </button>
@@ -326,6 +389,33 @@ export function SchedulerPanel({ onClose }: SchedulerPanelProps) {
                 </button>
               )}
             </div>
+            {/* Execution history */}
+            {expandedTask === task.name && (
+              <div className="scheduler-panel__exec-logs">
+                <div className="scheduler-panel__exec-logs-title">
+                  <History size={12} /> {t("scheduler.execHistory")}
+                </div>
+                {logsLoading ? (
+                  <div className="scheduler-panel__exec-logs-empty">{t("common.loading")}</div>
+                ) : execLogs.length === 0 ? (
+                  <div className="scheduler-panel__exec-logs-empty">{t("scheduler.noExecHistory")}</div>
+                ) : (
+                  <ul className="scheduler-panel__exec-list">
+                    {execLogs.map((log) => (
+                      <li key={log.id} className="scheduler-panel__exec-item">
+                        <div className="scheduler-panel__exec-head">
+                          <span className="scheduler-panel__exec-time">{new Date(log.runAt).toLocaleString()}</span>
+                          <span className="scheduler-panel__exec-duration">{formatDuration(log.duration)}</span>
+                        </div>
+                        {log.result && (
+                          <div className="scheduler-panel__exec-result" title={log.result}>{log.result}</div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>

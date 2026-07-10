@@ -55,6 +55,13 @@
   端点都只是一条配置。可选让两个模型协同（执行器 + 规划器），各自独立、缓存稳定的 session。
 - **插件驱动**：外部工具以子进程形式运行，通过 stdio JSON-RPC 通信（MCP 兼容）；
   内置工具在编译期自注册。
+- **CodeGraph 代码智能**：基于 tree-sitter 的符号/调用图（`codegraph_*` 工具）替代
+  embedding 语义搜索——无需 embedding 服务或 API 开销。首次使用时拉取到本地缓存（或
+  `Rexion codegraph install`），后台自动索引。
+- **Skills & hooks**：Claude-Code 风格的 skills（`internal/skill`）与 hooks
+  （`internal/hook`），符号链接感知、斜杠命令集成。Skill 是 Markdown playbook，
+  模型通过 `run_skill` 调用（用户通过 `/<name>`）；hook 在循环各节点运行 shell 命令
+  （`PreToolUse` / `PostToolUse` / `UserPromptSubmit` / `Stop`）。
 - **零摩擦分发**：`CGO_ENABLED=0` 单二进制；一条命令交叉编译到六个目标平台。
   唯一依赖是一个 TOML 解析库。
 
@@ -85,6 +92,22 @@ Rexion run "把 main.go 里的 TODO 实现掉"
 Rexion run --model mimo-pro "给这个函数补单元测试"
 echo "解释这段代码" | Rexion run
 ```
+
+### CLI 命令
+
+| 命令 | 说明 |
+|------|------|
+| `Rexion chat` | 交互式 bubbletea TUI |
+| `Rexion run` | 一次性非交互执行 |
+| `Rexion setup` | 配置向导 → `Rexion.toml` |
+| `Rexion serve` | HTTP/SSE 服务前端 |
+| `Rexion acp` | Agent Communication Protocol |
+| `Rexion mcp` | MCP 服务器管理 |
+| `Rexion mcp-server` | 内置 MCP 服务器 |
+| `Rexion codegraph` | CodeGraph 安装/索引/状态 |
+| `Rexion doctor` | 环境诊断 |
+| `Rexion config` | 配置读写（含 `auto-plan`） |
+| `Rexion init` | 生成项目记忆文件 |
 
 ## 配置
 
@@ -130,8 +153,12 @@ model       = "claude-sonnet-4-20250514"
 api_key_env = "ANTHROPIC_API_KEY"
 
 [tools]
-enabled = []   # 省略/为空 = 全部内置工具
+enabled = []   # 省略/为空 = 全部内置工具；列出名称则仅启用指定工具
 bash_timeout_seconds = 120   # 前台安全上限；设为 0 表示不设工具层超时
+# [tools.repl]                # js_eval / python_eval；默认启用
+# enabled = true
+# js_path = "node"            # node 二进制路径
+# python_path = "python3"     # python3 二进制路径
 
 [skills]
 # paths = ["~/my-skills", "../shared/skills"]   # 额外的自定义技能目录
@@ -174,9 +201,23 @@ Rexion 是一个 MCP 客户端。`[[plugins]]` 的 `type` 选择传输：`stdio`
 
 服务器的 **prompts** 会暴露成 `/mcp__<server>__<prompt>` 斜杠命令（命令后空格分隔参
 数）；**resources** 通过在消息里写 `@<server>:<uri>` 拉入；`/mcp` 列出已连接服务器及
-各自暴露的内容。`make build` 还会产出 `bin/Rexion-plugin-example`——一个可直接运行的
+各自暴露的内容。`make build` 还会产出 `bin/rexion-plugin-example`——一个可直接运行的
 stdio 参考实现（`echo`、`wordcount`、一个 `review` prompt、一个 style-guide 资源），
 可照抄。
+
+#### 官方插件
+
+| 插件 | 二进制 | 说明 |
+|------|--------|------|
+| Office | `rexion-plugin-office` | Word 文档读写、Markdown→DOCX、模板渲染 |
+| Sheet | `rexion-plugin-sheet` | 电子表格（xlsx/csv）读写/查询/图表 |
+| Slides | `rexion-plugin-slides` | 幻灯片生成、主题风格、PDF 导出 |
+| Calendar | `rexion-plugin-calendar` | 系统日历事件与待办 |
+| Mail | `rexion-plugin-mail` | 邮件（IMAP/SMTP）、OAuth2、分类 |
+| IM | `rexion-plugin-im` | 即时通讯（钉钉/飞书/企业微信机器人） |
+| Search | `rexion-plugin-search` | 网页搜索、页面抽取、对比表 |
+| DWS | `rexion-plugin-dws` | 钉钉工作台（通讯录、文档、AI 表格、考勤、审批、云盘） |
+| Example | `rexion-plugin-example` | 参考实现 stdio 服务器 |
 
 ```toml
 [[plugins]]                       # 本地 stdio 服务器
@@ -253,7 +294,9 @@ Subagent skills 默认继承执行器模型。设置 `subagent_model` 可让它�
 
 交互式前端中，计划模式默认手动开启。设置 `agent.auto_plan = "on"` 后，看起来复杂
 的任务会自动进入 plan mode：Rexion 先只读生成计划，待用户批准后才
-编辑文件或执行有副作用的命令。`auto_plan_classifier` 可以指定便宜的 provider，例如
+编辑文件或执行有副作用的命令。每个计划步骤通过 `complete_step` 签收，
+必须提供证据（验证命令、diff 或手动检查）才能标记为完成——防止 agent
+跳过未完成的工作。`auto_plan_classifier` 可以指定便宜的 provider，例如
 `deepseek-flash`；它只在边界输入上调用，分类失败会回退到启发式规则。也可以用
 `Rexion chat` 里的 `/auto-plan off|on` 修改用户级设置，或在 shell/脚本里用
 `Rexion config auto-plan off|on`。只有明确想写项目级覆盖时，才给 shell 命令加
@@ -273,20 +316,30 @@ Subagent skills 默认继承执行器模型。设置 `subagent_model` 可让它�
 ## 状态
 
 已完成：基于 registry 的 provider/tool、OpenAI 兼容流式 + 工具调用（429/5xx 有界重
-试）、九个内置工具（read_file、write_file、edit_file、multi_edit、bash、ls、glob、
-grep、web_fetch）、TOML 配置、交互式 `Rexion setup` 向导、双模型协同（执行器 + 规划器，
-各自独立、缓存稳定的 session）、低频上下文压缩、子 agent（`task`）、bubbletea 聊天
-TUI（markdown、plan mode、上下文仪表盘、`/compact` `/new` `/tree` `/branch` `/switch`）、会话持久化 + 恢复、
-逐次调用**权限**（allow/ask/deny 规则；chat 在 writer 前询问，deny 在各模式硬阻断）、
-**工作区沙盒**（把文件写工具限制在项目内，符号链接/`..` 安全）、
-MCP 客户端——**stdio + Streamable HTTP** 传输、工具（`mcp__server__tool`,支持
-`readOnlyHint`）、prompts（斜杠命令）、resources（`@` 引用）、`/mcp`，可经
-`[[plugins]]` 或 Claude 风格的项目 `.mcp.json` 配置——自定义斜杠命令
-（`.Rexion/commands/*.md`）、`@file` / `@resource` 引用、外加可运行的参考插件
-（`cmd/Rexion-plugin-example`）、harness 主循环、CLI。chat 在终端普通缓冲区运行(原生
-scrollback)并带 `/` 与 `@` 输入补全。后续:给 `bash` 套 OS 级沙盒（macOS Seatbelt /
-Linux bubblewrap，"盒子里放行、边界上询问"）、Anthropic 原生 provider、MCP OAuth +
-legacy SSE。见 `docs/SPEC.md` §9。
+试）、**Anthropic 原生 provider**（`kind = "anthropic"`）、内置工具——**文件**
+（`read_file`、`write_file`、`edit_file`、`multi_edit`、`apply_patch`、
+`delete_range`、`delete_symbol`）、**搜索**（`glob`、`grep`、`ls`）、
+**执行**（`bash`、`bash_output`、`kill_shell`、`wait`）、**REPL**（`js_eval`、
+`python_eval`）、**文档生成**（`write_docx`、`write_pdf`、`write_sheet`、
+`notebook_edit`）、**网络**（`web_fetch`）、**规划**（`todo_write`、
+`complete_step`）、**Agent**（`task`、`ask`）、**CodeGraph**（`codegraph_context`、
+`codegraph_search`、`codegraph_node`、`codegraph_explore`、`codegraph_files`、
+`codegraph_callees`、`codegraph_callers`、`codegraph_impact`、`codegraph_status`、
+`codegraph_trace`）——TOML 配置、交互式 `Rexion setup` 向导、双模型协同（执行器 +
+规划器，各自独立、缓存稳定的 session）、低频上下文压缩、子 agent（`task`）、
+bubbletea 聊天 TUI（markdown、plan mode 含基于证据的步骤签收 `complete_step`、
+上下文仪表盘、`/compact` `/new` `/tree` `/branch` `/switch` `/todo`）、会话持久化 +
+恢复、逐次调用**权限**（allow/ask/deny 规则；chat 在 writer 前询问，deny 在各模式硬
+阻断）、**工作区沙盒**（把文件写工具限制在项目内，符号链接/`..` 安全）、**沙盒化
+bash**（macOS Seatbelt 默认启用；命令只能写 workspace root + 临时/工具链缓存，
+`[sandbox] network` 为真时才能联网）、MCP 客户端——**stdio + Streamable HTTP**
+传输、工具（`mcp__server__tool`，支持 `readOnlyHint`）、prompts（斜杠命令）、
+resources（`@` 引用）、`/mcp`，可经 `[[plugins]]` 或 Claude 风格的项目 `.mcp.json`
+配置——**Skills & hooks**（Claude-Code 风格 skill playbook + 循环节点 shell-command
+hook）、自定义斜杠命令（`.Rexion/commands/*.md`）、`@file` / `@resource` 引用、
+**ACP**（`Rexion acp`）与 HTTP/SSE 服务前端（`Rexion serve`）、Wails 桌面客户端
+（`desktop/`）、外加可运行的参考插件（`cmd/rexion-plugin-example`）、harness 主循环、
+CLI。后续：MCP OAuth + legacy SSE。见 `docs/SPEC.md` §9。
 
 <br/>
 

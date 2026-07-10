@@ -56,6 +56,7 @@ import type {
   StashEntryView,
   TabMeta,
   TagView,
+  TaskExecLogView,
   TemplateMeta,
   TerminalOutput,
   TerminalView,
@@ -354,6 +355,7 @@ export interface AppBindings {
   DeleteScheduledTask(id: string): Promise<void>;
   OpenTabForScheduledTask(taskName: string): Promise<void>;
   GenerateScheduledTask(description: string): Promise<GeneratedScheduledTaskView>;
+  ListTaskExecLogs(taskName: string, limit: number): Promise<TaskExecLogView[]>;
   // Todos
   ListTodos(): Promise<TodoView[]>;
   CreateTodo(title: string, description: string, dueDate: string, priority: string): Promise<void>;
@@ -2311,7 +2313,7 @@ function makeMockApp(): AppBindings {
     },
     async ListScheduledTasks(): Promise<ScheduledTaskView[]> {
       return [
-        { id: "st1", name: "Daily code review", cron: "0 9 * * *", skill: "review", parameters: "{}", enabled: true, lastRun: Date.now() - 86400_000, nextRun: Date.now() + 43200_000, createdAt: Date.now() - 604800_000 },
+        { id: "st1", name: "Daily code review", cron: "0 9 * * *", skill: "review", parameters: "{}", enabled: true, lastRun: Date.now() - 86400_000, lastResult: "submitted to workspace", nextRun: Date.now() + 43200_000, createdAt: Date.now() - 604800_000 },
       ];
     },
     async CreateScheduledTask(_name: string, _cron: string, _skill: string, _params: string): Promise<void> {
@@ -2328,6 +2330,9 @@ function makeMockApp(): AppBindings {
     },
     async GenerateScheduledTask(_description: string): Promise<GeneratedScheduledTaskView> {
       return { name: "AI Generated Task", cron: "0 9 * * *", cronDesc: "Every day at 9am", skill: "explore", prompt: "", workspace: "", parameters: "{}" };
+    },
+    async ListTaskExecLogs(_taskName: string, _limit: number): Promise<TaskExecLogView[]> {
+      return [];
     },
     async ListTodos(): Promise<TodoView[]> {
       return [

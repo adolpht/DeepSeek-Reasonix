@@ -58,6 +58,15 @@
   two models together (executor + planner) in separate, cache-stable sessions.
 - **Plugin-driven.** External tools run as subprocesses over stdio JSON-RPC
   (MCP-compatible). Built-in tools self-register at compile time.
+- **Code intelligence via CodeGraph.** A tree-sitter symbol/call graph
+  (`codegraph_*` tools) replaces embedding semantic search — no embedding
+  service or API cost. Fetched into a local cache on first use (or
+  `Rexion codegraph install`) and indexed in the background.
+- **Skills & hooks.** Claude-Code-style skills (`internal/skill`) and hooks
+  (`internal/hook`), symlink-aware and slash-integrated. Skills are Markdown
+  playbooks the model invokes via `run_skill` (or you via `/<name>`); hooks
+  run shell commands around the loop (`PreToolUse` / `PostToolUse` /
+  `UserPromptSubmit` / `Stop`).
 - **Zero-friction distribution.** `CGO_ENABLED=0` single binary; cross-compile
   to six targets with one command. The only dependency is a TOML parser.
 
@@ -88,6 +97,22 @@ Rexion run "implement the TODOs in main.go"
 Rexion run --model mimo-pro "add unit tests for this function"
 echo "explain this code" | Rexion run
 ```
+
+### CLI commands
+
+| Command | Description |
+|---------|-------------|
+| `Rexion chat` | Interactive bubbletea TUI |
+| `Rexion run` | One-shot non-interactive |
+| `Rexion setup` | Config wizard → `Rexion.toml` |
+| `Rexion serve` | HTTP/SSE server frontend |
+| `Rexion acp` | Agent Communication Protocol |
+| `Rexion mcp` | MCP server management |
+| `Rexion mcp-server` | Built-in MCP server |
+| `Rexion codegraph` | CodeGraph install / index / status |
+| `Rexion doctor` | Environment diagnostics |
+| `Rexion config` | Read/write config (incl. `auto-plan`) |
+| `Rexion init` | Generate project memory file |
 
 ## Configuration
 
@@ -134,8 +159,12 @@ model       = "claude-sonnet-4-20250514"
 api_key_env = "ANTHROPIC_API_KEY"
 
 [tools]
-enabled = []   # omit/empty = all built-ins
+enabled = []   # omit/empty = all built-ins; list names to restrict
 bash_timeout_seconds = 120   # foreground safety cap; set 0 for no tool-local cap
+# [tools.repl]                # js_eval / python_eval; enabled by default
+# enabled = true
+# js_path = "node"            # path to node binary
+# python_path = "python3"     # path to python3 binary
 
 [skills]
 # paths = ["~/my-skills", "../shared/skills"]   # extra custom skill roots
@@ -184,9 +213,23 @@ reader-default.
 A server's **prompts** surface as `/mcp__<server>__<prompt>` slash commands
 (positional args after the command); its **resources** are pulled in by writing
 `@<server>:<uri>` in a message; `/mcp` lists connected servers and what each
-exposes. `make build` also produces `bin/Rexion-plugin-example` — a runnable
+exposes. `make build` also produces `bin/rexion-plugin-example` — a runnable
 reference stdio server (`echo`, `wordcount`, a `review` prompt, a style-guide
 resource) you can copy.
+
+#### Official plugins
+
+| Plugin | Binary | Description |
+|--------|--------|-------------|
+| Office | `rexion-plugin-office` | Word document read/write, Markdown→DOCX, template rendering |
+| Sheet | `rexion-plugin-sheet` | Spreadsheet (xlsx/csv) read/write/query/chart |
+| Slides | `rexion-plugin-slides` | PowerPoint generation, themes, PDF export |
+| Calendar | `rexion-plugin-calendar` | System calendar events & todo items |
+| Mail | `rexion-plugin-mail` | Email via IMAP/SMTP, OAuth2, classification |
+| IM | `rexion-plugin-im` | Instant messaging (DingTalk / Feishu / WeCom bots) |
+| Search | `rexion-plugin-search` | Web search, page extraction, comparison tables |
+| DWS | `rexion-plugin-dws` | DingTalk Workspace (contacts, docs, AI tables, attendance, approval, drive) |
+| Example | `rexion-plugin-example` | Reference stdio server implementation |
 
 ```toml
 [[plugins]]                       # local stdio server
@@ -280,7 +323,10 @@ specific skills such as `review` or `security_review`.
 For interactive frontends, plan mode is manual by default. Set
 `agent.auto_plan = "on"` to make complex-looking tasks enter plan mode
 automatically: Rexion first drafts a read-only plan, then waits for approval
-before editing or running side-effecting commands. `auto_plan_classifier` can
+before editing or running side-effecting commands. Each plan step is signed off
+with `complete_step`, which requires evidence (a verification command, a diff,
+or a manual check) before the step is marked done — preventing the agent from
+silently advancing past unfinished work. `auto_plan_classifier` can
 name a cheap provider such as `deepseek-flash`; it is only called for borderline
 inputs and falls back to the heuristic if classification fails. Use
 `/auto-plan off|on` in `Rexion chat` to change the user-level setting, or
@@ -303,24 +349,34 @@ Three tiers of extensibility, all behind registries the core resolves by name:
 ## Status
 
 Done: registry-based providers/tools, OpenAI-compatible streaming with tool
-calls (bounded retry on 429/5xx), built-in tools (read_file, write_file,
-edit_file, multi_edit, bash, ls, glob, grep, web_fetch, task, todo_write, ask),
-TOML config, an interactive `Rexion setup` wizard, two-model collaboration
-(executor + planner in separate, cache-stable sessions), low-frequency context
-compaction, sub-agents (`task`), a bubbletea chat TUI (markdown, plan mode with
-controller-driven approval, live token/activity readout, pinned task list,
-`ask` question chooser, `/compact` `/new` `/tree` `/branch` `/switch` `/todo`), session persistence + resume,
+calls (bounded retry on 429/5xx), **Anthropic-native provider** (`kind = "anthropic"`),
+built-in tools — **file** (`read_file`, `write_file`, `edit_file`, `multi_edit`,
+`apply_patch`, `delete_range`, `delete_symbol`), **search** (`glob`, `grep`, `ls`),
+**exec** (`bash`, `bash_output`, `kill_shell`, `wait`), **REPL** (`js_eval`,
+`python_eval`), **doc gen** (`write_docx`, `write_pdf`, `write_sheet`,
+`notebook_edit`), **network** (`web_fetch`), **planning** (`todo_write`,
+`complete_step`), **agent** (`task`, `ask`), **CodeGraph** (`codegraph_context`,
+`codegraph_search`, `codegraph_node`, `codegraph_explore`, `codegraph_files`,
+`codegraph_callees`, `codegraph_callers`, `codegraph_impact`, `codegraph_status`,
+`codegraph_trace`) — TOML config, an interactive `Rexion setup` wizard,
+two-model collaboration (executor + planner in separate, cache-stable sessions),
+low-frequency context compaction, sub-agents (`task`), a bubbletea chat TUI
+(markdown, plan mode with evidence-backed step sign-off via `complete_step`,
+live token/activity readout, pinned task list, `ask` question chooser,
+`/compact` `/new` `/tree` `/branch` `/switch` `/todo`), session persistence + resume,
 per-call **permissions** (allow/ask/deny rules; chat prompts before writers, deny
 rules hard-block everywhere), a **workspace sandbox** confining file-writers to
-the project (symlink/`..`-safe), an MCP client — **stdio + Streamable HTTP**
+the project (symlink/`..`-safe), **sandboxed bash** (macOS Seatbelt by default;
+commands may write only workspace roots + temp/toolchain caches, network only
+when `[sandbox] network` is set), an MCP client — **stdio + Streamable HTTP**
 transports, tools (`mcp__server__tool`, `readOnlyHint`-aware), prompts (slash
 commands), resources (`@`-references), and `/mcp`, configured via `[[plugins]]`
-or a project `.mcp.json` — custom slash commands (`.Rexion/commands/*.md`),
-`@file` / `@resource` references, plus a runnable reference plugin
-(`cmd/Rexion-plugin-example`), the harness loop, and CLI. A Wails desktop
-client (`desktop/`) drives the same kernel. Next: an OS-level sandbox for `bash`
-(macOS Seatbelt / Linux bubblewrap), an Anthropic-native provider, MCP OAuth +
-legacy SSE. See `docs/SPEC.md` §9.
+or a project `.mcp.json` — **Skills & hooks** (Claude-Code-style skill playbooks
++ shell-command hooks around the loop), custom slash commands
+(`.Rexion/commands/*.md`), `@file` / `@resource` references, **ACP**
+(`Rexion acp`) and an HTTP/SSE server frontend (`Rexion serve`), a Wails desktop
+client (`desktop/`), plus a runnable reference plugin (`cmd/rexion-plugin-example`),
+the harness loop, and CLI. Next: MCP OAuth + legacy SSE. See `docs/SPEC.md` §9.
 
 <br/>
 

@@ -1426,6 +1426,8 @@ export const zh: Record<DictKey, string> = {
   "scheduler.aiGenerating": "生成中…",
   "scheduler.aiPreviewTitle": "AI 生成的任务",
   "scheduler.aiAccept": "确认并编辑",
+  "scheduler.execHistory": "执行历史",
+  "scheduler.noExecHistory": "暂无执行记录",
 
   // 日历面板
   "calendarPanel.month": "月",

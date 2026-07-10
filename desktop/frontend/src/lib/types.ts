@@ -738,8 +738,19 @@ export interface ScheduledTaskView {
   parameters: string; // JSON-encoded
   enabled: boolean;
   lastRun: number; // unix ms, 0 = never
+  lastResult: string; // result of the most recent execution
   nextRun: number; // unix ms, 0 = not scheduled
   createdAt: number; // unix ms
+}
+
+// Execution log for a scheduled task.
+export interface TaskExecLogView {
+  id: string;
+  taskName: string;
+  skill: string;
+  result: string;
+  runAt: number; // unix ms
+  duration: number; // milliseconds
 }
 
 // AI-generated scheduled task draft for user confirmation.

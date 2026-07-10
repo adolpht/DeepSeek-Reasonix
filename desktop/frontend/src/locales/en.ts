@@ -1425,6 +1425,8 @@ export const en = {
   "scheduler.aiGenerating": "Generating…",
   "scheduler.aiPreviewTitle": "AI Generated Task",
   "scheduler.aiAccept": "Accept & Edit",
+  "scheduler.execHistory": "Execution History",
+  "scheduler.noExecHistory": "No execution history yet",
 
   // Calendar panel
   "calendarPanel.month": "Month",

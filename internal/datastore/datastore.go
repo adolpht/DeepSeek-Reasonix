@@ -24,8 +24,19 @@ type ScheduledTask struct {
 	Parameters string `json:"parameters"` // JSON-encoded parameters
 	Enabled    bool   `json:"enabled"`
 	LastRun    int64  `json:"lastRun"`   // unix milliseconds, 0 = never
+	LastResult string `json:"lastResult"` // result of the most recent execution
 	NextRun    int64  `json:"nextRun"`   // unix milliseconds, 0 = not scheduled
 	CreatedAt  int64  `json:"createdAt"` // unix milliseconds
+}
+
+// TaskExecLog records a single execution of a scheduled task.
+type TaskExecLog struct {
+	ID        string `json:"id"`
+	TaskName  string `json:"taskName"`
+	Skill     string `json:"skill"`
+	Result    string `json:"result"`
+	RunAt     int64  `json:"runAt"`     // unix milliseconds
+	Duration  int64  `json:"duration"`  // milliseconds, 0 = unknown
 }
 
 // Todo represents a user or agent todo item.
@@ -109,15 +120,16 @@ func (s *Store) Close() error {
 func (s *Store) migrate() error {
 	const schema = `
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
-    id         TEXT PRIMARY KEY,
-    name       TEXT NOT NULL,
-    cron       TEXT NOT NULL,
-    skill      TEXT NOT NULL,
-    parameters TEXT NOT NULL DEFAULT '{}',
-    enabled    INTEGER NOT NULL DEFAULT 1,
-    last_run   INTEGER NOT NULL DEFAULT 0,
-    next_run   INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    cron        TEXT NOT NULL,
+    skill       TEXT NOT NULL,
+    parameters  TEXT NOT NULL DEFAULT '{}',
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    last_run    INTEGER NOT NULL DEFAULT 0,
+    last_result TEXT NOT NULL DEFAULT '',
+    next_run    INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS todos (
@@ -140,9 +152,25 @@ CREATE TABLE IF NOT EXISTS notifications (
     read       INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS task_exec_logs (
+    id        TEXT PRIMARY KEY,
+    task_name TEXT NOT NULL,
+    skill     TEXT NOT NULL,
+    result    TEXT NOT NULL DEFAULT '',
+    run_at    INTEGER NOT NULL,
+    duration  INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_task_exec_logs_task_name ON task_exec_logs(task_name);
+CREATE INDEX IF NOT EXISTS idx_task_exec_logs_run_at ON task_exec_logs(run_at);
 `
 	_, err := s.db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+	// Migration: add last_result column if it doesn't exist (upgrade from older schema).
+	s.db.Exec("ALTER TABLE scheduled_tasks ADD COLUMN last_result TEXT NOT NULL DEFAULT ''")
+	return nil
 }
 
 // --- ScheduledTask CRUD ---
@@ -150,7 +178,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 func (s *Store) ListScheduledTasks() ([]ScheduledTask, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.db.Query("SELECT id, name, cron, skill, parameters, enabled, last_run, next_run, created_at FROM scheduled_tasks ORDER BY created_at")
+	rows, err := s.db.Query("SELECT id, name, cron, skill, parameters, enabled, last_run, last_result, next_run, created_at FROM scheduled_tasks ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +187,7 @@ func (s *Store) ListScheduledTasks() ([]ScheduledTask, error) {
 	for rows.Next() {
 		var t ScheduledTask
 		var enabled int
-		if err := rows.Scan(&t.ID, &t.Name, &t.Cron, &t.Skill, &t.Parameters, &enabled, &t.LastRun, &t.NextRun, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Cron, &t.Skill, &t.Parameters, &enabled, &t.LastRun, &t.LastResult, &t.NextRun, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		t.Enabled = enabled != 0
@@ -175,8 +203,8 @@ func (s *Store) CreateScheduledTask(t ScheduledTask) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.db.Exec(
-		"INSERT INTO scheduled_tasks (id, name, cron, skill, parameters, enabled, last_run, next_run, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		t.ID, t.Name, t.Cron, t.Skill, t.Parameters, boolToInt(t.Enabled), t.LastRun, t.NextRun, t.CreatedAt,
+		"INSERT INTO scheduled_tasks (id, name, cron, skill, parameters, enabled, last_run, last_result, next_run, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		t.ID, t.Name, t.Cron, t.Skill, t.Parameters, boolToInt(t.Enabled), t.LastRun, t.LastResult, t.NextRun, t.CreatedAt,
 	)
 	return err
 }
@@ -185,8 +213,8 @@ func (s *Store) UpdateScheduledTask(t ScheduledTask) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	res, err := s.db.Exec(
-		"UPDATE scheduled_tasks SET name=?, cron=?, skill=?, parameters=?, enabled=?, last_run=?, next_run=? WHERE id=?",
-		t.Name, t.Cron, t.Skill, t.Parameters, boolToInt(t.Enabled), t.LastRun, t.NextRun, t.ID,
+		"UPDATE scheduled_tasks SET name=?, cron=?, skill=?, parameters=?, enabled=?, last_run=?, last_result=?, next_run=? WHERE id=?",
+		t.Name, t.Cron, t.Skill, t.Parameters, boolToInt(t.Enabled), t.LastRun, t.LastResult, t.NextRun, t.ID,
 	)
 	if err != nil {
 		return err
@@ -210,6 +238,50 @@ func (s *Store) DeleteScheduledTask(id string) error {
 		return fmt.Errorf("scheduled task %q not found", id)
 	}
 	return nil
+}
+
+// --- TaskExecLog CRUD ---
+
+func (s *Store) AddTaskExecLog(l TaskExecLog) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(
+		"INSERT INTO task_exec_logs (id, task_name, skill, result, run_at, duration) VALUES (?, ?, ?, ?, ?, ?)",
+		l.ID, l.TaskName, l.Skill, l.Result, l.RunAt, l.Duration,
+	)
+	if err != nil {
+		return err
+	}
+	// Prune: keep at most 100 logs per task.
+	s.db.Exec(`DELETE FROM task_exec_logs WHERE task_name=? AND id NOT IN (
+		SELECT id FROM task_exec_logs WHERE task_name=? ORDER BY run_at DESC LIMIT 100
+	)`, l.TaskName, l.TaskName)
+	return nil
+}
+
+func (s *Store) ListTaskExecLogs(taskName string, limit int) ([]TaskExecLog, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.db.Query("SELECT id, task_name, skill, result, run_at, duration FROM task_exec_logs WHERE task_name=? ORDER BY run_at DESC LIMIT ?", taskName, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TaskExecLog
+	for rows.Next() {
+		var l TaskExecLog
+		if err := rows.Scan(&l.ID, &l.TaskName, &l.Skill, &l.Result, &l.RunAt, &l.Duration); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	if out == nil {
+		out = []TaskExecLog{}
+	}
+	return out, rows.Err()
 }
 
 // --- Todo CRUD ---

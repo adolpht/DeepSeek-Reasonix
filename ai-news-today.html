@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>今日 AI 新闻速递 — 2026年7月9日</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    background: #0f1117;
+    color: #e1e4ea;
+    line-height: 1.7;
+    min-height: 100vh;
+  }
+  .header {
+    background: linear-gradient(135deg, #0b1a2e 0%, #1a2a4a 30%, #2d1b4e 70%, #1a0a2e 100%);
+    padding: 3rem 1.5rem 2.5rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+    position: relative;
+    overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(circle at 30% 50%, rgba(99,102,241,0.06) 0%, transparent 50%),
+                radial-gradient(circle at 70% 50%, rgba(139,92,246,0.06) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .header h1 {
+    font-size: clamp(1.8rem, 5vw, 3rem);
+    font-weight: 800;
+    background: linear-gradient(135deg, #818cf8, #a78bfa, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: 0.02em;
+    position: relative;
+  }
+  .header .subtitle {
+    font-size: clamp(0.9rem, 2.5vw, 1.15rem);
+    color: #94a3b8;
+    margin-top: 0.6rem;
+    position: relative;
+  }
+  .header .subtitle span { color: #818cf8; }
+  .header .badge {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.35rem 1.2rem;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    color: #a5b4fc;
+    font-size: 0.8rem;
+    letter-spacing: 0.05em;
+    position: relative;
+  }
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 2rem 1.2rem 3rem;
+  }
+  .toc {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(15, 17, 23, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(99, 102, 241, 0.15);
+    padding: 0.75rem 1rem;
+    margin: -2rem -1.2rem 2rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.8rem;
+    justify-content: center;
+  }
+  .toc a {
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 0.82rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .toc a:hover { color: #a5b4fc; background: rgba(99,102,241,0.1); }
+  .section-title {
+    font-size: clamp(1.3rem, 3vw, 1.7rem);
+    font-weight: 700;
+    margin: 2.5rem 0 1.2rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid rgba(99, 102, 241, 0.2);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .section-title .icon { font-size: 1.3em; }
+  .section-title .count {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #64748b;
+    background: rgba(100, 116, 139, 0.15);
+    padding: 0.1rem 0.6rem;
+    border-radius: 999px;
+    margin-left: 0.3rem;
+  }
+  .news-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  @media (min-width: 768px) {
+    .news-grid { grid-template-columns: 1fr 1fr; }
+  }
+  .card {
+    background: #1a1d2e;
+    border: 1px solid rgba(99, 102, 241, 0.10);
+    border-radius: 14px;
+    padding: 1.4rem 1.4rem 1.2rem;
+    transition: all 0.25s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .card:hover {
+    border-color: rgba(99, 102, 241, 0.30);
+    box-shadow: 0 4px 24px rgba(99, 102, 241, 0.08);
+    transform: translateY(-2px);
+  }
+  .card .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 0.2rem 0.7rem;
+    border-radius: 999px;
+    margin-bottom: 0.6rem;
+    text-transform: uppercase;
+  }
+  .tag-hot { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+  .tag-model { background: rgba(99, 102, 241, 0.18); color: #818cf8; }
+  .tag-robot { background: rgba(16, 185, 129, 0.18); color: #34d399; }
+  .tag-car { background: rgba(245, 158, 11, 0.18); color: #fbbf24; }
+  .tag-policy { background: rgba(139, 92, 246, 0.18); color: #c4a8ff; }
+  .tag-research { background: rgba(6, 182, 212, 0.18); color: #67e8f9; }
+  .card .importance {
+    position: absolute;
+    top: 1rem; right: 1rem;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(100, 116, 139, 0.12);
+    color: #64748b;
+  }
+  .importance.high { color: #f87171; background: rgba(239, 68, 68, 0.10); }
+  .card h3 {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    line-height: 1.5;
+    margin-bottom: 0.5rem;
+    padding-right: 4rem;
+  }
+  .card p {
+    font-size: 0.9rem;
+    color: #94a3b8;
+    line-height: 1.65;
+    margin-bottom: 0.8rem;
+  }
+  .card .source {
+    font-size: 0.8rem;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+  }
+  .card .source a {
+    color: #818cf8;
+    text-decoration: none;
+    transition: color 0.2s;
+    word-break: break-all;
+  }
+  .card .source a:hover { color: #a5b4fc; text-decoration: underline; }
+  .card .source .sep { color: #3f4556; }
+  .footer {
+    text-align: center;
+    padding: 2.5rem 1rem 2rem;
+    border-top: 1px solid rgba(99, 102, 241, 0.10);
+    margin-top: 3rem;
+    color: #475569;
+    font-size: 0.82rem;
+    line-height: 1.8;
+  }
+  .footer strong { color: #64748b; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #0f1117; }
+  ::-webkit-scrollbar-thumb { background: #2d3150; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3f4570; }
+  @media print {
+    body { background: #fff; color: #222; }
+    .header { background: #f0f0f5 !important; }
+    .header h1 { -webkit-text-fill-color: #333; }
+    .card { background: #fafafa; border-color: #ddd; break-inside: avoid; }
+    .toc { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <h1>🤖 今日 AI 新闻速递</h1>
+  <p class="subtitle">2026 年 7 月 9 日 · 星期四 <span>·</span> 精选全球 AI 领域要闻</p>
+  <div class="badge">📡 近 24–48 小时 · 覆盖 12+ 权威信源 · 共 22 条</div>
+</header>
+
+<nav class="toc">
+  <a href="#hot">🔥 头条</a>
+  <a href="#model">🧠 大模型</a>
+  <a href="#robot">🤖 机器人</a>
+  <a href="#car">🚗 自动驾驶</a>
+  <a href="#policy">📜 产业·资本</a>
+  <a href="#research">🔬 前沿研究</a>
+</nav>
+
+<div class="container">
+
+  <!-- 🔥 -->
+  <h2 class="section-title" id="hot"><span class="icon">🔥</span> 头条·重大发布 <span class="count">4</span></h2>
+  <div class="news-grid">
+
+    <div class="card">
+      <span class="tag tag-hot">重磅</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>OpenAI 深夜放出 GPT-Live — ChatGPT 终于像真人一样说话</h3>
+      <p>OpenAI 推出 GPT-Live 功能，ChatGPT 获得实时语音对话能力，支持同声传译和自然打断，交互体验接近真人。现场演示中 AI 与老太太抬杠引发全网热议，网友惊呼"同声传译一夜失业"。</p>
+      <div class="source">
+        📰 机器之心·量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.jiqizhixin.com/" target="_blank" rel="noopener">机器之心</a>
+        <span class="sep">·</span>
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-hot">重磅</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>马斯克突袭发布 Grok 4.5 — "性价比之王"硬刚 GPT-5.5</h3>
+      <p>马斯克深夜掀桌发布最强旗舰 Grok 4.5，搭载数万块 GB300 芯片训练而成，性能紧贴 Opus 4.8，但价格大幅降低。马斯克重演 SpaceX 式策略——通过极致成本控制和垂直整合让对手在商业上陷入被动。</p>
+      <div class="source">
+        📰 新智元·36氪 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.36kr.com/" target="_blank" rel="noopener">36氪</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-hot">重磅</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>OpenAI 首席未来学家离职 — 高层动荡再起</h3>
+      <p>OpenAI 首席未来学家宣布离职，此前曾被马斯克在公开场合称为"蠢驴"。其离职引发业内对 OpenAI 高层持续动荡和技术路线分歧扩大的广泛关注。</p>
+      <div class="source">
+        📰 量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-hot">重磅</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>GPT-6 即将到来 — OpenAI「三箭齐发」Sol · Terra · Luna</h3>
+      <p>OpenAI 被曝正在规划下一代 GPT-6 系列，内部代号 Sol、Terra、Luna 三大模型齐发。旧 4T 参数底座将被彻底抛弃，新架构有望在推理效率和多模态能力上实现质的飞跃。</p>
+      <div class="source">
+        📰 新智元·36氪 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.36kr.com/" target="_blank" rel="noopener">36氪</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 🧠 -->
+  <h2 class="section-title" id="model"><span class="icon">🧠</span> 大模型与基础研究 <span class="count">5</span></h2>
+  <div class="news-grid">
+
+    <div class="card">
+      <span class="tag tag-model">大模型</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>Anthropic 部署 Claude Sonnet 5，恢复 Fable 和 Mythos 模型</h3>
+      <p>Anthropic 正式发布 Claude Sonnet 5，同时恢复此前下线的 Fable 和 Mythos 能力。新模型在推理、代码生成和长上下文理解方面均有显著提升，进一步加剧大模型竞争格局。</p>
+      <div class="source">
+        📰 AI News &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.artificialintelligence-news.com/" target="_blank" rel="noopener">AI News</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-model">大模型</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>DeepSeek 秘密造芯 — 专攻推理芯片，一年前已悄然启动</h3>
+      <p>据量子位独家报道，DeepSeek 已秘密启动 AI 推理芯片自研项目，一年前已与芯片设计公司、晶圆代工厂和存储器供应商展开接洽，招聘全程不公开。这一战略布局显示中国大模型公司正向上游硬件延伸，减少对外部算力的依赖。</p>
+      <div class="source">
+        📰 量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-model">大模型</span>
+      <span class="importance">中</span>
+      <h3>全球首个英伟达含量为 0 的万亿模型，成海外开发者抢手货</h3>
+      <p>全球首个完全不依赖英伟达 GPU 训练的万亿参数大模型发布，采用全栈国产化算力方案实现训练和推理，受到海外开发者社区热烈追捧，成为近期 GitHub 热门项目。</p>
+      <div class="source">
+        📰 量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-model">大模型</span>
+      <span class="importance">中</span>
+      <h3>13 个大模型实测：检索 Agent 防投毒能力差异显著</h3>
+      <p>最新研究系统评测了 13 个大模型在检索增强生成（RAG）场景下的防搜索投毒能力。结果显示不同模型安全性差异显著，部分模型极易受到误导信息攻击，为 RAG 安全部署敲响警钟。</p>
+      <div class="source">
+        📰 新智元·36氪 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.36kr.com/" target="_blank" rel="noopener">36氪</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-model">企业</span>
+      <span class="importance">中</span>
+      <h3>HP 携手 OpenAI Frontier 加速企业级 AI 工作流</h3>
+      <p>HP 宣布将 OpenAI 最新 Frontier 模型整合到企业级工作流中，为打印管理、文档处理和客户服务等场景提供 AI 驱动能力，标志着大模型在传统企业级应用中的落地加速。</p>
+      <div class="source">
+        📰 AI News &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.artificialintelligence-news.com/" target="_blank" rel="noopener">AI News</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 🤖 -->
+  <h2 class="section-title" id="robot"><span class="icon">🤖</span> 机器人·具身智能 <span class="count">4</span></h2>
+  <div class="news-grid">
+
+    <div class="card">
+      <span class="tag tag-robot">具身智能</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>蚂蚁灵波开源 LingoBot-VLA 2.0 — 支持 17 家厂商 20+ 构型</h3>
+      <p>蚂蚁集团旗下灵波团队正式开源 LingoBot-VLA 2.0 大模型，同时发布全球首个面向具身智能的 MoE 视频模型。新模型可适配 17 家主流机器人厂商的 20 多种硬件构型，大幅降低具身智能的开发门槛。</p>
+      <div class="source">
+        📰 量子位·36氪 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-robot">具身智能</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>具身智能扎堆 IPO — 宇树科技 73 天闪电过会刷新纪录</h3>
+      <p>机器人企业密集冲击资本市场：宇树科技仅用 73 天闪电过会刷新科创板最快 IPO 纪录；云深处紧随其后递交科创板申请已进入"已问询"状态。行业普遍认为 2026 年是具身智能"商业化元年"。</p>
+      <div class="source">
+        📰 万点研究·36氪 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.36kr.com/" target="_blank" rel="noopener">36氪</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-robot">融资</span>
+      <span class="importance">中</span>
+      <h3>「昇视唯盛」完成数亿元 B 轮 — 自研焊接具身大脑模型</h3>
+      <p>具身智能创业公司昇视唯盛完成数亿元 B 轮融资。公司以"智能焊工"切入工业制造场景，自研焊接具身大脑模型，打造"自主大脑+自主小脑+自研硬件量产"三级全栈体系。</p>
+      <div class="source">
+        📰 36氪首发 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.36kr.com/" target="_blank" rel="noopener">36氪</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-robot">产业</span>
+      <span class="importance">中</span>
+      <h3>2026 世界机器人大会 — "人机共生，产需共融"</h3>
+      <p>2026 世界机器人大会新闻发布会于北京召开。本届大会以"人机共生，产需共融"为主题，将集中展示全球机器人技术最新成果，推动产业链上下游交流合作。</p>
+      <div class="source">
+        📰 量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 🚗 -->
+  <h2 class="section-title" id="car"><span class="icon">🚗</span> 自动驾驶·物理 AI <span class="count">2</span></h2>
+  <div class="news-grid">
+
+    <div class="card">
+      <span class="tag tag-car">自动驾驶</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>Momenta IPO："物理 AI"叙事来到二级市场</h3>
+      <p>Momenta 正式登陆公开市场，将自己重新定义为"物理 AI"公司而非传统自动驾驶公司。但公开市场并未对其物理 AI 身份支付明显额外溢价，市场对自动驾驶公司的估值逻辑正在回归理性。</p>
+      <div class="source">
+        📰 明亮公司·36氪 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.36kr.com/" target="_blank" rel="noopener">36氪</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-car">物理 AI</span>
+      <span class="importance">中</span>
+      <h3>高德发布 Phys AI Data — 首个物理 AI 训练空间数据基座</h3>
+      <p>高德地图发布 Phys AI Data，业内首个面向物理 AI 训练与应用的一站式空间数据基座。该平台将为自动驾驶、机器人导航和具身智能等场景提供高质量的地理空间数据支撑。</p>
+      <div class="source">
+        📰 量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 📜 -->
+  <h2 class="section-title" id="policy"><span class="icon">📜</span> 产业·资本·政策 <span class="count">4</span></h2>
+  <div class="news-grid">
+
+    <div class="card">
+      <span class="tag tag-policy">资本</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>华人带队 AI 芯片公司 SambaNova 完成 10 亿美元融资</h3>
+      <p>AI 推理芯片公司 SambaNova 完成新一轮 10 亿美元融资（约 68 亿元人民币），由华人团队主导。公司聚焦 AI 推理芯片设计，目标在大模型推理市场与 NVIDIA 展开差异化竞争，成为 AI 芯片赛道的重要玩家。</p>
+      <div class="source">
+        📰 铅笔道·36氪 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.36kr.com/" target="_blank" rel="noopener">36氪</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-policy">算力</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>剑桥大学 AI 超算因高温瘫痪 — 350 个科研项目停摆一周</h3>
+      <p>剑桥大学价值数亿的 AI 超级计算机因 37.7°C 高温导致冷却系统失效而瘫痪，350 个科研项目被迫停摆整整一周。事件凸显 AI 基础设施对物理环境的脆弱依赖，引发业界对可持续 AI 算力建设的讨论。</p>
+      <div class="source">
+        📰 量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-policy">医药</span>
+      <span class="importance">中</span>
+      <h3>Takeda×Insilico：6 亿美元 AI 药物发现合作，IPF 进入 III 期</h3>
+      <p>日本武田制药与 Insilico Medicine 签署价值 6 亿美元的 AI 药物发现合作协议。同时 Insilico 宣布其 AI 发现的 IPF（特发性肺纤维化）新药进入 III 期临床试验，这是 AI 制药领域的标志性里程碑。</p>
+      <div class="source">
+        📰 AI News &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.artificialintelligence-news.com/" target="_blank" rel="noopener">AI News</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-policy">医疗</span>
+      <span class="importance">中</span>
+      <h3>NHS 引入 AI 血检 — 减少侵入性子宫癌检查</h3>
+      <p>英国 NHS 推出 AI 血液检测方案，通过机器学习分析血液生物标志物实现早期筛查和风险分层，可大幅减少侵入性子宫癌检查。该技术有望改善患者体验、降低医疗成本并提高早期发现率。</p>
+      <div class="source">
+        📰 AI News &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.artificialintelligence-news.com/" target="_blank" rel="noopener">AI News</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 🔬 -->
+  <h2 class="section-title" id="research"><span class="icon">🔬</span> 前沿研究·开放生态 <span class="count">3</span></h2>
+  <div class="news-grid">
+
+    <div class="card">
+      <span class="tag tag-research">世界模型</span>
+      <span class="importance high">⚡ 高</span>
+      <h3>灵波开源 LingBot-World 2.0 — 世界模型首次"小时级"生成</h3>
+      <p>蚂蚁灵波团队开源 LingBot-World 2.0 世界模型，首次支持"小时级"场景生成速度，并具备 AI 原生多人交互能力。该突破有望大幅降低虚拟环境构建成本和时间，加速具身智能训练迭代。</p>
+      <div class="source">
+        📰 量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-research">RL</span>
+      <span class="importance">中</span>
+      <h3>AReaL 2.0 开源 — 为自演进智能体打造 RL 基础设施</h3>
+      <p>AReaL 2.0 正式开源，这是一个面向自演进智能体的强化学习基础设施。该系统使 AI Agent 能在使用过程中通过 RL 持续学习和自我进化，代表了 AI 系统自我改进方向的前沿实践。</p>
+      <div class="source">
+        📰 量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-research">评测</span>
+      <span class="importance">中</span>
+      <h3>具身智能"高考"：人类 100 分，最强模型仅 12.8 分</h3>
+      <p>全新具身智能评测基准 RoboDojo 发布，被誉为"具身测评界的珠峰"。测试结果显示人类表现 100 分，当前最强 AI 模型仅得 12.8 分，揭示具身智能在复杂物理世界理解与操作上的巨大发展空间。</p>
+      <div class="source">
+        📰 量子位 &nbsp;<span class="sep">|</span>&nbsp;
+        <a href="https://www.qbitai.com/" target="_blank" rel="noopener">量子位</a>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="footer">
+    <strong>🤖 今日 AI 新闻速递</strong> · 2026 年 7 月 9 日 · 共 22 条要闻 · 6 大领域<br>
+    信息综合自 36氪、量子位、机器之心、AI News、新智元、明亮公司 等权威科技媒体<br>
+    ⚠️ 本文由 AI 自动汇总生成，信息以原文为准，不构成任何投资或决策建议
+  </footer>
+
+</div>
+
+</body>
+</html>

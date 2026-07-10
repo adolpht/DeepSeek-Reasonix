@@ -14,6 +14,7 @@ import {
   Workflow,
   GitBranch,
   PanelLeftOpen,
+  PanelLeftClose,
   SquareTerminal,
 } from "lucide-react";
 import type { WorkspaceType } from "../lib/types";
@@ -114,6 +115,8 @@ export interface SidebarProps {
   navTooltipDisabled: boolean;
   /** Callback to expand the sidebar when clicking the expand button in collapsed mode */
   onExpand?: () => void;
+  /** Callback to collapse the sidebar when clicking the collapse button in expanded mode */
+  onCollapse?: () => void;
 
   // New-session
   onNewSession: () => void;
@@ -151,6 +154,7 @@ export function Sidebar({
   collapsed,
   navTooltipDisabled,
   onExpand,
+  onCollapse,
   onNewSession,
   isRunning,
   onNavigate,
@@ -232,7 +236,17 @@ export function Sidebar({
 
   return (
     <aside className="sidebar" aria-label={t("sidebar.navigation")}>
-      {/* ── Top: New conversation + Home (fixed) ── */}
+      {/* ── Top: Collapse button + New conversation + Home (fixed) ── */}
+      <Tooltip label={t("sidebar.collapse")} fill>
+        <button
+          className="sidebar__collapse-btn"
+          type="button"
+          onClick={onCollapse}
+          aria-label={t("sidebar.collapse")}
+        >
+          <PanelLeftClose size={15} />
+        </button>
+      </Tooltip>
       <Tooltip label={t("topbar.newSession")} fill>
         <button
           className="sidebar__new"

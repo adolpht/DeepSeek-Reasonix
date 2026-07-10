@@ -519,7 +519,7 @@ a[href] {
   position: relative;
   display: grid;
   justify-content: start;
-  grid-template-rows: 38px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
@@ -557,7 +557,7 @@ a[href] {
 }
 .layout--workspace-floating .workbench-dock {
   position: absolute;
-  top: 38px;
+  top: 0;
   right: 0;
   bottom: 0;
   width: var(--workspace-width);
@@ -567,7 +567,7 @@ a[href] {
 }
 
 .sidebar {
-  grid-row: 2;
+  grid-row: 1;
   grid-column: 1;
   display: flex;
   flex-direction: column;
@@ -625,6 +625,29 @@ a[href] {
 }
 .sidebar__new:disabled:hover {
   background: var(--bg-elev);
+  color: var(--fg);
+}
+.sidebar__collapse-btn {
+  --wails-draggable: no-drag;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-faint);
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-bottom: 4px;
+  margin-left: auto;
+  margin-right: 2px;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.sidebar__collapse-btn:hover {
+  background: var(--sidebar-hover);
   color: var(--fg);
 }
 .sidebar__nav {
@@ -1358,7 +1381,7 @@ a[href] {
 .sidebar-resizer {
   --wails-draggable: no-drag;
   position: absolute;
-  top: 38px;
+  top: 0;
   bottom: 0;
   left: calc(var(--sidebar-width) - 4px);
   z-index: var(--z-layout-resizer);
@@ -1391,7 +1414,7 @@ a[href] {
 .workspace-panel-resizer {
   --wails-draggable: no-drag;
   position: relative;
-  grid-row: 2;
+  grid-row: 1;
   grid-column: 3;
   align-self: stretch;
   justify-self: stretch;
@@ -1472,7 +1495,7 @@ a[href] {
   opacity: 0.65;
 }
 .chat-pane {
-  grid-row: 2;
+  grid-row: 1;
   grid-column: 2;
   display: flex;
   flex-direction: column;
@@ -10701,6 +10724,74 @@ a[href] {
   gap: 2px;
   margin-top: 2px;
 }
+.scheduler-panel__task-result {
+  margin-top: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--fg-faint);
+  background: var(--bg-raised);
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+/* Execution history */
+.scheduler-panel__exec-logs {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.scheduler-panel__exec-logs-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-faint);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.scheduler-panel__exec-logs-empty {
+  font-size: 11px;
+  color: var(--fg-faint);
+  padding: 4px 0;
+}
+.scheduler-panel__exec-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.scheduler-panel__exec-item {
+  background: var(--bg-raised);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+.scheduler-panel__exec-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+.scheduler-panel__exec-time {
+  color: var(--fg);
+}
+.scheduler-panel__exec-duration {
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.scheduler-panel__exec-result {
+  font-size: 11px;
+  color: var(--fg-faint);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* Overlay for the add/edit form */
 .scheduler-panel__overlay {
   position: fixed;
@@ -11649,6 +11740,25 @@ a[href] {
 .notif-bell {
   position: relative;
   flex-shrink: 0;
+  --wails-draggable: no-drag;
+  align-self: stretch;
+  width: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg-faint);
+  opacity: 0.86;
+  transition: color 0.12s, background 0.12s, opacity 0.12s;
+  border-left: 1px solid var(--border-soft);
+  border-right: 1px solid var(--border-soft);
+}
+.notif-bell:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg-faint) 10%, transparent);
+  opacity: 1;
 }
 .notif-bell__dot {
   position: absolute;
@@ -12789,7 +12899,7 @@ a[href] {
 
 .context-inspector,
 .workbench-dock {
-  grid-row: 2;
+  grid-row: 1;
   grid-column: 4;
   min-width: 0;
   height: 100%;

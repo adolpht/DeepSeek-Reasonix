@@ -9,11 +9,8 @@ import {
   FileJson,
   GitBranch,
   Pencil,
-  PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Search,
   TerminalSquare,
   Calendar,
   Newspaper,
@@ -60,7 +57,7 @@ import { CommandPalette, type PaletteItem } from "./components/CommandPalette";
 import { NotificationCenter, NotificationBell } from "./components/NotificationCenter";
 import { diffsFor, docExportPath, parseTodos } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
-import type { ComposerInsertRequest, Meta, Mode, SessionMeta, SettingsTab, TabMeta, WorkspaceType } from "./lib/types";
+import type { ComposerInsertRequest, Mode, SessionMeta, SettingsTab, TabMeta, WorkspaceType } from "./lib/types";
 import { loadLayoutSize, saveLayoutSize } from "./lib/layoutPreferences";
 import {
   applyTheme,
@@ -219,11 +216,6 @@ function topicScopeLabel(tab?: TabMeta): string {
   return t("scope.project", { name: tab.workspaceName || tab.workspaceRoot || "Project" });
 }
 
-function appChromeScopeLabel(tab?: TabMeta, meta?: Meta): string {
-  if (tab?.scope === "project" || tab?.scope === "global") return tabWorkspaceTitle(tab);
-  return workspaceDisplayName(meta?.cwd) || meta?.label || "Global";
-}
-
 function normalizeModeValue(mode?: string): Mode {
   return mode === "plan" || mode === "yolo" ? mode : "normal";
 }
@@ -233,12 +225,6 @@ function sessionsForScope(sessions: SessionMeta[], filter: HistoryScopeFilter): 
     return sessions.filter((session) => session.scope === "project" && session.workspaceRoot === filter.workspaceRoot);
   }
   return sessions.filter((session) => (session.scope || "global") === "global");
-}
-
-function workspaceDisplayName(path?: string): string {
-  if (!path) return "";
-  const parts = path.split(/[/\\]/).filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : path;
 }
 
 function materializeLiveItems(items: Item[], live?: LiveStream): Item[] {
@@ -554,14 +540,14 @@ export default function App() {
       setFloatingResult(null);
     });
   }, []);
-  // Listen for scheduled task start event: open a dedicated tab.
+  // Listen for scheduled task start event: bring window to front.
+  // Tab creation is handled by the backend (executeScheduledTask → OpenTabForScheduledTask),
+  // so the frontend only needs to ensure the window is visible.
   useEffect(() => {
     if (typeof window === "undefined" || !window.runtime) return;
-    return window.runtime.EventsOn("scheduled_task_started", (payload: unknown) => {
-      const data = payload as { name?: string; skill?: string } | null;
-      if (data?.name) {
-        void app.OpenTabForScheduledTask(data.name);
-      }
+    return window.runtime.EventsOn("scheduled_task_started", () => {
+      // The backend already created the tab; just ensure the window is shown.
+      // wruntime.WindowShow is called by onScheduledTaskStart on the Go side.
     });
   }, []);
   const [pendingPlanRevision, setPendingPlanRevision] = useState<string | null>(null);
@@ -1617,9 +1603,6 @@ export default function App() {
   }, [renameTopic, renamingTopicId, topicTitleDraft]);
 
   const sidebarExpandBlocked = false;
-  const sidebarToggleTitle = sidebarCollapsed
-      ? t("sidebar.expand")
-      : t("sidebar.collapse");
   const sidebarNavTooltipDisabled = !sidebarCollapsed;
   const workspacePanelResetWidth = RIGHT_DOCK_DEFAULT_WIDTH;
   const workspacePanelMaxWidth = RIGHT_DOCK_MAX_WIDTH;
@@ -1643,43 +1626,11 @@ export default function App() {
           .join(" ")}
         style={layoutStyle}
       >
-        <header className="app-chrome">
-          <button
-            className={[
-              "app-chrome__panel-toggle",
-              "app-chrome__panel-toggle--left",
-              !sidebarCollapsed ? "app-chrome__panel-toggle--active" : "",
-              sidebarExpandBlocked ? "app-chrome__panel-toggle--blocked" : "",
-            ].filter(Boolean).join(" ")}
-            type="button"
-            onClick={sidebarExpandBlocked ? undefined : toggleSidebar}
-            aria-label={sidebarToggleTitle}
-            aria-disabled={sidebarExpandBlocked}
-          >
-            {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
-          <div className="app-chrome__identity" aria-label="Rexion">
-            <span className="app-chrome__scope">{appChromeScopeLabel(activeTab, state.meta)}</span>
-          </div>
-          <div className="app-chrome__spacer" />
-          <Tooltip label={t("palette.title")}>
-            <button
-              type="button"
-              className="chip chip--icon app-chrome__palette-btn"
-              onClick={() => setCommandPaletteOpen(true)}
-              aria-label={t("palette.title")}
-            >
-              <Search size={13} />
-              <kbd className="app-chrome__hotkey">{desktopPlatform === "darwin" ? "⌘K" : "Ctrl+K"}</kbd>
-            </button>
-          </Tooltip>
-          <NotificationBell onClick={() => setNotificationCenterOpen(true)} />
-        </header>
-
         <Sidebar
           collapsed={sidebarCollapsed}
           navTooltipDisabled={sidebarNavTooltipDisabled}
           onExpand={sidebarExpandBlocked ? undefined : toggleSidebar}
+          onCollapse={sidebarExpandBlocked ? undefined : toggleSidebar}
           onNewSession={() => { cancel(); void startNewSession(); }}
           isRunning={state.running}
           onNavigate={(page: string) => {
@@ -1752,6 +1703,7 @@ export default function App() {
               onNewTab={() => void handleNewTab()}
               onSaveRecipe={handleSaveRecipeFromTab}
             />
+            <NotificationBell onClick={() => setNotificationCenterOpen(true)} />
             {!workspacePanelMaximized && (
               <Tooltip
                 label={workspacePanelRenderable ? t("rightDock.collapse") : t("rightDock.expand")}
@@ -1869,7 +1821,7 @@ export default function App() {
             ) : navPage === "home" ? (
               <HomePanel
                 workspaceType={workspaceType}
-                onActivateSkill={(name) => { addWorkspaceTextToComposer(`/skill ${name}`); setNavPage(null); }}
+                onActivateSkill={(name) => { cancel(); void startNewSession().then(() => addWorkspaceTextToComposer(`/skill ${name}`)); }}
                 onNavigateToSession={(_path) => setNavPage(null)}
                 onSwitchMode={(mode) => applyWorkspaceType(mode)}
               />

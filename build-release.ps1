@@ -137,9 +137,16 @@ else {
 if (-not $SkipFrontend) {
     Write-Host "[3/5] Building frontend..." -ForegroundColor Yellow
     Push-Location "$Root\desktop\frontend"
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     pnpm install --frozen-lockfile 2>$null
     if ($LASTEXITCODE -ne 0) { pnpm install 2>$null }
-    pnpm build 2>&1 | ForEach-Object { Write-Host $_ }
+    $buildOutput = pnpm build 2>&1
+    foreach ($line in $buildOutput) {
+        $text = if ($line -is [System.Management.Automation.ErrorRecord]) { $line.Exception.Message } else { "$line" }
+        Write-Host $text
+    }
+    $ErrorActionPreference = $prevEAP
     Pop-Location
     Write-Host "  Frontend done" -ForegroundColor Green
 }

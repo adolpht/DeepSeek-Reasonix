@@ -30,7 +30,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/robfig/cron/v3"
 
 	"rexion/internal/agent"
 	"rexion/internal/billing"
@@ -816,29 +815,50 @@ func (a *App) executeScheduledTask(name, skill, params string) string {
 		}
 	}
 
-	a.mu.RLock()
-	ctrl := a.activeCtrlLocked()
-	// If a specific workspace is requested, prefer a tab whose WorkspaceRoot matches.
-	if workspace != "" {
-		target := normalizeProjectRoot(workspace)
-		for _, tab := range a.tabs {
-			if tab.Scope == "project" && normalizeProjectRoot(tab.WorkspaceRoot) == target && tab.Ctrl != nil {
-				ctrl = tab.Ctrl
-				break
+	// Create a dedicated tab for this scheduled task execution so it has its
+	// own controller and won't be silently dropped by runGuarded if the user's
+	// active tab is busy. This replaces the previous approach of reusing the
+	// active tab's controller, which caused tasks to be discarded when
+	// c.running was true.
+	if err := a.OpenTabForScheduledTask(name); err != nil {
+		log.Printf("scheduler: create tab for %q: %v", name, err)
+		// Fall back: try to find any idle controller.
+		a.mu.RLock()
+		ctrl := a.findIdleCtrlLocked(workspace)
+		a.mu.RUnlock()
+		if ctrl == nil {
+			return "no workspace available"
+		}
+		input := prompt
+		if input == "" {
+			input = "/" + skill
+			if restParams != "" {
+				input = input + " " + restParams
 			}
 		}
+		display := "[Scheduled: " + name + "]"
+		ctrl.SubmitDisplay(display, input)
+		return "submitted to existing workspace"
 	}
-	if ctrl == nil && len(a.tabs) > 0 {
-		// Pick the first tab if no active one.
-		for _, tab := range a.tabs {
+
+	// Wait briefly for the new tab's controller to be ready, then submit.
+	// The tab is built asynchronously by startTabControllerBuild; poll up to
+	// 10 seconds for the controller to become available.
+	var ctrl *control.Controller
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		a.mu.RLock()
+		if tab, ok := a.tabs[a.activeTabID]; ok && tab.Ctrl != nil && tab.Ready {
 			ctrl = tab.Ctrl
+		}
+		a.mu.RUnlock()
+		if ctrl != nil {
 			break
 		}
+		time.Sleep(200 * time.Millisecond)
 	}
-	a.mu.RUnlock()
-
 	if ctrl == nil {
-		return "no workspace available"
+		return "timed out waiting for new tab"
 	}
 
 	// Build the input: custom prompt takes precedence; otherwise /<skill> <params>.
@@ -852,6 +872,27 @@ func (a *App) executeScheduledTask(name, skill, params string) string {
 	display := "[Scheduled: " + name + "]"
 	ctrl.SubmitDisplay(display, input)
 	return "submitted to workspace"
+}
+
+// findIdleCtrlLocked returns the first controller that is not currently running
+// a turn. Must be called with a.mu held (RLock is sufficient).
+func (a *App) findIdleCtrlLocked(workspace string) *control.Controller {
+	// Prefer a tab whose workspace matches.
+	if workspace != "" {
+		target := normalizeProjectRoot(workspace)
+		for _, tab := range a.tabs {
+			if tab.Scope == "project" && normalizeProjectRoot(tab.WorkspaceRoot) == target && tab.Ctrl != nil && !tab.Ctrl.Running() {
+				return tab.Ctrl
+			}
+		}
+	}
+	// Any idle tab.
+	for _, tab := range a.tabs {
+		if tab.Ctrl != nil && !tab.Ctrl.Running() {
+			return tab.Ctrl
+		}
+	}
+	return nil
 }
 
 // onScheduledTaskStart is called when a scheduled task begins execution.
@@ -920,10 +961,15 @@ func (a *App) OpenTabForScheduledTask(taskName string) error {
 		return fmt.Errorf("create topic: %w", err)
 	}
 
-	// Create new tab entry.
+	// Create new tab entry with event sink and controller.
 	tab := a.createTabEntry(scope, workspaceRoot, topic.ID)
+	tab.sink = &tabEventSink{tabID: tab.ID, app: a, ctx: a.ctx}
 	a.tabs[tab.ID] = tab
+	a.tabOrder = append(a.tabOrder, tab.ID)
 	a.activeTabID = tab.ID
+
+	// Build the controller asynchronously so the tab becomes Ready.
+	a.startTabControllerBuild(tab)
 
 	// Emit tab list update event.
 	wruntime.EventsEmit(a.ctx, "tabs:changed")
@@ -5711,27 +5757,19 @@ func (a *App) GitGenerateCommitMessage() (string, error) {
 		return "", fmt.Errorf("no changes to generate a commit message from")
 	}
 
-	// Resolve the current model and provider.
-	a.mu.RLock()
-	tab := a.activeTabLocked()
-	a.mu.RUnlock()
-	if tab == nil {
-		return "", fmt.Errorf("no active tab")
-	}
-
+	// Always use the default model for commit message generation, regardless of
+	// the active tab's model selection. This ensures consistent, cost-effective
+	// results and avoids accidentally using an expensive or specialized model.
 	root := a.activeWorkspaceRoot()
 	cfg, err := config.LoadForRoot(root)
 	if err != nil {
 		return "", fmt.Errorf("load config: %w", err)
 	}
 
-	modelRef := tab.model
-	if modelRef == "" {
-		modelRef = cfg.DefaultModel
-	}
+	modelRef := cfg.DefaultModel
 	entry, ok := cfg.ResolveModel(modelRef)
 	if !ok {
-		return "", fmt.Errorf("cannot resolve model %q", modelRef)
+		return "", fmt.Errorf("cannot resolve default model %q", modelRef)
 	}
 	apiKey := entry.APIKey()
 	if apiKey == "" {
@@ -5752,8 +5790,19 @@ type ScheduledTaskView struct {
 	Parameters string `json:"parameters"`
 	Enabled    bool   `json:"enabled"`
 	LastRun    int64  `json:"lastRun"`
+	LastResult string `json:"lastResult"`
 	NextRun    int64  `json:"nextRun"`
 	CreatedAt  int64  `json:"createdAt"`
+}
+
+// TaskExecLogView is the JSON-serialisable form of a task execution log for the frontend.
+type TaskExecLogView struct {
+	ID       string `json:"id"`
+	TaskName string `json:"taskName"`
+	Skill    string `json:"skill"`
+	Result   string `json:"result"`
+	RunAt    int64  `json:"runAt"`
+	Duration int64  `json:"duration"` // milliseconds
 }
 
 // GeneratedScheduledTaskView is the AI-generated scheduled task draft for user
@@ -5810,7 +5859,7 @@ func (a *App) GenerateScheduledTask(description string) (GeneratedScheduledTaskV
 	// Build a one-shot prompt that asks the model to return structured JSON.
 	systemPrompt := `You are a scheduled task configuration assistant. Given a natural language description of a recurring task, generate a JSON object with these fields:
 - "name": a short descriptive task name (e.g. "每日代码审查", "Weekly Report")
-- "cron": a valid cron expression (5-field standard format: minute hour day month weekday). Use 0 * * * * for hourly, 0 9 * * * for daily 9am, 0 9 * * 1 for weekly Monday 9am, 0 9 1 * * for monthly 1st 9am, etc.
+- "cron": a valid cron expression in standard 5-field format (minute hour day month weekday). Examples: "0 * * * *" for hourly, "0 9 * * *" for daily 9am, "0 9 * * 1" for weekly Monday 9am, "0 9 1 * *" for monthly 1st 9am, "*/30 * * * *" for every 30 minutes. Do NOT include a leading seconds field.
 - "cronDesc": human-readable description of the schedule in the user's language
 - "skill": the most appropriate built-in skill name (e.g. "review", "test", "explore", "research", "weekly-report", "generate-tests"). If no specific skill fits, use "explore".
 - "prompt": a detailed custom prompt that will be sent to the AI when the task fires. This should capture the full intent of the user's description so the AI knows exactly what to do.
@@ -5877,11 +5926,8 @@ Return ONLY the JSON object, no markdown fences, no explanation.`
 
 	// Validate the cron expression.
 	if result.Cron != "" {
-		if _, err := cron.ParseStandard(result.Cron); err != nil {
-			parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
-			if _, err2 := parser.Parse(result.Cron); err2 != nil {
-				return zero, fmt.Errorf("AI generated invalid cron %q: %w", result.Cron, err)
-			}
+		if _, err := scheduler.ParseCronExpr(result.Cron); err != nil {
+			return zero, fmt.Errorf("AI generated invalid cron %q: %w", result.Cron, err)
 		}
 	}
 
@@ -6020,15 +6066,48 @@ func (a *App) ListScheduledTasks() []ScheduledTaskView {
 	return out
 }
 
+// ListTaskExecLogs returns recent execution logs for a scheduled task.
+func (a *App) ListTaskExecLogs(taskName string, limit int) []TaskExecLogView {
+	ds := a.ds()
+	if ds == nil {
+		return []TaskExecLogView{}
+	}
+	logs, err := ds.ListTaskExecLogs(taskName, limit)
+	if err != nil {
+		return []TaskExecLogView{}
+	}
+	out := make([]TaskExecLogView, len(logs))
+	for i, l := range logs {
+		out[i] = TaskExecLogView{
+			ID:       l.ID,
+			TaskName: l.TaskName,
+			Skill:    l.Skill,
+			Result:   l.Result,
+			RunAt:    l.RunAt,
+			Duration: l.Duration,
+		}
+	}
+	return out
+}
+
 // CreateScheduledTask creates a new scheduled task.
 func (a *App) CreateScheduledTask(name, cron, skill, params string) error {
 	ds := a.ds()
 	if ds == nil {
 		return fmt.Errorf("data store not available")
 	}
+	name = strings.TrimSpace(name)
+	// Reject duplicate task names — the scheduler uses name as the key,
+	// so duplicates would silently overwrite the previous entry.
+	existing, _ := ds.ListScheduledTasks()
+	for _, e := range existing {
+		if e.Name == name {
+			return fmt.Errorf("task name %q already exists", name)
+		}
+	}
 	t := datastore.ScheduledTask{
 		ID:         datastore.NewID(),
-		Name:       strings.TrimSpace(name),
+		Name:       name,
 		Cron:       strings.TrimSpace(cron),
 		Skill:      strings.TrimSpace(skill),
 		Parameters: datastore.ParseJSONObject(params),
@@ -6210,11 +6289,7 @@ func (a *App) DeleteTodo(id string) error {
 // computeNextRun parses a cron expression and returns the next fire time as
 // unix milliseconds. Returns 0 if the expression cannot be parsed.
 func computeNextRun(cronExpr string, from time.Time) int64 {
-	sched, err := cron.ParseStandard(cronExpr)
-	if err != nil {
-		parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
-		sched, err = parser.Parse(cronExpr)
-	}
+	sched, err := scheduler.ParseCronExpr(cronExpr)
 	if err != nil {
 		return 0
 	}
@@ -6230,6 +6305,7 @@ func scheduledTaskViewFromModel(t datastore.ScheduledTask) ScheduledTaskView {
 		Parameters: t.Parameters,
 		Enabled:    t.Enabled,
 		LastRun:    t.LastRun,
+		LastResult: t.LastResult,
 		NextRun:    t.NextRun,
 		CreatedAt:  t.CreatedAt,
 	}
