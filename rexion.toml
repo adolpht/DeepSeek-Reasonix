@@ -3,7 +3,7 @@
 # Secrets come from the environment via api_key_env; never put keys here.
 
 config_version = 2   # schema marker for diagnostics; old versions may ignore it
-# default_model inherited from global config (~/.config/Rexion/config.toml)
+default_model = "deepseek-flash"
 # language      = "zh"   # ui/model language; empty = auto-detect from $LANG / $REXION_LANG
 
 [agent]
@@ -88,7 +88,3 @@ command = "Rexion-plugin-calendar"
 [[plugins]]
 name    = "mail"
 command = "Rexion-plugin-mail"
-
-[[plugins]]
-name    = "im"
-command = "Rexion-plugin-im"

@@ -884,7 +884,7 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
         } as WorkflowEditorNodeType,
       ]);
     },
-    [setNodes],
+    [currentWorkflow, setNodes],
   );
 
   const handleNodeDataUpdate = useCallback(
