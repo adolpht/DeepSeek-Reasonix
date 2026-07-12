@@ -92,9 +92,10 @@ func makeDingTalkHandler(token string) http.HandlerFunc {
 			webhookURL = fmt.Sprintf("https://oapi.dingtalk.com/robot/send?access_token=%s", key)
 		}
 
-		queue.add("dingtalk", content, webhookURL, map[string]string{
+		enqueueParsedCommand("dingtalk", content, webhookURL, map[string]string{
 			"msg_type":        cb.MsgType,
 			"msg_id":          cb.MsgID,
+			"conversation_id": cb.ConversationID,
 			"sender_staff_id": cb.SenderStaffID,
 			"sender_nick":     cb.SenderNick,
 		})

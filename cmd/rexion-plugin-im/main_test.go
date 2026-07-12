@@ -16,7 +16,7 @@ import (
 
 func TestCommandQueueAdd(t *testing.T) {
 	q := &commandQueue{notify: make(chan struct{})}
-	cmd := q.add("wecom", "hello world", "https://example.com/hook", nil)
+	cmd := q.add("wecom", "hello world", "https://example.com/hook", nil, string(ModePlan), false)
 	if cmd.ID == "" {
 		t.Error("expected non-empty command ID")
 	}
@@ -33,9 +33,9 @@ func TestCommandQueueAdd(t *testing.T) {
 
 func TestCommandQueueList(t *testing.T) {
 	q := &commandQueue{notify: make(chan struct{})}
-	q.add("wecom", "cmd1", "", nil)
-	q.add("feishu", "cmd2", "", nil)
-	q.add("dingtalk", "cmd3", "", nil)
+	q.add("wecom", "cmd1", "", nil, string(ModePlan), false)
+	q.add("feishu", "cmd2", "", nil, string(ModePlan), false)
+	q.add("dingtalk", "cmd3", "", nil, string(ModePlan), false)
 
 	pending := q.list(10)
 	if len(pending) != 3 {
@@ -53,7 +53,7 @@ func TestCommandQueueList(t *testing.T) {
 func TestCommandQueueListLimit(t *testing.T) {
 	q := &commandQueue{notify: make(chan struct{})}
 	for i := 0; i < 5; i++ {
-		q.add("wecom", "cmd", "", nil)
+		q.add("wecom", "cmd", "", nil, string(ModePlan), false)
 	}
 	pending := q.list(3)
 	if len(pending) != 3 {
@@ -71,7 +71,7 @@ func TestCommandQueueMarkDoneNotFound(t *testing.T) {
 
 func TestCommandQueueMarkDoneTwice(t *testing.T) {
 	q := &commandQueue{notify: make(chan struct{})}
-	q.add("wecom", "cmd", "", nil)
+	q.add("wecom", "cmd", "", nil, string(ModePlan), false)
 	pending := q.list(1)
 	id := pending[0].ID
 
@@ -520,14 +520,14 @@ func TestMCPProtocolEndToEnd(t *testing.T) {
 		t.Fatalf("tools/list error: %v", resp["error"])
 	}
 	toolList := resp["result"].(map[string]any)["tools"].([]any)
-	if len(toolList) != 13 {
-		t.Fatalf("expected 13 tools, got %d", len(toolList))
+	if len(toolList) != 18 {
+		t.Fatalf("expected 18 tools, got %d", len(toolList))
 	}
 	names := map[string]bool{}
 	for _, tt := range toolList {
 		names[tt.(map[string]any)["name"].(string)] = true
 	}
-	for _, want := range []string{"start_bot", "stop_bot", "start_stream", "stop_stream", "send_message", "list_pending_commands", "mark_command_done", "reply_message", "auto_start", "poll_commands", "create_im_session", "list_im_sessions", "get_im_session"} {
+	for _, want := range []string{"start_bot", "stop_bot", "start_stream", "stop_stream", "send_message", "list_pending_commands", "mark_command_done", "reply_message", "auto_start", "poll_commands", "create_im_session", "list_im_sessions", "get_im_session", "delete_im_session", "clear_im_sessions", "set_work_mode", "get_work_mode", "confirm_im_command"} {
 		if !names[want] {
 			t.Errorf("tool %q missing from tools/list", want)
 		}

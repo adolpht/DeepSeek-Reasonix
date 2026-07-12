@@ -18,15 +18,17 @@ import (
 
 // pendingCommand represents a remote command received from an IM platform.
 type pendingCommand struct {
-	ID         string            `json:"id"`
-	Platform   string            `json:"platform"`
-	Content    string            `json:"content"`
-	WebhookURL string            `json:"webhook_url,omitempty"`
-	Extra      map[string]string `json:"extra,omitempty"`
-	ReceivedAt time.Time         `json:"received_at"`
-	Done       bool              `json:"done"`
-	Result     string            `json:"result,omitempty"`
-	DoneAt     *time.Time        `json:"done_at,omitempty"`
+	ID              string            `json:"id"`
+	Platform        string            `json:"platform"`
+	Content         string            `json:"content"`
+	WebhookURL      string            `json:"webhook_url,omitempty"`
+	Extra           map[string]string `json:"extra,omitempty"`
+	ReceivedAt      time.Time         `json:"received_at"`
+	Done            bool              `json:"done"`
+	Result          string            `json:"result,omitempty"`
+	DoneAt          *time.Time        `json:"done_at,omitempty"`
+	Mode            string            `json:"mode,omitempty"`
+	ConfirmRequired bool              `json:"confirm_required,omitempty"`
 }
 
 // commandQueue is an in-memory queue of pending commands, protected by a mutex.
@@ -68,7 +70,7 @@ func (q *commandQueue) waitChan() <-chan struct{} {
 	return q.notify
 }
 
-func (q *commandQueue) add(platform, content, webhookURL string, extra map[string]string) *pendingCommand {
+func (q *commandQueue) add(platform, content, webhookURL string, extra map[string]string, mode string, confirmRequired bool) *pendingCommand {
 	// Dedup by msg_id (DingTalk/Feishu SDKs may redeliver on reconnect).
 	msgID := ""
 	if extra != nil {
@@ -91,24 +93,30 @@ func (q *commandQueue) add(platform, content, webhookURL string, extra map[strin
 		q.seenMsgIDs.Store(msgID, time.Now())
 		q.sweepSeenMsgIDs()
 	}
+	// Default mode to plan when callers pass an empty string (backward compat).
+	if mode == "" {
+		mode = string(ModePlan)
+	}
 	q.mu.Lock()
 	q.nextID++
 	id := fmt.Sprintf("cmd-%d-%s", q.nextID, randomHex(4))
 	cmd := &pendingCommand{
-		ID:         id,
-		Platform:   platform,
-		Content:    content,
-		WebhookURL: webhookURL,
-		Extra:      extra,
-		ReceivedAt: time.Now(),
-		Done:       false,
+		ID:              id,
+		Platform:        platform,
+		Content:         content,
+		WebhookURL:      webhookURL,
+		Extra:           extra,
+		ReceivedAt:      time.Now(),
+		Done:            false,
+		Mode:            mode,
+		ConfirmRequired: confirmRequired,
 	}
 	q.commands = append(q.commands, cmd)
 	q.mu.Unlock()
 	// persistState + log + signal happen outside the lock so persistState's
 	// snapshot can re-acquire q.mu without deadlocking.
 	persistState()
-	log.Printf("queued command %s from %s: %q", id, platform, content)
+	log.Printf("queued command %s from %s: %q (mode=%s, confirm=%v)", id, platform, content, mode, confirmRequired)
 	q.signalNewCommand()
 	return cmd
 }
@@ -141,12 +149,17 @@ func (q *commandQueue) sweepSeenMsgIDs() {
 }
 
 // list returns up to limit pending (not-done) commands, oldest first.
+// Commands currently awaiting confirmation (held by ConfirmDispatcher) are
+// skipped so the agent won't poll a sensitive command before the user confirms.
 func (q *commandQueue) list(limit int) []*pendingCommand {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	var result []*pendingCommand
 	for _, cmd := range q.commands {
 		if cmd.Done {
+			continue
+		}
+		if confirmDispatcher.IsHeld(cmd.ID) {
 			continue
 		}
 		result = append(result, cmd)

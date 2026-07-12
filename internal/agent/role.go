@@ -1,15 +1,16 @@
-﻿package agent
+package agent
 
 // Role defines the behavior profile of a spawned child agent.
 type Role struct {
-	Name        string   // Role identifier
-	Description string   // When to use this role
-	Model       string   // Model override (empty = inherit parent)
-	SystemAddon string   // Additional system prompt instructions
-	Tools       []string // Tool whitelist (empty = all except meta-tools)
-	ReadOnly    bool     // Restrict to read-only tools
-	MaxSteps    int      // Max tool-call rounds (0 = inherit parent)
-	SandboxMode string   // Sandbox mode override
+	Name         string   // Role identifier
+	Description  string   // When to use this role
+	Model        string   // Model override (empty = inherit parent)
+	SystemAddon  string   // Additional system prompt instructions
+	Tools        []string // Tool whitelist (empty = all except meta-tools)
+	ReadOnly     bool     // Restrict to read-only tools
+	MaxSteps     int      // Max tool-call rounds (0 = inherit parent)
+	SandboxMode  string   // Sandbox mode override
+	WorktreePath string   // 子Agent的Git Worktree路径（空则使用主工作区）
 }
 
 // BuiltInRoles returns the predefined role definitions.

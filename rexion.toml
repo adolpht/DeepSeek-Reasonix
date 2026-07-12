@@ -88,3 +88,19 @@ command = "Rexion-plugin-calendar"
 [[plugins]]
 name    = "mail"
 command = "Rexion-plugin-mail"
+
+[[plugins]]
+name    = "browser"
+command = "rexion-plugin-browser"
+
+[[plugins]]
+name    = "design"
+command = "rexion-plugin-design"
+
+[[plugins]]
+name    = "computer"
+command = "rexion-plugin-computer"
+
+[git]
+# auto_fix_ci = false    # auto-fix CI failures when true (still requires approval per fix)
+# auto_merge = false     # auto-merge PR after CI passes (requires branch protection)

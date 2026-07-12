@@ -60,6 +60,14 @@ type Asker interface {
 // callContextKey carries the executing tool call's identity into Execute.
 type callContextKey struct{}
 
+// CtxKeyGlobalMemory is the string key the global-memory tools (recall_global,
+// remember_global) use to retrieve the GlobalStore from a tool call's context.
+// It mirrors the merge_worktree pattern: a string key avoids importing the
+// agent package from tool/builtin, so the global-memory tools can stay in the
+// builtin set without a cycle. The agent stamps the GlobalStore onto each
+// tool call's context via this key in executeTool.
+const CtxKeyGlobalMemory = "rexion.memory.global"
+
 // callContext is the per-call context a tool can read. parentID is the call being
 // executed and sink is the agent's event sink (the `task` tool uses both to nest
 // a sub-agent's events under this call); asker lets the `ask` tool reach the user.
@@ -233,6 +241,20 @@ type Agent struct {
 	// session without touching the cache-stable prefix. Set via SetMemoryQueue.
 	memQueue memory.Queue
 
+	// globalStore, when non-zero, is the cross-project auto-memory store. It is
+	// stamped onto each tool call's context (via CtxKeyGlobalMemory) so the
+	// recall_global / remember_global tools can search and persist facts that
+	// apply to every project, not just the current one. Set via SetGlobalStore.
+	globalStore memory.GlobalStore
+
+	// worktreeMgr, when non-nil, is the Git Worktree manager for this agent's
+	// pool. Injected into tool context so merge_worktree can access it.
+	worktreeMgr *WorktreeManager
+
+	// worktreePaths maps agent IDs to their worktree paths, injected into tool
+	// context so merge_worktree can look up paths by agent ID.
+	worktreePaths map[string]string
+
 	// Context management: when a turn's prompt nears contextWindow, the older
 	// middle of the session is summarized away, keeping a token-bounded recent
 	// tail verbatim (recentKeep is the message floor) and archiving the originals
@@ -322,6 +344,20 @@ func (a *Agent) HealthReport(contextUsagePercent int) health.Report {
 // SetMemoryQueue installs the sink the remember/forget tools use to apply a
 // memory change in the current session. The controller wires itself in.
 func (a *Agent) SetMemoryQueue(q memory.Queue) { a.memQueue = q }
+
+// SetGlobalStore installs the cross-project auto-memory store. When non-zero,
+// executeTool stamps it onto each tool call's context (via CtxKeyGlobalMemory)
+// so recall_global / remember_global can read and write global facts. The
+// controller wires it from the loaded memory Set's Global field; a zero store
+// (no user config dir) leaves the tools to report "global memory unavailable".
+func (a *Agent) SetGlobalStore(gs memory.GlobalStore) { a.globalStore = gs }
+
+// SetWorktreeInfo installs the WorktreeManager and worktree paths for this agent.
+// The pool wires this so the merge_worktree tool can access worktree state.
+func (a *Agent) SetWorktreeInfo(mgr *WorktreeManager, paths map[string]string) {
+	a.worktreeMgr = mgr
+	a.worktreePaths = paths
+}
 
 // SetPreEditHook installs the pre-edit snapshot hook (see onPreEdit). The
 // controller wires it to its per-session checkpoint store; nil disables capture.
@@ -1488,6 +1524,19 @@ func (a *Agent) executeTool(ctx context.Context, call provider.ToolCall, t tool.
 	}
 	if a.memQueue != nil {
 		cctx = memory.WithQueue(cctx, a.memQueue)
+	}
+	// Inject the global memory store via a string key so the
+	// recall_global / remember_global tools (in tool/builtin) can reach it
+	// without importing the agent package — same pattern as merge_worktree.
+	if a.globalStore.Dir != "" {
+		cctx = context.WithValue(cctx, CtxKeyGlobalMemory, a.globalStore)
+	}
+	// 注入WorktreeManager和worktree路径映射，供merge_worktree工具使用
+	if a.worktreeMgr != nil {
+		cctx = WithWorktreeManager(cctx, a.worktreeMgr)
+	}
+	for agentID, wtPath := range a.worktreePaths {
+		cctx = WithWorktreePath(cctx, agentID, wtPath)
 	}
 	callID := call.ID
 	cctx = tool.WithProgress(cctx, func(chunk string) {

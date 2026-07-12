@@ -569,8 +569,12 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
   // Track the currently-loaded workflow name so the sync effect only fires
   // when the user switches to a *different* workflow (or creates a new one).
   // Property edits / node additions change currentWorkflow's contents but NOT
-  // its name, so they must not trigger a canvas reset.
+  // its identity, so they must not trigger a canvas reset.
+  // loadedWorkflowName tracks the on-disk name (for rename detection in
+  // handleSave); workflowLoadSignal is a counter that increments on each
+  // load/new/duplicate and is the sole trigger for canvas reset.
   const loadedWorkflowName = useRef<string | null>(null);
+  const [workflowLoadSignal, setWorkflowLoadSignal] = useState(0);
 
   // Load workflow list + capabilities (skills, models) on mount.
   useEffect(() => {
@@ -609,8 +613,10 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+    loadedWorkflowName.current = null; // not yet on disk
     setCurrentWorkflow(wf);
     setSelectedNode(null);
+    setWorkflowLoadSignal((v) => v + 1);
   }, [t]);
 
   const handleSelectWorkflow = useCallback(
@@ -619,8 +625,10 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
         setError(null);
         const wf = await wails.loadWorkflow(name);
         if (wf) {
+          loadedWorkflowName.current = wf.name;
           setCurrentWorkflow(wf);
           setSelectedNode(null);
+          setWorkflowLoadSignal((v) => v + 1);
         }
       } catch (e: any) {
         setError(e?.message ?? t("wf.errLoadOne"));
@@ -640,8 +648,23 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
       updatedAt: Date.now(),
     };
 
+    // Detect rename: if the name changed from the originally-loaded one, the
+    // old file must be deleted after the new one is saved (otherwise both
+    // copies coexist on disk and the list shows duplicates).
+    const oldName = loadedWorkflowName.current;
+    const renamed = oldName && oldName !== wf.name && oldName !== null;
+
     try {
       await wails.saveWorkflow(wf);
+      if (renamed) {
+        // Best-effort delete of the old file; ignore errors (it may not exist
+        // if this was a freshly-created workflow saved under a new name).
+        try { await wails.deleteWorkflow(oldName); } catch { /* ignore */ }
+      }
+      // Update loadedWorkflowName so subsequent saves don't re-trigger the
+      // rename path. The sync effect keys on this ref, so we must update it
+      // BEFORE setCurrentWorkflow to avoid a canvas reset.
+      loadedWorkflowName.current = wf.name;
       setCurrentWorkflow(wf);
       await refreshList();
       // Refresh cron schedules so a trigger change takes effect immediately.
@@ -690,7 +713,14 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
         edges: edgesToView(edges),
         updatedAt: Date.now(),
       };
+      // Handle rename on run (same logic as handleSave).
+      const oldName = loadedWorkflowName.current;
+      const renamed = oldName && oldName !== wf.name && oldName !== null;
       await wails.saveWorkflow(wf);
+      if (renamed) {
+        try { await wails.deleteWorkflow(oldName); } catch { /* ignore */ }
+      }
+      loadedWorkflowName.current = wf.name;
       setCurrentWorkflow(wf);
       await wails.runWorkflow(wf.name);
       setError(null);
@@ -723,8 +753,10 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
       // Load the duplicated workflow.
       const wf = await wails.loadWorkflow(newName);
       if (wf) {
+        loadedWorkflowName.current = wf.name;
         setCurrentWorkflow(wf);
         setSelectedNode(null);
+        setWorkflowLoadSignal((v) => v + 1);
       }
       setError(null);
     } catch (e: any) {
@@ -924,14 +956,13 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
 
   // Sync workflow → canvas ONLY when switching to a different workflow.
   // This is the single place that resets the canvas from currentWorkflow.
-  // Property edits, node additions, edge draws, and node deletions all mutate
-  // the canvas state directly (via setNodes/setEdges) and must NOT trigger a
-  // reset — that's why we key on the workflow NAME, not the currentWorkflow
-  // object identity (which changes on every property edit).
+  // Property edits (including the now-editable name/description fields),
+  // node additions, edge draws, and node deletions all mutate the canvas
+  // state directly (via setNodes/setEdges) and must NOT trigger a reset —
+  // that's why we key on workflowLoadSignal (incremented only by
+  // handleNewWorkflow/handleSelectWorkflow/handleDuplicate), not on
+  // currentWorkflow object identity (which changes on every property edit).
   useEffect(() => {
-    const newName = currentWorkflow?.name ?? null;
-    if (newName === loadedWorkflowName.current) return;
-    loadedWorkflowName.current = newName;
     if (currentWorkflow) {
       setNodes(viewToNodes(currentWorkflow.nodes));
       setEdges(viewToEdges(currentWorkflow.edges));
@@ -941,7 +972,7 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
       setEdges([]);
       setAllowedSkillsText("");
     }
-  }, [currentWorkflow, setNodes, setEdges]);
+  }, [workflowLoadSignal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="wf-editor">
@@ -1023,9 +1054,18 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
         {/* Toolbar */}
         <header className="wf-toolbar">
           <div className="wf-toolbar__left">
-            <span className="wf-toolbar__name">
-              {currentWorkflow?.name ?? t("wf.noneSelected")}
-            </span>
+            {currentWorkflow ? (
+              <input
+                className="wf-toolbar__name-input"
+                value={currentWorkflow.name}
+                onChange={(e) => setCurrentWorkflow((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                placeholder={t("wf.namePlaceholder")}
+                title={t("wf.namePlaceholder")}
+                aria-label={t("wf.nameLabel")}
+              />
+            ) : (
+              <span className="wf-toolbar__name">{t("wf.noneSelected")}</span>
+            )}
           </div>
           <div className="wf-toolbar__center">
             {currentWorkflow && (
@@ -1082,6 +1122,19 @@ export function WorkflowEditor({ onClose }: { onClose?: () => void }) {
         </header>
 
         {/* Trigger bar — workflow-level activation config (mirrors Recipe) */}
+        {currentWorkflow && (
+          <div className="wf-trigger-bar">
+            <span className="wf-trigger-bar__label">{t("wf.descLabel")}</span>
+            <input
+              className="wf-detail__input wf-trigger-bar__input"
+              value={currentWorkflow.description}
+              onChange={(e) => setCurrentWorkflow((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
+              placeholder={t("wf.descPlaceholder")}
+            />
+          </div>
+        )}
+
+        {/* Trigger type bar */}
         {currentWorkflow && (
           <div className="wf-trigger-bar">
             <span className="wf-trigger-bar__label">{t("wf.trigger")}</span>

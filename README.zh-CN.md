@@ -47,6 +47,24 @@
 > [!IMPORTANT]
 > **加入社区 · Community** — 双语 Discord，提供安装答疑（`#help` / `#求助`）、工作流展示与功能想法。→ **<https://discord.gg/XF78rEME2D>**
 
+## 最新特性
+
+Rexion 现在是一套完整的**智能体工作台**——多 Agent 隔离、浏览器自动化、全局记忆、
+为并行工作而生的桌面端体验。
+
+| 能力 | 对你的意义 |
+|------|-----------|
+| **多 Agent Worktree 隔离** | 并行启动多个 worker 不会互相覆盖——每个 Agent 在 `.rexion/worktrees/` 下拥有独立 git worktree，通过 `merge_worktree` 合并回主分支。 |
+| **浏览器自动化** | 通过 CDP 驱动无头 Chrome（`browser_navigate` / `browser_click` / `browser_type` / `browser_screenshot`）——UI 测试、表单填写、可视化验证。 |
+| **全局记忆** | 跨项目知识库（`~/.config/rexion/memory/`）在项目级 `AGENTS.md` 之上注入每个会话。记一次，处处生效。 |
+| **PR 与 CI 自动化** | `pr_monitor` 监控 PR 状态与检查；`auto_fix_ci` 拉取失败日志、给出修复建议，审批后自动应用。 |
+| **IM 远程控制** | 从钉钉/飞书/企业微信用 `/ask`、`/plan`、`/craft` 模式触发 Agent——敏感操作需二次确认。 |
+| **Skills 市场** | `rexion skill search/install` 从 GitHub 仓库拉取社区 skills；桌面端 Skills 浏览器一键安装。 |
+| **设计稿转代码** | 上传截图或 Figma URL；`rexion-plugin-design` 分析布局并生成 HTML/Vue/React 代码。 |
+| **Computer Use** | `rexion-plugin-computer` 驱动桌面（点击、输入、截图、切换应用），全程在监督浮层下运行。 |
+| **跨设备会话迁移** | `rexion session push/pull` 通过文件或 HTTP 后端在 CLI、桌面端、手机之间同步会话。 |
+| **桌面多会话** | `SessionSidebar`、`SideChat`、可拖拽的 `DraggableLayout` 让你同时跑多个 Agent。 |
+
 ## 特性
 
 - **配置驱动**：provider、agent、启用的工具、插件全部在 `Rexion.toml` 中声明，
@@ -62,6 +80,10 @@
   （`internal/hook`），符号链接感知、斜杠命令集成。Skill 是 Markdown playbook，
   模型通过 `run_skill` 调用（用户通过 `/<name>`）；hook 在循环各节点运行 shell 命令
   （`PreToolUse` / `PostToolUse` / `UserPromptSubmit` / `Stop`）。
+- **多 Agent + Worktree 隔离**：`spawn_agent` 为每个 worker 分配独立 git worktree，
+  并行编辑互不冲突；`merge_worktree` 合并回主分支并报告冲突文件。
+- **全局 + 项目记忆**：项目级 `AGENTS.md` 之外，另有跨项目记忆库
+  （`~/.config/rexion/memory/`）——偏好与决策跨会话、跨项目持久化。
 - **零摩擦分发**：`CGO_ENABLED=0` 单二进制；一条命令交叉编译到六个目标平台。
   唯一依赖是一个 TOML 解析库。
 
@@ -108,6 +130,13 @@ echo "解释这段代码" | Rexion run
 | `Rexion doctor` | 环境诊断 |
 | `Rexion config` | 配置读写（含 `auto-plan`） |
 | `Rexion init` | 生成项目记忆文件 |
+| `Rexion skill search <关键词>` | 搜索社区 skills 索引 |
+| `Rexion skill install <名称>` | 一键安装 skill（`--global`/`--link`） |
+| `Rexion skill list-remote` | 按分类列出仓库中的 skills |
+| `Rexion skill update` | 刷新本地 skills 索引缓存 |
+| `Rexion session push [id]` | 推送会话到文件/HTTP 同步后端 |
+| `Rexion session pull <id>` | 拉取远程会话为新的本地会话 |
+| `Rexion session list-remote` | 列出同步后端上的会话 |
 
 ## 配置
 
@@ -214,9 +243,12 @@ stdio 参考实现（`echo`、`wordcount`、一个 `review` prompt、一个 styl
 | Slides | `rexion-plugin-slides` | 幻灯片生成、主题风格、PDF 导出 |
 | Calendar | `rexion-plugin-calendar` | 系统日历事件与待办 |
 | Mail | `rexion-plugin-mail` | 邮件（IMAP/SMTP）、OAuth2、分类 |
-| IM | `rexion-plugin-im` | 即时通讯（钉钉/飞书/企业微信机器人） |
+| IM | `rexion-plugin-im` | 即时通讯（钉钉/飞书/企业微信），支持 `/ask` `/plan` `/craft` 远程控制 |
 | Search | `rexion-plugin-search` | 网页搜索、页面抽取、对比表 |
 | DWS | `rexion-plugin-dws` | 钉钉工作台（通讯录、文档、AI 表格、考勤、审批、云盘） |
+| Browser | `rexion-plugin-browser` | Chrome DevTools Protocol 自动化——导航、点击、输入、截图、执行 JS |
+| Design | `rexion-plugin-design` | 设计稿转代码：截图/Figma → 布局分析 → HTML/Vue/React |
+| Computer | `rexion-plugin-computer` | 桌面自动化（Windows）：点击、输入、截图、切换应用、拖拽——全程监督 |
 | Example | `rexion-plugin-example` | 参考实现 stdio 服务器 |
 
 ```toml
@@ -302,6 +334,69 @@ Subagent skills 默认继承执行器模型。设置 `subagent_model` 可让它�
 `Rexion config auto-plan off|on`。只有明确想写项目级覆盖时，才给 shell 命令加
 `--local`。
 
+### 智能体工作台
+
+除了单 Agent 循环，Rexion 还为并行、持久化和远程 Agent 工作流而生。
+
+**多 Agent + Worktree 隔离。** `spawn_agent` 启动子 Agent
+（`default` / `worker` / `explorer` / `monitor` 角色）。当工作区是 git 仓库时，
+每个非只读 worker 在 `.rexion/worktrees/<agent-id>/` 下获得独立 worktree，分支名
+`rexion/<agent-id>`，并行编辑互不冲突。`merge_worktree` 将变更合并回主分支并按文件
+报告冲突。子 Agent 关闭时自动清理 worktree。
+
+**全局记忆。** 在项目级 `AGENTS.md` 之上，Rexion 在 `~/.config/rexion/memory/`
+维护跨项目记忆库。用 `remember_global` 工具（或桌面端记忆面板）保存偏好、决策、
+联系人——它们会注入后续每个会话的系统提示。`recall_global` 工具按关键词搜索记忆库。
+自动学习器会识别"我的所有项目都用……"这类表述并自动提议全局记忆。
+
+**PR 与 CI 自动化。** `pr_monitor` 工具通过 GitHub CLI（`gh`）查询 PR 状态与 CI 检查。
+`auto_fix_ci` 更进一步：拉取失败运行的日志，匹配常见错误模式（Go 编译错误、通用
+`file:line: error`、`--- FAIL:`），返回结构化修复清单。审批后以 `auto_apply=true`
+通过 `edit_file` 应用建议编辑。在 `[git]` 段配置默认行为：
+
+```toml
+[git]
+# auto_fix_ci = false    # 为 true 时自动修复 CI 失败（每次修复仍需审批）
+# auto_merge = false     # CI 通过后自动合并 PR（需分支保护）
+```
+
+**IM 远程控制。** IM 插件现在接受来自钉钉、飞书、企业微信的命令：
+
+- `/ask <问题>` —— 仅问答，无副作用
+- `/plan <任务>` —— 先出计划，确认后执行（默认）
+- `/craft <任务>` —— 直接执行
+- `/status` —— 查询运行中的会话
+- `/cancel` —— 取消待执行命令
+
+敏感操作（删除、推送、部署、重启）必须在 5 分钟内回复 `确认` / `取消` 二次确认。
+工作模式按会话保持。`set_work_mode` / `get_work_mode` / `confirm_im_command` 工具
+向 Agent 暴露这些状态。
+
+**Skills 市场。** `rexion skill search <关键词>` 查询 GitHub 仓库（默认
+`esengine/Rexion-skills`），本地缓存 24 小时以支持离线。`rexion skill install <名称>`
+拉取单个 skill（file 或 git 源）到项目或全局作用域。桌面端 Skills 浏览器
+（`侧边栏 → Skills 市场`）按分类浏览、搜索、一键安装。
+
+**跨设备会话迁移。** `rexion session push [id]` 序列化会话（消息 + 元数据）并上传到
+文件（`~/.config/rexion/sync/`）或 HTTP 后端。`rexion session pull <remote-id>` 导入
+为新的本地会话。桌面端 Session Sync 面板显示远程 ID 的二维码，方便手机扫码接力。
+
+### 桌面端
+
+Wails 桌面客户端（`desktop/`）在终端循环之外提供多会话工作台：
+
+- **SessionSidebar** —— 所有活跃和最近会话，按状态分组（运行中/最近/更早），支持
+  搜索、行内重命名、右键菜单。
+- **SideChat** —— 拉出的旁路对话，与主会话共享上下文但不污染主线；拖动边缘调整
+  宽度，成熟后可提升回主线程。
+- **DraggableLayout** —— 拖动分割条重排终端、预览、Diff、编辑器面板；双击分割条
+  恢复默认比例；布局按面板集持久化到 `localStorage`。
+- **SkillsBrowser** —— 不离开应用即可安装和管理 skills 市场中的技能。
+- **DesignPanel** —— 上传设计稿或粘贴 Figma URL，选择框架（HTML/Vue/React），
+  生成代码并并排对比 Diff。
+- **SupervisionOverlay** —— Computer Use 激活时，浮层显示每个待执行操作及截图，
+  可暂停/继续/中止，敏感操作高亮以供二次确认。
+
 ## 架构
 
 三层可扩展性，全部藏在内核按名解析的 registry 之后：
@@ -322,24 +417,33 @@ Subagent skills 默认继承执行器模型。设置 `subagent_model` 可让它�
 **执行**（`bash`、`bash_output`、`kill_shell`、`wait`）、**REPL**（`js_eval`、
 `python_eval`）、**文档生成**（`write_docx`、`write_pdf`、`write_sheet`、
 `notebook_edit`）、**网络**（`web_fetch`）、**规划**（`todo_write`、
-`complete_step`）、**Agent**（`task`、`ask`）、**CodeGraph**（`codegraph_context`、
-`codegraph_search`、`codegraph_node`、`codegraph_explore`、`codegraph_files`、
-`codegraph_callees`、`codegraph_callers`、`codegraph_impact`、`codegraph_status`、
-`codegraph_trace`）——TOML 配置、交互式 `Rexion setup` 向导、双模型协同（执行器 +
-规划器，各自独立、缓存稳定的 session）、低频上下文压缩、子 agent（`task`）、
-bubbletea 聊天 TUI（markdown、plan mode 含基于证据的步骤签收 `complete_step`、
-上下文仪表盘、`/compact` `/new` `/tree` `/branch` `/switch` `/todo`）、会话持久化 +
-恢复、逐次调用**权限**（allow/ask/deny 规则；chat 在 writer 前询问，deny 在各模式硬
-阻断）、**工作区沙盒**（把文件写工具限制在项目内，符号链接/`..` 安全）、**沙盒化
-bash**（macOS Seatbelt 默认启用；命令只能写 workspace root + 临时/工具链缓存，
-`[sandbox] network` 为真时才能联网）、MCP 客户端——**stdio + Streamable HTTP**
-传输、工具（`mcp__server__tool`，支持 `readOnlyHint`）、prompts（斜杠命令）、
-resources（`@` 引用）、`/mcp`，可经 `[[plugins]]` 或 Claude 风格的项目 `.mcp.json`
-配置——**Skills & hooks**（Claude-Code 风格 skill playbook + 循环节点 shell-command
-hook）、自定义斜杠命令（`.Rexion/commands/*.md`）、`@file` / `@resource` 引用、
-**ACP**（`Rexion acp`）与 HTTP/SSE 服务前端（`Rexion serve`）、Wails 桌面客户端
-（`desktop/`）、外加可运行的参考插件（`cmd/rexion-plugin-example`）、harness 主循环、
-CLI。后续：MCP OAuth + legacy SSE。见 `docs/SPEC.md` §9。
+`complete_step`）、**Agent**（`task`、`ask`）、**多 Agent**（`spawn_agent`、
+`wait_agent`、`send_input`、`close_agent`、`merge_worktree`，含 git worktree 隔离）、
+**记忆**（`remember`、`forget`、`remember_global`、`recall_global`，含项目级 + 全局
+记忆库）、**PR 与 CI**（`pr_monitor`、`auto_fix_ci`）、**CodeGraph**
+（`codegraph_context`、`codegraph_search`、`codegraph_node`、`codegraph_explore`、
+`codegraph_files`、`codegraph_callees`、`codegraph_callers`、`codegraph_impact`、
+`codegraph_status`、`codegraph_trace`）——TOML 配置、交互式 `Rexion setup` 向导、
+双模型协同（执行器 + 规划器，各自独立、缓存稳定的 session）、低频上下文压缩、
+子 agent（`task`）、bubbletea 聊天 TUI（markdown、plan mode 含基于证据的步骤签收
+`complete_step`、上下文仪表盘、`/compact` `/new` `/tree` `/branch` `/switch`
+`/todo`）、会话持久化 + 恢复、逐次调用**权限**（allow/ask/deny 规则；chat 在 writer
+前询问，deny 在各模式硬阻断）、**工作区沙盒**（把文件写工具限制在项目内，符号链接/
+`..` 安全）、**沙盒化 bash**（macOS Seatbelt 默认启用；命令只能写 workspace root +
+临时/工具链缓存，`[sandbox] network` 为真时才能联网）、MCP 客户端——**stdio +
+Streamable HTTP** 传输、工具（`mcp__server__tool`，支持 `readOnlyHint`）、prompts
+（斜杠命令）、resources（`@` 引用）、`/mcp`，可经 `[[plugins]]` 或 Claude 风格的项目
+`.mcp.json` 配置——**Skills & hooks**（Claude-Code 风格 skill playbook + 循环节点
+shell-command hook，外加社区 **skills 市场** `rexion skill search/install`）、自定义
+斜杠命令（`.Rexion/commands/*.md`）、`@file` / `@resource` 引用、**ACP**
+（`Rexion acp`）与 HTTP/SSE 服务前端（`Rexion serve`）、Wails 桌面客户端（`desktop/`）
+含多会话侧边栏、旁路对话、可拖拽面板布局、skills 浏览器、设计面板、computer-use 监督
+浮层、**IM 远程控制**（钉钉/飞书/企业微信，`/ask` `/plan` `/craft` 模式 + 敏感命令二
+次确认）、**浏览器自动化**（`rexion-plugin-browser`，基于 CDP）、**设计稿转代码**
+（`rexion-plugin-design`）、**Computer Use**（`rexion-plugin-computer`，Windows）、
+**跨设备会话同步**（`rexion session push/pull`）、外加可运行的参考插件
+（`cmd/rexion-plugin-example`）、harness 主循环、CLI。
+后续：MCP OAuth + legacy SSE。见 `docs/SPEC.md` §9。
 
 <br/>
 

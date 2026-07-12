@@ -16,6 +16,10 @@ import {
   PanelLeftOpen,
   PanelLeftClose,
   SquareTerminal,
+  MessageSquare,
+  Store,
+  Palette,
+  Smartphone,
 } from "lucide-react";
 import type { WorkspaceType } from "../lib/types";
 import { useT } from "../lib/i18n";
@@ -24,12 +28,14 @@ import { OfficePanel } from "./OfficePanel";
 import { Tooltip } from "./Tooltip";
 
 // ── Sidebar section (collapsible) ──────────────────────────────
-function loadSectionCollapsed(storageKey: string): boolean {
-  if (typeof window === "undefined") return false;
+function loadSectionCollapsed(storageKey: string, defaultCollapsed = false): boolean {
+  if (typeof window === "undefined") return defaultCollapsed;
   try {
-    return window.localStorage.getItem(`Rexion.sidebar.section.${storageKey}`) === "1";
+    const v = window.localStorage.getItem(`Rexion.sidebar.section.${storageKey}`);
+    if (v === null) return defaultCollapsed;
+    return v === "1";
   } catch {
-    return false;
+    return defaultCollapsed;
   }
 }
 
@@ -54,7 +60,7 @@ function SidebarSection({
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(() =>
-    storageKey ? loadSectionCollapsed(storageKey) : defaultCollapsed
+    storageKey ? loadSectionCollapsed(storageKey, defaultCollapsed) : defaultCollapsed
   );
   const toggle = () => {
     setCollapsed((c) => {
@@ -194,6 +200,11 @@ export function Sidebar({
               <Home size={16} />
             </button>
           </Tooltip>
+          <Tooltip label={t("sessionSidebar.title")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => onNavigate("sessions")}>
+              <MessageSquare size={16} />
+            </button>
+          </Tooltip>
           <Tooltip label={t("officePanel.productDesign")} side="right">
             <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onActivateSkill("product-design"); }}>
               <SquarePen size={16} />
@@ -212,6 +223,21 @@ export function Sidebar({
           <Tooltip label={t("sidebar.workflow")} side="right">
             <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("workflow"); }}>
               <GitBranch size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t("sidebar.skillsMarket")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("skillsMarket"); }}>
+              <Store size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t("sidebar.designPanel")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("designPanel"); }}>
+              <Palette size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip label={t("sidebar.sessionSync")} side="right">
+            <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onNavigate("sessionSync"); }}>
+              <Smartphone size={16} />
             </button>
           </Tooltip>
           <Tooltip label={t("sidebar.terminal")} side="right">
@@ -268,6 +294,13 @@ export function Sidebar({
           onClick={() => onNavigate("home")}
           active={activePage === "home"}
         />
+        <SidebarNavItem
+          icon={<MessageSquare size={15} />}
+          label={t("sessionSidebar.title")}
+          tooltipDisabled={navTooltipDisabled}
+          onClick={() => onNavigate("sessions")}
+          active={activePage === "sessions"}
+        />
       </div>
 
       {/* ── Scrollable middle: categorized capabilities ── */}
@@ -323,6 +356,27 @@ export function Sidebar({
             active={activePage === "workflow"}
           />
           <SidebarNavItem
+            icon={<Store size={15} />}
+            label={t("sidebar.skillsMarket")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => onNavigate("skillsMarket")}
+            active={activePage === "skillsMarket"}
+          />
+          <SidebarNavItem
+            icon={<Palette size={15} />}
+            label={t("sidebar.designPanel")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => onNavigate("designPanel")}
+            active={activePage === "designPanel"}
+          />
+          <SidebarNavItem
+            icon={<Smartphone size={15} />}
+            label={t("sidebar.sessionSync")}
+            tooltipDisabled={navTooltipDisabled}
+            onClick={() => onNavigate("sessionSync")}
+            active={activePage === "sessionSync"}
+          />
+          <SidebarNavItem
             icon={<BookOpen size={15} />}
             label={t("sidebar.repoWiki")}
             tooltipDisabled={navTooltipDisabled}
@@ -333,7 +387,7 @@ export function Sidebar({
 
       {/* ── Bottom: 配置 (Config) — fixed ── */}
       <div className="sidebar__bottom">
-        <SidebarSection title={t("sidebar.config")} storageKey="config">
+        <SidebarSection title={t("sidebar.config")} storageKey="config" defaultCollapsed>
           <SidebarNavItem
             icon={<Brain size={15} />}
             label={t("sidebar.memory")}

@@ -20,12 +20,14 @@ import (
 // the cache-stable system prefix stays byte-stable across sessions that don't
 // touch the PKM files.
 type Set struct {
-	Docs    []Source // Rexion.md / AGENTS.md, ascending precedence
-	PKM     []Source // personal knowledge base (~/.rexion/memory/*.md)
-	Store   Store    // auto-memory store (may be a zero/disabled Store)
-	Index   string   // MEMORY.md contents at load time
-	CWD     string   // project working dir used for discovery
-	UserDir string   // user config root (may be "")
+	Docs        []Source     // Rexion.md / AGENTS.md, ascending precedence
+	PKM         []Source     // personal knowledge base (~/.rexion/memory/*.md)
+	Store       Store        // auto-memory store (may be a zero/disabled Store)
+	Index       string       // MEMORY.md contents at load time
+	Global      GlobalStore  // cross-project auto-memory (may be zero/disabled)
+	GlobalIndex string       // global MEMORY.md contents at load time
+	CWD         string       // project working dir used for discovery
+	UserDir     string       // user config root (may be "")
 }
 
 // Options configures discovery. CWD defaults to "." and UserDir is the user
@@ -49,12 +51,15 @@ func Load(opts Options) *Set {
 		cwd = "."
 	}
 	store := StoreFor(opts.UserDir, cwd)
+	global := GlobalStoreFor(opts.UserDir)
 	set := &Set{
-		Docs:    discoverDocs(cwd, opts.UserDir),
-		Store:   store,
-		Index:   store.Index(),
-		CWD:     cwd,
-		UserDir: opts.UserDir,
+		Docs:        discoverDocs(cwd, opts.UserDir),
+		Store:       store,
+		Index:       store.Index(),
+		Global:      global,
+		GlobalIndex: global.Index(),
+		CWD:         cwd,
+		UserDir:     opts.UserDir,
 	}
 	if opts.PKMEnabled {
 		set.PKM = loadPKMFiles()
@@ -161,7 +166,8 @@ func (s *Set) DocPath(scope Scope) string {
 // there is no memory at all. PKM sources count, so a set with only PKM is not
 // empty.
 func (s *Set) Empty() bool {
-	return s == nil || (len(s.Docs) == 0 && len(s.PKM) == 0 && strings.TrimSpace(s.Index) == "")
+	return s == nil || (len(s.Docs) == 0 && len(s.PKM) == 0 &&
+		strings.TrimSpace(s.Index) == "" && strings.TrimSpace(s.GlobalIndex) == "")
 }
 
 // docScopes are the scopes the panel can target for a quick-add or a new doc.
@@ -209,11 +215,17 @@ func (s *Set) WriteDoc(path, body string) (string, error) {
 // deterministic given the same files, which is what keeps it a stable cache
 // prefix across sessions that don't change their memory.
 //
-// The PKM (personal knowledge base) renders first, wrapped in a
-// <personal-knowledge> tag so the model can locate it structurally; then come
-// the hierarchical Docs, then the auto-memory index. PKM is the most durable
-// layer (user-authored, rarely edited), so leading with it keeps the largest
-// possible byte-stable prefix for DeepSeek's automatic prefix cache.
+// Render order (most durable first, to keep the largest byte-stable prefix for
+// DeepSeek's automatic prefix cache):
+//  1. PKM (personal knowledge base) — user-authored, rarely edited.
+//  2. Global memory index — cross-project facts saved via `remember_global`.
+//  3. Hierarchical Docs — Rexion.md / AGENTS.md up the project tree.
+//  4. Per-project auto-memory index — facts saved via `remember`.
+//
+// The global index sits between PKM and Docs so the PKM block (the most
+// cache-stable layer) stays byte-for-byte at the front, while global facts —
+// which change even less often than project Docs — still ride the prefix
+// ahead of the more volatile per-project layers.
 func (s *Set) Block() string {
 	if s.Empty() {
 		return ""
@@ -230,6 +242,15 @@ func (s *Set) Block() string {
 			fmt.Fprintf(&b, "\n### %s\n\n%s\n", d.Path, strings.TrimSpace(d.Body))
 		}
 		b.WriteString("\n</personal-knowledge>\n")
+	}
+
+	if gidx := strings.TrimSpace(s.GlobalIndex); gidx != "" {
+		b.WriteString("\n## Global memories\n\n")
+		b.WriteString("Cross-project facts you saved with `remember_global` — they apply to every project, not just this one. " +
+			"Treat them as standing preferences and conventions; read a linked file with read_file when one looks relevant, " +
+			"and use `recall_global` to search the full set by keyword.\n\n")
+		b.WriteString(gidx)
+		fmt.Fprintf(&b, "\n\n(stored under %s)\n", s.Global.Dir)
 	}
 
 	for _, d := range s.Docs {

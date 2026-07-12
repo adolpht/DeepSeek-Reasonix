@@ -123,7 +123,7 @@ func handleDingTalkStreamMessage(data *chatbot.BotCallbackDataModel) {
 	// pick up a fresher URL even if the original command's URL expires.
 	dingWebhookCache.Refresh(data.ConversationId, data.SessionWebhook)
 
-	queue.add("dingtalk", content, data.SessionWebhook, map[string]string{
+	enqueueParsedCommand("dingtalk", content, data.SessionWebhook, map[string]string{
 		"reply_mode":        "stream",
 		"msg_id":            data.MsgId,
 		"sender_staff_id":   data.SenderStaffId,

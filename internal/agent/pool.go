@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -38,18 +39,24 @@ type Pool struct {
 	sysPrompt         string
 	maxSteps          int
 	parentSink        event.Sink
+
+	// Worktree隔离相关
+	workspaceRoot string           // 主工作区根目录
+	worktreeMgr   *WorktreeManager // Worktree管理器（nil则未启用隔离）
+	worktreePaths map[string]string // agentID → worktree路径的映射
 }
 
 // ChildAgent is a running sub-agent with its own session.
 type ChildAgent struct {
-	ID        string
-	Role      Role
-	Agent     *Agent
-	Session   *Session
-	Cancel    context.CancelFunc
-	Done      chan struct{}
-	Result    *AgentResult
-	StartedAt time.Time
+	ID           string
+	Role         Role
+	Agent        *Agent
+	Session      *Session
+	Cancel       context.CancelFunc
+	Done         chan struct{}
+	Result       *AgentResult
+	StartedAt    time.Time
+	WorktreePath string // 子Agent的Git Worktree路径（空则未使用worktree隔离）
 }
 
 // maxResults caps the completed-agent result cache. When exceeded we drop the
@@ -105,6 +112,7 @@ type PoolOpts struct {
 	SysPrompt         string
 	MaxSteps          int
 	ParentSink        event.Sink
+	WorkspaceRoot     string // 主工作区根目录路径，用于Git Worktree隔离
 }
 
 // NewPool creates a new agent pool.
@@ -139,6 +147,9 @@ func NewPool(parent *Agent, opts PoolOpts) *Pool {
 		sysPrompt:         opts.SysPrompt,
 		maxSteps:          opts.MaxSteps,
 		parentSink:        opts.ParentSink,
+		workspaceRoot:     opts.WorkspaceRoot,
+		worktreeMgr:       NewWorktreeManager(opts.WorkspaceRoot),
+		worktreePaths:     make(map[string]string),
 	}
 }
 
@@ -210,6 +221,20 @@ func (p *Pool) Spawn(ctx context.Context, id string, role Role, prompt string, m
 		sysPrompt = sysPrompt + "\n\n" + role.SystemAddon
 	}
 
+	// 如果启用了Worktree隔离且role非只读，为子Agent创建隔离工作区
+	var worktreePath string
+	if p.worktreeMgr != nil && !role.ReadOnly {
+		wtPath, wtErr := p.worktreeMgr.CreateWorktree(p.workspaceRoot, id)
+		if wtErr != nil {
+			// 创建失败时静默跳过，不影响Agent正常运行
+			slog.Warn("worktree: failed to create worktree, falling back to main workspace", "agent", id, "error", wtErr)
+		} else {
+			worktreePath = wtPath
+			// 在系统提示中添加worktree路径信息
+			sysPrompt += fmt.Sprintf("\n\nYour workspace is isolated in a git worktree at: %s\nAll file operations should use this path as the working directory. The worktree branch is: %s", worktreePath, agentIDToBranchName(id))
+		}
+	}
+
 	// Create session and agent
 	sess := NewSession(sysPrompt)
 	childSink := p.childSink(id)
@@ -226,15 +251,33 @@ func (p *Pool) Spawn(ctx context.Context, id string, role Role, prompt string, m
 		ArchiveDir:        p.archiveDir,
 	}, childSink)
 
+	// 注入WorktreeManager和worktree路径到子Agent，供merge_worktree工具使用
+	if p.worktreeMgr != nil {
+		childAgent.worktreeMgr = p.worktreeMgr
+	}
+	if worktreePath != "" {
+		childAgent.worktreePaths = map[string]string{id: worktreePath}
+	}
+
+	// 记录worktree路径到Pool的映射表，并同步到父Agent
+	if worktreePath != "" {
+		p.worktreePaths[id] = worktreePath
+		// 将所有已知的worktree路径同步到父Agent，使merge_worktree工具可用
+		if p.parent != nil {
+			p.parent.SetWorktreeInfo(p.worktreeMgr, p.worktreePaths)
+		}
+	}
+
 	childCtx, cancel := context.WithCancel(ctx)
 	child := &ChildAgent{
-		ID:        id,
-		Role:      role,
-		Agent:     childAgent,
-		Session:   sess,
-		Cancel:    cancel,
-		Done:      make(chan struct{}),
-		StartedAt: time.Now(),
+		ID:           id,
+		Role:         role,
+		Agent:        childAgent,
+		Session:      sess,
+		Cancel:       cancel,
+		Done:         make(chan struct{}),
+		StartedAt:    time.Now(),
+		WorktreePath: worktreePath,
 	}
 
 	p.agents[id] = child
@@ -484,6 +527,9 @@ func (p *Pool) Close(ctx context.Context, id string) error {
 	p.pruneResultsLocked()
 	p.mu.Unlock()
 
+	// 清理子Agent的worktree
+	p.cleanupWorktree(child)
+
 	// Emit AgentClosed event
 	if p.parentSink != nil {
 		p.parentSink.Emit(event.Event{
@@ -522,6 +568,9 @@ func (p *Pool) CloseAll() {
 		p.results[id] = result
 		p.pruneResultsLocked()
 		p.mu.Unlock()
+
+		// 清理子Agent的worktree
+		p.cleanupWorktree(child)
 	}
 }
 
@@ -605,4 +654,14 @@ func (p *Pool) childSink(agentID string) event.Sink {
 			})
 		}
 	})
+}
+
+// cleanupWorktree 清理子Agent的Git Worktree。如果WorktreeManager未启用则跳过。
+func (p *Pool) cleanupWorktree(child *ChildAgent) {
+	if p.worktreeMgr == nil || child.WorktreePath == "" {
+		return
+	}
+	if err := p.worktreeMgr.RemoveWorktree(child.WorktreePath); err != nil {
+		slog.Warn("worktree: failed to cleanup worktree for agent", "agent", child.ID, "path", child.WorktreePath, "error", err)
+	}
 }

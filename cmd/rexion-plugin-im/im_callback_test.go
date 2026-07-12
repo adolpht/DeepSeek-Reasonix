@@ -185,17 +185,17 @@ func TestSessionWebhookCacheSweep(t *testing.T) {
 func TestCommandQueueDedup(t *testing.T) {
 	q := &commandQueue{notify: make(chan struct{})}
 	// First message with msg_id=m1
-	cmd1 := q.add("dingtalk", "hello", "https://hook.example.com", map[string]string{"msg_id": "m1"})
+	cmd1 := q.add("dingtalk", "hello", "https://hook.example.com", map[string]string{"msg_id": "m1"}, string(ModePlan), false)
 	if cmd1 == nil {
 		t.Fatal("first add should return non-nil command")
 	}
 	// Duplicate with same msg_id
-	cmd2 := q.add("dingtalk", "hello again", "https://hook.example.com", map[string]string{"msg_id": "m1"})
+	cmd2 := q.add("dingtalk", "hello again", "https://hook.example.com", map[string]string{"msg_id": "m1"}, string(ModePlan), false)
 	if cmd2 != nil && cmd2.ID != cmd1.ID {
 		t.Errorf("duplicate msg_id should return same command, got %q vs %q", cmd2.ID, cmd1.ID)
 	}
 	// Different msg_id should be enqueued normally
-	cmd3 := q.add("dingtalk", "second message", "https://hook.example.com", map[string]string{"msg_id": "m2"})
+	cmd3 := q.add("dingtalk", "second message", "https://hook.example.com", map[string]string{"msg_id": "m2"}, string(ModePlan), false)
 	if cmd3 == nil {
 		t.Fatal("different msg_id should return non-nil command")
 	}
@@ -208,8 +208,8 @@ func TestCommandQueueDedup(t *testing.T) {
 
 func TestCommandQueueNoDedupWithoutMsgID(t *testing.T) {
 	q := &commandQueue{notify: make(chan struct{})}
-	q.add("wecom", "msg1", "", nil)
-	q.add("wecom", "msg2", "", nil)
+	q.add("wecom", "msg1", "", nil, string(ModePlan), false)
+	q.add("wecom", "msg2", "", nil, string(ModePlan), false)
 	pending := q.list(10)
 	if len(pending) != 2 {
 		t.Errorf("expected 2 pending without msg_id dedup, got %d", len(pending))
@@ -363,7 +363,7 @@ func TestRunMarkCommandDoneAlwaysMarksDoneOnFailure(t *testing.T) {
 	cmd := q.add("dingtalk", "do something", failSrv.URL, map[string]string{
 		"reply_mode": "stream",
 		"msg_id":     "test-msg-fail",
-	})
+	}, string(ModePlan), false)
 
 	// mark_command_done should succeed (command marked done) even though push failed.
 	result, err := runMarkCommandDone(cmd.ID, "result text")
@@ -416,7 +416,7 @@ func TestRunMarkCommandDoneSuccessMarksDone(t *testing.T) {
 	cmd := q.add("dingtalk", "do something", okSrv.URL, map[string]string{
 		"reply_mode": "stream",
 		"msg_id":     "test-msg-ok",
-	})
+	}, string(ModePlan), false)
 
 	result, err := runMarkCommandDone(cmd.ID, "done!")
 	if err != nil {
@@ -448,7 +448,7 @@ func TestRunReplyMessage(t *testing.T) {
 	cmd := q.add("dingtalk", "hello", okSrv.URL, map[string]string{
 		"reply_mode": "stream",
 		"msg_id":     "test-reply-1",
-	})
+	}, string(ModePlan), false)
 
 	result, err := runReplyMessage(cmd.ID, "intermediate progress", "text")
 	if err != nil {

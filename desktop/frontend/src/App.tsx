@@ -41,7 +41,14 @@ import { RepoWikiPanel } from "./components/RepoWikiPanel";
 import { TemplateLibrary } from "./components/TemplateLibrary";
 import { Sidebar } from "./components/Sidebar";
 import { HomePanel } from "./components/HomePanel";
+import { SkillsBrowser } from "./components/SkillsBrowser";
+import { DesignPanel } from "./components/DesignPanel";
+import { SessionSync } from "./components/SessionSync";
+import { SupervisionOverlay } from "./components/SupervisionOverlay";
+import type { SupervisionAction } from "./components/SupervisionOverlay";
 import { CalendarPanel } from "./components/CalendarPanel";
+import { SessionSidebar } from "./components/SessionSidebar";
+import { SideChat } from "./components/SideChat";
 import { IMSessionsPanel } from "./components/IMSessionsPanel";
 import { SchedulerPanel } from "./components/SchedulerPanel";
 import { ResizableDrawer } from "./components/ResizableDrawer";
@@ -405,9 +412,21 @@ export default function App() {
   });
   // Navigation state for sidebar-driven views (home, calendar, todos, etc.)
   const [navPage, setNavPage] = useState<string | null>(null);
+  // Computer Use supervision overlay — tracks pending desktop actions so the
+  // user can pause/abort in real time. Wired to tool events when the
+  // rexion-plugin-computer plugin is active; inactive (hidden) by default.
+  const [supervisionActive, setSupervisionActive] = useState(false);
+  const [supervisionPaused, setSupervisionPaused] = useState(false);
+  const [supervisionPending, setSupervisionPending] = useState<SupervisionAction | null>(null);
+  const [supervisionHistory, setSupervisionHistory] = useState<SupervisionAction[]>([]);
   // Workflow editor is rendered as a modal overlay (not a main-pane page) so
   // it doesn't displace the active conversation while editing flows.
   const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
+  // Skills market, design-to-code, and cross-device sync also open as modal
+  // overlays so the active conversation stays visible underneath.
+  const [skillsMarketModalOpen, setSkillsMarketModalOpen] = useState(false);
+  const [designPanelModalOpen, setDesignPanelModalOpen] = useState(false);
+  const [sessionSyncModalOpen, setSessionSyncModalOpen] = useState(false);
   // Progress stepper steps are derived from step_progress events in the controller state.
   const progressSteps: ProgressStep[] = state.steps.map((s) => ({
     id: s.id,
@@ -436,6 +455,8 @@ export default function App() {
   // CommandPalette (⌘K/Ctrl+K) and NotificationCenter drawer state.
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
+  const [sessionSidebarOpen, setSessionSidebarOpen] = useState(false);
+  const [sideChatOpen, setSideChatOpen] = useState(false);
   const topicRenameSkipCommitRef = useRef(false);
   const topicRenameCommitHandledRef = useRef(false);
 
@@ -1638,6 +1659,7 @@ export default function App() {
             // "memory" lives in the settings centre (MemorySettingsPage) — both
             // reuse existing implementations instead of dead navPage branches.
             // "terminal" toggles the embedded terminal in the right dock.
+            // "sessions" toggles the session management sidebar panel.
             if (page === "files") {
               openWorkspacePanel("files");
             } else if (page === "memory") {
@@ -1645,6 +1667,8 @@ export default function App() {
             } else if (page === "terminal") {
               if (!workspacePanelRenderable) openWorkspacePanel("files");
               setTerminalDockOpen((v) => !v);
+            } else if (page === "sessions") {
+              setSessionSidebarOpen((v) => !v);
             } else if (page === "scheduled") {
               setSchedulerOpen(true);
             } else if (page === "trace") {
@@ -1653,6 +1677,12 @@ export default function App() {
               // Workflow editor opens as a modal overlay so the active
               // conversation stays visible underneath.
               setWorkflowModalOpen(true);
+            } else if (page === "skillsMarket") {
+              setSkillsMarketModalOpen(true);
+            } else if (page === "designPanel") {
+              setDesignPanelModalOpen(true);
+            } else if (page === "sessionSync") {
+              setSessionSyncModalOpen(true);
             } else if (page === "calendar" || page === "dailyBrief") {
               openRightDockMode(page);
             } else {
@@ -1770,6 +1800,17 @@ export default function App() {
             </div>
             <div className="topicbar__spacer" />
             <div className="topicbar__actions">
+              <Tooltip label={t("sideChat.title")}>
+                <button
+                  className={`topicbar__action-btn topicbar__action-btn--icon${sideChatOpen ? " is-active" : ""}`}
+                  type="button"
+                  onClick={() => setSideChatOpen((v) => !v)}
+                  aria-label={t("sideChat.title")}
+                  aria-pressed={sideChatOpen}
+                >
+                  <MessageSquare size={14} />
+                </button>
+              </Tooltip>
               <CopyButton
                 getText={getSessionMarkdown}
                 label={t("topicBar.copyAll")}
@@ -2170,6 +2211,45 @@ export default function App() {
         </div>
       )}
 
+      {skillsMarketModalOpen && (
+        <div className="wf-modal-overlay" role="dialog" aria-modal="true">
+          <div className="wf-modal-overlay__dialog">
+            <SkillsBrowser
+              onSkillsChanged={refreshProjectsAndTabs}
+              onClose={() => setSkillsMarketModalOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {designPanelModalOpen && (
+        <div className="wf-modal-overlay" role="dialog" aria-modal="true">
+          <div className="wf-modal-overlay__dialog">
+            <DesignPanel onClose={() => setDesignPanelModalOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      {sessionSyncModalOpen && (
+        <div className="wf-modal-overlay" role="dialog" aria-modal="true">
+          <div className="wf-modal-overlay__dialog">
+            <SessionSync onClose={() => setSessionSyncModalOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      <SupervisionOverlay
+        active={supervisionActive}
+        pendingAction={supervisionPending}
+        history={supervisionHistory}
+        paused={supervisionPaused}
+        onPause={() => setSupervisionPaused(true)}
+        onResume={() => setSupervisionPaused(false)}
+        onAbort={() => { setSupervisionActive(false); setSupervisionPending(null); setSupervisionHistory([]); }}
+        onConfirmSensitive={() => setSupervisionPending((p) => p ? { ...p, status: "running" as const } : p)}
+        onDismiss={() => setSupervisionActive(false)}
+      />
+
       {traceOpen && (
         <ResizableDrawer onClose={() => setTraceOpen(false)} subtle wide>
           <AgentCanvas
@@ -2271,6 +2351,26 @@ export default function App() {
       <NotificationCenter
         open={notificationCenterOpen}
         onClose={() => setNotificationCenterOpen(false)}
+      />
+      {sessionSidebarOpen && (
+        <SessionSidebar
+          sessions={histView?.sessions ?? []}
+          activeSessionId={activeTabId}
+          isRunning={state.running}
+          onSwitchSession={(id) => { setSessionSidebarOpen(false); void handleTabChange(id); }}
+          onNewSession={() => { setSessionSidebarOpen(false); cancel(); void startNewSession(); }}
+          onCloseSession={(id) => void handleTabClose(id)}
+          onRenameSession={async (path, title) => { await renameSession(path, title); }}
+          scope={activeTab?.scope === "project" ? "project" : "global"}
+          workspaceRoot={activeTab?.workspaceRoot}
+        />
+      )}
+      <SideChat
+        visible={sideChatOpen}
+        contextItems={state.items}
+        onSend={(text) => send(text)}
+        onClose={() => setSideChatOpen(false)}
+        onPromoteToMain={(text) => { send(text); setSideChatOpen(false); }}
       />
     </div>
     </ShellExpandProvider>

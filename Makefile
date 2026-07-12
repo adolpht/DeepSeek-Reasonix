@@ -13,8 +13,8 @@ MAIN_PLUGINS_SRC := rexon-plugin-office rexon-plugin-sheet rexon-plugin-mail rex
 MAIN_PLUGINS_OUT := rexion-plugin-office rexion-plugin-sheet rexion-plugin-mail rexion-plugin-im rexion-plugin-dws
 
 # Standalone-module plugins (each has its own go.mod under cmd/)
-STANDALONE_PLUGINS_SRC := rexon-plugin-calendar rexon-plugin-slides rexon-plugin-search
-STANDALONE_PLUGINS_OUT := rexion-plugin-calendar rexion-plugin-slides rexion-plugin-search
+STANDALONE_PLUGINS_SRC := rexon-plugin-calendar rexon-plugin-slides rexon-plugin-search rexon-plugin-browser rexon-plugin-design rexon-plugin-computer
+STANDALONE_PLUGINS_OUT := rexion-plugin-calendar rexion-plugin-slides rexion-plugin-search rexion-plugin-browser rexion-plugin-design rexion-plugin-computer
 
 ALL_PLUGINS := $(MAIN_PLUGINS_OUT) $(STANDALONE_PLUGINS_OUT)
 

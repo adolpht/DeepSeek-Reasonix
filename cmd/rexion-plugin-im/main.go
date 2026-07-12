@@ -198,6 +198,9 @@ var tools = []toolDef{
 	getIMSessionTool,
 	deleteIMSessionTool,
 	clearIMSessionsTool,
+	setWorkModeTool,
+	getWorkModeTool,
+	confirmIMCommandTool,
 }
 
 func toolList() []map[string]any {
@@ -599,6 +602,18 @@ func argIntDefault(args map[string]any, key string, def int) int {
 	}
 }
 
+func argBool(args map[string]any, key string) (bool, error) {
+	v, ok := args[key]
+	if !ok || v == nil {
+		return false, fmt.Errorf("missing required argument %q", key)
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return false, fmt.Errorf("argument %q must be a boolean, got %T", key, v)
+	}
+	return b, nil
+}
+
 func argStringSliceDefault(args map[string]any, key string, def []string) []string {
 	v, ok := args[key]
 	if !ok || v == nil {
@@ -801,5 +816,97 @@ var clearIMSessionsTool = toolDef{
 	},
 	run: func(args map[string]any) (any, error) {
 		return runClearIMSessions()
+	},
+}
+
+// setWorkModeTool switches the work mode for an IM session. The mode
+// determines how subsequent commands from that session are executed:
+//   - ask:   answer only, no write operations
+//   - plan:  plan first, then execute (default)
+//   - craft: execute directly without planning
+//
+// The session is identified by platform + conversation_id (preferred) or
+// sender_id. Once set, the mode persists for subsequent prefix-less messages
+// until changed again.
+var setWorkModeTool = toolDef{
+	name:        "set_work_mode",
+	description: "Set the work mode for an IM session (ask/plan/craft). Controls how subsequent commands from the session are executed. The mode persists until changed.",
+	readOnly:    false,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"platform":        map[string]any{"type": "string", "enum": []string{"wecom", "feishu", "dingtalk"}, "description": "IM platform"},
+			"conversation_id": map[string]any{"type": "string", "description": "Conversation/chat ID (preferred for session identification)"},
+			"sender_id":       map[string]any{"type": "string", "description": "Sender's user ID (used when conversation_id is empty)"},
+			"mode":            map[string]any{"type": "string", "enum": []string{"ask", "plan", "craft"}, "description": "Work mode: ask (answer only), plan (plan then execute, default), craft (direct execute)"},
+		},
+		"required": []string{"platform", "mode"},
+	},
+	run: func(args map[string]any) (any, error) {
+		platform, err := argString(args, "platform")
+		if err != nil {
+			return nil, err
+		}
+		mode, err := argString(args, "mode")
+		if err != nil {
+			return nil, err
+		}
+		conversationID := argStringDefault(args, "conversation_id", "")
+		senderID := argStringDefault(args, "sender_id", "")
+		return runSetWorkMode(platform, conversationID, senderID, mode)
+	},
+}
+
+// getWorkModeTool queries the current work mode for an IM session.
+var getWorkModeTool = toolDef{
+	name:        "get_work_mode",
+	description: "Get the current work mode for an IM session. Returns the mode last set via set_work_mode or inferred from a /ask, /plan, /craft prefix command. Defaults to 'plan' for new sessions.",
+	readOnly:    true,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"platform":        map[string]any{"type": "string", "enum": []string{"wecom", "feishu", "dingtalk"}, "description": "IM platform"},
+			"conversation_id": map[string]any{"type": "string", "description": "Conversation/chat ID (preferred for session identification)"},
+			"sender_id":       map[string]any{"type": "string", "description": "Sender's user ID (used when conversation_id is empty)"},
+		},
+		"required": []string{"platform"},
+	},
+	run: func(args map[string]any) (any, error) {
+		platform, err := argString(args, "platform")
+		if err != nil {
+			return nil, err
+		}
+		conversationID := argStringDefault(args, "conversation_id", "")
+		senderID := argStringDefault(args, "sender_id", "")
+		return runGetWorkMode(platform, conversationID, senderID)
+	},
+}
+
+// confirmIMCommandTool confirms or cancels a pending sensitive command.
+// Sensitive commands (containing keywords like 删除/推送/部署) are held for
+// secondary confirmation before execution. Use this tool with confirmed=true
+// to release the command for agent processing, or confirmed=false to cancel.
+var confirmIMCommandTool = toolDef{
+	name:        "confirm_im_command",
+	description: "Confirm or cancel a pending IM command that is awaiting secondary confirmation (sensitive operation). Set confirmed=true to release the command for execution, or confirmed=false to cancel it. Commands auto-cancel after 5 minutes if not confirmed.",
+	readOnly:    false,
+	schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"command_id": map[string]any{"type": "string", "description": "The command ID to confirm or cancel"},
+			"confirmed":  map[string]any{"type": "boolean", "description": "true to confirm and release for execution, false to cancel"},
+		},
+		"required": []string{"command_id", "confirmed"},
+	},
+	run: func(args map[string]any) (any, error) {
+		commandID, err := argString(args, "command_id")
+		if err != nil {
+			return nil, err
+		}
+		confirmed, err := argBool(args, "confirmed")
+		if err != nil {
+			return nil, err
+		}
+		return runConfirmIMCommand(commandID, confirmed)
 	},
 }

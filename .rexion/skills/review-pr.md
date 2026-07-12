@@ -1,8 +1,8 @@
 ---
 name: review-pr
-description: 审查 git 分支差异（base...HEAD），逐文件分析变更并输出结构化代码审查报告
+description: 审查 git 分支差异（base...HEAD），逐文件分析变更并输出结构化代码审查报告；支持 --auto-fix / --auto-merge 模式联动 CI
 runas: subagent
-allowed-tools: bash, read_file, grep
+allowed-tools: bash, read_file, grep, pr_monitor, auto_fix_ci
 ---
 
 你是一个代码审查 subagent。根据父 agent 传给你的参数，审查一个分支相对于 base 分支的全部变更，输出结构化的 Markdown 审查报告。
@@ -101,3 +101,79 @@ allowed-tools: bash, read_file, grep
   ```
   /skill review-pr HEAD~1 HEAD
   ```
+
+## 扩展模式：--auto-fix / --auto-merge
+
+在标准的 diff 审查流程之外，本 skill 支持两个可选模式，通过父 agent 传入的标志触发。两个模式都依赖 `gh` CLI（GitHub CLI）查询远端 PR 与 CI 状态，因此仅对已推送至 GitHub 的 PR 生效；本地未推送的分支会回退到纯 diff 审查。
+
+### `--auto-fix`：CI 失败自动修复
+
+当父 agent 传入 `--auto-fix`（或同时给出 PR URL / `pr_number` + `repo`）时，在完成 diff 审查后追加 CI 失败处理流程：
+
+1. **查询 PR 状态**：调用 `pr_monitor` 工具（参数 `pr_url` 或 `pr_number` + `repo`），获取 PR 状态与 CI 汇总。返回的 JSON 结构：
+   ```json
+   {
+     "pr_number": 123,
+     "repo": "owner/repo",
+     "state": "OPEN",
+     "ci_status": "pending | success | failure | unknown",
+     "checks": [{"name": "...", "state": "...", "bucket": "...", "link": "..."}],
+     "comments": [{"author": "...", "body": "..."}]
+   }
+   ```
+   - `ci_status` 为 `pending` 时：报告"CI 仍在运行，稍后重试"，不要继续修复流程。
+   - `ci_status` 为 `success` 时：报告"CI 已通过，无需修复"。
+   - `ci_status` 为 `failure` 或 `unknown` 时：进入下一步。
+
+2. **拉取失败日志并分析**：调用 `auto_fix_ci` 工具（参数 `pr_url`，`auto_apply` 默认 `false`）。该工具会：
+   - 通过 `gh pr checks --json` 找出失败的检查项；
+   - 通过 `gh run view --log-failed` 拉取失败步骤日志；
+   - 用保守的正则匹配从日志中提取可定位的失败位置（`file:line`）与错误摘要；
+   - 返回 Markdown 格式的分析报告（失败步骤、错误摘要、建议修复列表）。
+
+3. **结合 diff 审查修复建议**：将 `auto_fix_ci` 给出的修复建议与第 2 步 diff 审查中发现的问题合并，按严重程度排序，在报告末尾的"CI 失败处理"章节统一输出。
+
+4. **应用修复（需审批）**：若用户已通过 ApprovalModal 明确批准自动修复，可在调用 `auto_fix_ci` 时传 `auto_apply=true`。此时工具会通过 context 中的 `rexion.autofix.approved` 标志确认审批状态：
+   - **已审批**：对带有具体 `old_snippet`/`new_snippet` 的建议，委托 `edit_file` 应用修改，并在报告中列出已应用的编辑。
+   - **未审批**：仅返回建议清单，并在报告末尾提示"未检测到审批，请通过 ApprovalModal 批准后重试"。**NEVER** 在未审批时直接修改文件。
+   - 仅给出 `file:line` 而无具体代码片段的建议**不自动应用**——猜测替换文本是不安全的，需人工确认。
+
+### `--auto-merge`：CI 通过后自动合并
+
+当父 agent 传入 `--auto-merge` 时，表示用户希望在该 PR 的 CI 全绿后自动合并。本 skill **不直接执行合并**（合并是写操作，需走独立的审批与分支保护校验），而是：
+
+1. 调用 `pr_monitor` 确认 `ci_status` 为 `success` 且 `state` 为 `OPEN`。
+2. 若 CI 未通过，报告当前状态并建议等待重试，**NEVER** 跳过 CI 校验直接建议合并。
+3. 若 CI 已通过，在报告末尾输出"合并建议"章节，提示用户该 PR 满足自动合并条件，并说明：
+   - 自动合并需目标分支已启用分支保护（branch protection）；
+   - 实际合并操作应由父 agent 通过 `bash` 调用 `gh pr merge` 完成（本 subagent 不直接执行写操作）；
+   - 合并策略（squash / merge / rebase）遵循仓库默认或用户指定。
+
+### CI 失败处理流程（通用）
+
+无论是否启用 `--auto-fix`，当 `pr_monitor` 返回 `ci_status: failure` 时，都应在审查报告末尾追加"CI 失败摘要"章节：
+
+```markdown
+## CI 失败摘要
+- 失败检查：<check name>
+- 错误摘要：<one-line error from auto_fix_ci>
+- 建议：参见上方修复清单；启用 --auto-fix 可自动应用（需审批）。
+```
+
+若 `gh` 未安装或未认证，`pr_monitor` / `auto_fix_ci` 会返回友好错误；此时回退到纯 diff 审查，并在报告末尾注明"CI 状态查询失败：<原因>"。**NEVER** 因为 gh 不可用就中断整个审查。
+
+### 工具调用指引
+
+| 场景 | 工具 | 参数 |
+|------|------|------|
+| 查询 PR 状态与 CI 汇总 | `pr_monitor` | `pr_url` 或 `pr_number` + `repo` |
+| 分析 CI 失败并生成修复建议 | `auto_fix_ci` | `pr_url`（`auto_apply` 默认 false） |
+| 应用已审批的修复 | `auto_fix_ci` | `pr_url`, `auto_apply=true`（需 context 已含审批） |
+| 实际合并 PR（仅建议，由父 agent 执行） | `bash` | `gh pr merge <num> --repo <owner/repo> --squash` |
+
+调用示例（subagent 内）：
+```
+pr_monitor(pr_url="https://github.com/owner/repo/pull/123")
+auto_fix_ci(pr_url="https://github.com/owner/repo/pull/123")
+auto_fix_ci(pr_url="https://github.com/owner/repo/pull/123", auto_apply=true)
+```

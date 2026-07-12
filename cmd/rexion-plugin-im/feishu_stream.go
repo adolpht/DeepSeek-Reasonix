@@ -137,7 +137,7 @@ func handleFeishuStreamMessage(event *larkim.P2MessageReceiveV1) {
 		senderID = derefStr(event.Event.Sender.SenderId.OpenId)
 	}
 
-	queue.add("feishu", content, "", map[string]string{
+	enqueueParsedCommand("feishu", content, "", map[string]string{
 		"reply_mode": "stream",
 		"message_id": messageID,
 		"chat_id":    chatID,

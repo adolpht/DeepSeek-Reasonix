@@ -95,6 +95,12 @@ func Run(args []string, version string) int {
 	case "codegraph":
 		configureCLIThemeFromConfigNoProbe()
 		return codegraphCommand(rest)
+	case "skill":
+		configureCLIThemeFromConfigNoProbe()
+		return skillMarketCommand(rest)
+	case "session":
+		configureCLIThemeFromConfigNoProbe()
+		return sessionCommand(rest)
 	case "doctor":
 		configureCLIThemeFromConfigNoProbe()
 		return doctorCommand(rest, version)
@@ -113,7 +119,7 @@ func Run(args []string, version string) int {
 
 func shouldMigrateLegacyConfigForCLI(cmd string) bool {
 	switch cmd {
-	case "", "run", "chat", "code", "serve", "setup", "config", "init", "acp", "mcp", "mcp-server", "codegraph", "doctor":
+	case "", "run", "chat", "code", "serve", "setup", "config", "init", "acp", "mcp", "mcp-server", "codegraph", "skill", "session", "doctor":
 		return true
 	default:
 		return false

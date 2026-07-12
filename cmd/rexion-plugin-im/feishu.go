@@ -92,7 +92,7 @@ func makeFeishuHandler(token string) http.HandlerFunc {
 			webhookURL = fmt.Sprintf("https://open.feishu.cn/open-apis/bot/v2/hook/%s", key)
 		}
 
-		queue.add("feishu", content, webhookURL, map[string]string{
+		enqueueParsedCommand("feishu", content, webhookURL, map[string]string{
 			"msg_type":   cb.Event.Message.MsgType,
 			"message_id": cb.Event.Message.MessageID,
 			"sender_id":  cb.Event.Sender.SenderID.OpenID,

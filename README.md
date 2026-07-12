@@ -49,6 +49,24 @@
 
 <br/>
 
+## What's New
+
+Rexion now ships a full **agentic workbench** — multi-agent isolation, browser
+automation, global memory, and a desktop experience designed for parallel work.
+
+| Capability | What it means for you |
+|------------|----------------------|
+| **Multi-agent worktree isolation** | Spawn parallel workers without file conflicts — each agent gets its own git worktree under `.rexion/worktrees/`, merged back via `merge_worktree`. |
+| **Browser automation** | Drive a headless Chrome over CDP (`browser_navigate` / `browser_click` / `browser_type` / `browser_screenshot`) — UI tests, form fills, and visual verification. |
+| **Global memory** | Cross-project knowledge (`~/.config/rexion/memory/`) flows into every session on top of per-project `AGENTS.md`. Remember once, apply everywhere. |
+| **PR & CI automation** | `pr_monitor` watches PR state and checks; `auto_fix_ci` pulls failing logs, suggests fixes, and (on approval) applies them. |
+| **IM remote control** | Trigger agents from DingTalk / Feishu / WeCom with `/ask`, `/plan`, `/craft` modes — sensitive ops need confirmation. |
+| **Skills marketplace** | `rexion skill search/install` pulls community skills from a GitHub-backed registry; the desktop Skills Browser installs in one click. |
+| **Design → code** | Upload a screenshot or Figma URL; `rexion-plugin-design` analyzes layout and emits HTML/Vue/React. |
+| **Computer Use** | `rexion-plugin-computer` drives the desktop (click, type, screenshot, app switch) under a live supervision overlay. |
+| **Cross-device sessions** | `rexion session push/pull` syncs conversations between CLI, desktop, and mobile via file or HTTP backend. |
+| **Desktop multi-session** | `SessionSidebar`, `SideChat`, and a draggable `DraggableLayout` let you run several agents side by side. |
+
 ## Features
 
 - **Config-driven.** Providers, the agent, enabled tools, and plugins are all
@@ -67,6 +85,12 @@
   playbooks the model invokes via `run_skill` (or you via `/<name>`); hooks
   run shell commands around the loop (`PreToolUse` / `PostToolUse` /
   `UserPromptSubmit` / `Stop`).
+- **Multi-agent with worktree isolation.** `spawn_agent` gives each worker its
+  own git worktree so parallel edits never collide; `merge_worktree` brings
+  changes back with conflict reporting.
+- **Global + project memory.** Per-project `AGENTS.md` plus a cross-project
+  memory store at `~/.config/rexion/memory/` — preferences and decisions
+  persist across sessions and projects.
 - **Zero-friction distribution.** `CGO_ENABLED=0` single binary; cross-compile
   to six targets with one command. The only dependency is a TOML parser.
 
@@ -113,6 +137,13 @@ echo "explain this code" | Rexion run
 | `Rexion doctor` | Environment diagnostics |
 | `Rexion config` | Read/write config (incl. `auto-plan`) |
 | `Rexion init` | Generate project memory file |
+| `Rexion skill search <kw>` | Search the community skills registry |
+| `Rexion skill install <name>` | One-click install a skill (`--global`/`--link`) |
+| `Rexion skill list-remote` | List skills in the registry by category |
+| `Rexion skill update` | Refresh the local skills index cache |
+| `Rexion session push [id]` | Push a session to file/HTTP sync backend |
+| `Rexion session pull <id>` | Pull a remote session into a new local one |
+| `Rexion session list-remote` | List sessions available on the sync backend |
 
 ## Configuration
 
@@ -226,9 +257,12 @@ resource) you can copy.
 | Slides | `rexion-plugin-slides` | PowerPoint generation, themes, PDF export |
 | Calendar | `rexion-plugin-calendar` | System calendar events & todo items |
 | Mail | `rexion-plugin-mail` | Email via IMAP/SMTP, OAuth2, classification |
-| IM | `rexion-plugin-im` | Instant messaging (DingTalk / Feishu / WeCom bots) |
+| IM | `rexion-plugin-im` | Instant messaging (DingTalk / Feishu / WeCom) with `/ask` `/plan` `/craft` remote control |
 | Search | `rexion-plugin-search` | Web search, page extraction, comparison tables |
 | DWS | `rexion-plugin-dws` | DingTalk Workspace (contacts, docs, AI tables, attendance, approval, drive) |
+| Browser | `rexion-plugin-browser` | Chrome DevTools Protocol automation — navigate, click, type, screenshot, evaluate |
+| Design | `rexion-plugin-design` | Design-to-code: screenshot/Figma → layout analysis → HTML/Vue/React |
+| Computer | `rexion-plugin-computer` | Desktop automation (Windows): click, type, screenshot, app switch, drag — under supervision |
 | Example | `rexion-plugin-example` | Reference stdio server implementation |
 
 ```toml
@@ -333,6 +367,90 @@ inputs and falls back to the heuristic if classification fails. Use
 `Rexion config auto-plan off|on` from a shell/script. Pass `--local` to the
 shell command only when you intentionally want a project-local override.
 
+### Agentic workbench
+
+Beyond the single-agent loop, Rexion is built for parallel, persistent, and
+remote-agent workflows.
+
+**Multi-agent with worktree isolation.** `spawn_agent` launches child agents
+(`default` / `worker` / `explorer` / `monitor` roles). When the workspace is a
+git repo, each non-readonly worker gets its own worktree at
+`.rexion/worktrees/<agent-id>/` on branch `rexion/<agent-id>`, so parallel
+edits never collide. `merge_worktree` brings changes back to the main branch
+and reports conflicts by file. Worktrees are cleaned up automatically when the
+child closes.
+
+**Global memory.** On top of per-project `AGENTS.md`, Rexion keeps a
+cross-project memory store at `~/.config/rexion/memory/`. Use the `remember_global`
+tool (or the desktop Memory panel) to save preferences, decisions, and contacts
+once — they flow into every subsequent session's system prompt. The
+`recall_global` tool searches the store by keyword. The auto-learner detects
+phrases like "in all my projects I use…" and proposes global memories
+automatically.
+
+**PR & CI automation.** The `pr_monitor` tool queries a PR's state and CI
+checks via the GitHub CLI (`gh`). `auto_fix_ci` goes further: it pulls the
+failing run's logs, matches common error patterns (Go compile errors, generic
+`file:line: error`, `--- FAIL:`), and returns a structured fix list. With
+`auto_apply=true` and an approval, it applies the suggested edits through
+`edit_file`. Configure defaults under `[git]`:
+
+```toml
+[git]
+# auto_fix_ci = false    # auto-fix CI failures when true (still requires approval per fix)
+# auto_merge = false     # auto-merge PR after CI passes (requires branch protection)
+```
+
+**IM remote control.** The IM plugin now accepts commands from DingTalk,
+Feishu, and WeCom chats:
+
+- `/ask <question>` — answer only, no side effects
+- `/plan <task>` — draft a plan first, execute after confirmation (default)
+- `/craft <task>` — execute directly
+- `/status` — query running sessions
+- `/cancel` — cancel a pending command
+
+Sensitive operations (delete, push, deploy, restart) always require a
+follow-up `确认` / `cancel` reply within 5 minutes. Work mode is sticky per
+chat session. `set_work_mode` / `get_work_mode` / `confirm_im_command` tools
+expose the state to the agent.
+
+**Skills marketplace.** `rexion skill search <keyword>` queries a
+GitHub-backed registry (default: `esengine/Rexion-skills`), with a 24-hour
+local cache for offline use. `rexion skill install <name>` pulls a single
+skill (file or git source) into the project or global scope. The desktop
+Skills Browser (`Sidebar → Skills 市场`) lets you browse by category, search,
+and install in one click.
+
+**Cross-device sessions.** `rexion session push [id]` serializes a session
+(messages + metadata) and uploads it to a file (`~/.config/rexion/sync/`) or
+HTTP backend. `rexion session pull <remote-id>` imports it as a new local
+session. The desktop Session Sync panel shows a QR code of the remote ID for
+quick handoff to a phone.
+
+### Desktop
+
+The Wails desktop client (`desktop/`) pairs the terminal loop with a
+multi-session workbench:
+
+- **SessionSidebar** — all active and recent sessions, grouped by status
+  (running / recent / earlier), with search, inline rename, and right-click
+  actions.
+- **SideChat** — a pull-out side conversation that shares context with the
+  main session without polluting it; drag the edge to resize, promote a side
+  exchange back to the main thread when it matures.
+- **DraggableLayout** — rearrange the terminal, preview, diff, and editor
+  panels by dragging the dividers; double-click a divider to reset; layouts
+  persist per panel set to `localStorage`.
+- **SkillsBrowser** — install and manage skills from the marketplace without
+  leaving the app.
+- **DesignPanel** — upload a design mockup or paste a Figma URL, pick a
+  framework (HTML / Vue / React), and generate code with a side-by-side diff
+  view.
+- **SupervisionOverlay** — when Computer Use is active, a floating overlay
+  shows each pending action with a screenshot, lets you pause / resume /
+  abort, and highlights sensitive operations for a second confirmation.
+
 ## Architecture
 
 Three tiers of extensibility, all behind registries the core resolves by name:
@@ -355,28 +473,40 @@ built-in tools — **file** (`read_file`, `write_file`, `edit_file`, `multi_edit
 **exec** (`bash`, `bash_output`, `kill_shell`, `wait`), **REPL** (`js_eval`,
 `python_eval`), **doc gen** (`write_docx`, `write_pdf`, `write_sheet`,
 `notebook_edit`), **network** (`web_fetch`), **planning** (`todo_write`,
-`complete_step`), **agent** (`task`, `ask`), **CodeGraph** (`codegraph_context`,
-`codegraph_search`, `codegraph_node`, `codegraph_explore`, `codegraph_files`,
-`codegraph_callees`, `codegraph_callers`, `codegraph_impact`, `codegraph_status`,
-`codegraph_trace`) — TOML config, an interactive `Rexion setup` wizard,
-two-model collaboration (executor + planner in separate, cache-stable sessions),
-low-frequency context compaction, sub-agents (`task`), a bubbletea chat TUI
-(markdown, plan mode with evidence-backed step sign-off via `complete_step`,
-live token/activity readout, pinned task list, `ask` question chooser,
-`/compact` `/new` `/tree` `/branch` `/switch` `/todo`), session persistence + resume,
-per-call **permissions** (allow/ask/deny rules; chat prompts before writers, deny
-rules hard-block everywhere), a **workspace sandbox** confining file-writers to
-the project (symlink/`..`-safe), **sandboxed bash** (macOS Seatbelt by default;
-commands may write only workspace roots + temp/toolchain caches, network only
-when `[sandbox] network` is set), an MCP client — **stdio + Streamable HTTP**
+`complete_step`), **agent** (`task`, `ask`), **multi-agent** (`spawn_agent`,
+`wait_agent`, `send_input`, `close_agent`, `merge_worktree` with git worktree
+isolation), **memory** (`remember`, `forget`, `remember_global`, `recall_global`
+with per-project + global stores), **PR & CI** (`pr_monitor`, `auto_fix_ci`),
+**CodeGraph** (`codegraph_context`, `codegraph_search`, `codegraph_node`,
+`codegraph_explore`, `codegraph_files`, `codegraph_callees`, `codegraph_callers`,
+`codegraph_impact`, `codegraph_status`, `codegraph_trace`) — TOML config, an
+interactive `Rexion setup` wizard, two-model collaboration (executor + planner
+in separate, cache-stable sessions), low-frequency context compaction,
+sub-agents (`task`), a bubbletea chat TUI (markdown, plan mode with
+evidence-backed step sign-off via `complete_step`, live token/activity readout,
+pinned task list, `ask` question chooser, `/compact` `/new` `/tree` `/branch`
+`/switch` `/todo`), session persistence + resume, per-call **permissions**
+(allow/ask/deny rules; chat prompts before writers, deny rules hard-block
+everywhere), a **workspace sandbox** confining file-writers to the project
+(symlink/`..`-safe), **sandboxed bash** (macOS Seatbelt by default; commands may
+write only workspace roots + temp/toolchain caches, network only when
+`[sandbox] network` is set), an MCP client — **stdio + Streamable HTTP**
 transports, tools (`mcp__server__tool`, `readOnlyHint`-aware), prompts (slash
 commands), resources (`@`-references), and `/mcp`, configured via `[[plugins]]`
 or a project `.mcp.json` — **Skills & hooks** (Claude-Code-style skill playbooks
-+ shell-command hooks around the loop), custom slash commands
++ shell-command hooks around the loop, plus a community **skills marketplace**
+via `rexion skill search/install`), custom slash commands
 (`.Rexion/commands/*.md`), `@file` / `@resource` references, **ACP**
 (`Rexion acp`) and an HTTP/SSE server frontend (`Rexion serve`), a Wails desktop
-client (`desktop/`), plus a runnable reference plugin (`cmd/rexion-plugin-example`),
-the harness loop, and CLI. Next: MCP OAuth + legacy SSE. See `docs/SPEC.md` §9.
+client (`desktop/`) with multi-session sidebar, side chat, draggable panel
+layout, skills browser, design panel, and computer-use supervision overlay,
+**IM remote control** (DingTalk / Feishu / WeCom with `/ask` `/plan` `/craft`
+modes and sensitive-command confirmation), **browser automation**
+(`rexion-plugin-browser` over CDP), **design-to-code** (`rexion-plugin-design`),
+**computer use** (`rexion-plugin-computer` on Windows), **cross-device session
+sync** (`rexion session push/pull`), plus a runnable reference plugin
+(`cmd/rexion-plugin-example`), the harness loop, and CLI.
+Next: MCP OAuth + legacy SSE. See `docs/SPEC.md` §9.
 
 <br/>
 

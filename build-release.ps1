@@ -90,6 +90,7 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 Write-Host "[1/5] Building CLI and main-module plugins..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path "$Root\bin" | Out-Null
 $env:CGO_ENABLED = "0"
+$env:GOTOOLCHAIN = "local"
 
 $mainModulePlugins = @(
     "rexion-plugin-office",
@@ -167,7 +168,10 @@ $allPlugins = @(
     "rexion-plugin-slides",
     "rexion-plugin-mail",
     "rexion-plugin-im",
-    "rexion-plugin-dws"
+    "rexion-plugin-dws",
+    "rexion-plugin-browser",
+    "rexion-plugin-design",
+    "rexion-plugin-computer"
 )
 foreach ($p in $allPlugins) {
     $src = "$Root\bin\$p.exe"

@@ -77,7 +77,7 @@ func makeWeComHandler(token string) http.HandlerFunc {
 			webhookURL = fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=%s", key)
 		}
 
-		queue.add("wecom", content, webhookURL, map[string]string{
+		enqueueParsedCommand("wecom", content, webhookURL, map[string]string{
 			"msg_type": cb.MsgType,
 		})
 

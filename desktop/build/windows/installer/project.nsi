@@ -150,6 +150,9 @@ Section
     File "..\..\bin\plugins\rexion-plugin-mail.exe"
     File "..\..\bin\plugins\rexion-plugin-im.exe"
     File "..\..\bin\plugins\rexion-plugin-dws.exe"
+    File "..\..\bin\plugins\rexion-plugin-browser.exe"
+    File "..\..\bin\plugins\rexion-plugin-design.exe"
+    File "..\..\bin\plugins\rexion-plugin-computer.exe"
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
