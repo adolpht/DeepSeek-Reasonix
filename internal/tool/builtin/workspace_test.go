@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -29,6 +30,34 @@ func TestResolveIn(t *testing.T) {
 	for _, c := range cases {
 		if got := resolveIn(c.workDir, c.p); got != c.want {
 			t.Errorf("resolveIn(%q, %q) = %q, want %q", c.workDir, c.p, got, c.want)
+		}
+	}
+}
+
+// TestResolveInDriveLetterPathWithoutColon tests that paths like "d\办公文件\..."
+// (drive letter without colon) are correctly identified and fixed to "d:\办公文件\..."
+// This can happen when bash output or model-generated paths have the colon stripped.
+func TestResolveInDriveLetterPathWithoutColon(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("drive letter paths are Windows-only")
+	}
+	workDir := `D:\办公文件\项目文件\AI相关\retestproject`
+	cases := []struct {
+		p, want string
+	}{
+		// Chinese path without colon should be fixed
+		{`d\办公文件\项目文件\AI相关\retestproject\index.html`, `d:\办公文件\项目文件\AI相关\retestproject\index.html`},
+		// Multiple separators should be fixed
+		{`d\foo\bar\file.txt`, `d:\foo\bar\file.txt`},
+		// Simple relative path should NOT be modified
+		{`a/b.go`, filepath.Join(workDir, "a", "b.go")},
+		// Already correct path should not be modified
+		{`d:\正确\路径.txt`, `d:\正确\路径.txt`},
+	}
+	for _, c := range cases {
+		got := resolveIn(workDir, c.p)
+		if got != c.want {
+			t.Errorf("resolveIn(%q, %q) = %q, want %q", workDir, c.p, got, c.want)
 		}
 	}
 }

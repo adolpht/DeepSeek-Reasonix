@@ -122,7 +122,7 @@ func (l *Ledger) HasSuccessfulCommand(command string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, r := range l.receipts {
-		if r.Success && r.ToolName == "bash" && r.Command == command {
+		if r.Success && r.ToolName == "bash" && commandMatches(command, r.Command) {
 			return true
 		}
 	}
@@ -143,7 +143,7 @@ func (l *Ledger) HasSuccessfulCommandAfter(command string, after int) bool {
 	defer l.mu.Unlock()
 	for i := start; i < len(l.receipts); i++ {
 		r := l.receipts[i]
-		if r.Success && r.ToolName == "bash" && r.Command == command {
+		if r.Success && r.ToolName == "bash" && commandMatches(command, r.Command) {
 			return true
 		}
 	}
@@ -590,4 +590,64 @@ func normalizePath(p string) string {
 		p = strings.ToLower(p)
 	}
 	return p
+}
+
+// commandMatches checks whether an evidence-cited command matches an actual
+// bash command from the ledger. It first tries exact match, then falls back
+// to normalized matching to tolerate cosmetic differences that commonly occur
+// when a subagent paraphrases a command in its evidence: path separators
+// (\ vs /), MSYS drive paths (/d/ vs d:/), quotes, whitespace runs, and
+// (on Windows) letter casing.
+func commandMatches(evidence, actual string) bool {
+	evidence = strings.TrimSpace(evidence)
+	actual = strings.TrimSpace(actual)
+	if evidence == actual {
+		return true
+	}
+	return normalizeForMatch(evidence) == normalizeForMatch(actual)
+}
+
+// normalizeForMatch normalizes a command string for fuzzy comparison.
+func normalizeForMatch(s string) string {
+	s = strings.TrimSpace(s)
+	// Unify path separators to /.
+	s = strings.ReplaceAll(s, `\`, `/`)
+	// MSYS/Git Bash drive paths: /d/path -> d:/path
+	s = normalizeMSYSDrivePaths(s)
+	// Drop quotes (paths may be quoted in one form but not the other).
+	s = strings.ReplaceAll(s, `"`, "")
+	// Collapse whitespace runs.
+	for strings.Contains(s, "  ") {
+		s = strings.ReplaceAll(s, "  ", " ")
+	}
+	// Windows paths are case-insensitive.
+	if runtime.GOOS == "windows" {
+		s = strings.ToLower(s)
+	}
+	return s
+}
+
+// normalizeMSYSDrivePaths converts /<drive-letter>/path patterns to
+// <drive-letter>:/path, the native Windows form. It avoids converting
+// patterns inside URLs (preceded by ':').
+func normalizeMSYSDrivePaths(s string) string {
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == '/' && i+2 < len(s) && isASCIILetter(s[i+1]) && s[i+2] == '/' {
+			if i == 0 || s[i-1] != ':' {
+				b.WriteByte(s[i+1])
+				b.WriteString(":/")
+				i += 3
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }

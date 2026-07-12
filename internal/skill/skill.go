@@ -602,6 +602,44 @@ func dedupePaths(paths []string) []string {
 	return out
 }
 
+// MaterializeBuiltins writes built-in skills into the global skill directory
+// (~/.rexion/skills/) so they appear as real files that the user can inspect
+// and customize. Existing files are never overwritten, so the operation is
+// idempotent — run it at every boot; only newly-added builtins that lack a
+// file are materialized. This ensures builtin skills are globally available
+// across all projects from the first launch.
+func (s *Store) MaterializeBuiltins() {
+	if s.disableBuiltins {
+		return
+	}
+	globalDir := filepath.Join(s.homeDir, ".rexion", SkillsDirname)
+	if err := os.MkdirAll(globalDir, 0o755); err != nil {
+		fmt.Fprintf(s.stderr, "warning: could not create global skills dir %s: %v\n", globalDir, err)
+		return
+	}
+	for _, sk := range builtinSkills() {
+		if s.disabledName(sk.Name) {
+			continue
+		}
+		flat := filepath.Join(globalDir, sk.Name+".md")
+		folder := filepath.Join(globalDir, sk.Name, SkillFile)
+		if _, err := os.Stat(flat); err == nil {
+			continue // user has a flat skill file — don't touch it
+		}
+		if _, err := os.Stat(folder); err == nil {
+			continue // user has a directory-layout skill — don't touch it
+		}
+		content := renderSkillFile(sk.Name, sk.Description, sk.Body, sk.RunAs, sk.Model, sk.Effort, sk.AllowedTools)
+		if err := os.MkdirAll(filepath.Dir(folder), 0o755); err != nil {
+			fmt.Fprintf(s.stderr, "warning: could not create skill dir %s: %v\n", filepath.Dir(folder), err)
+			continue
+		}
+		if err := os.WriteFile(folder, []byte(content), 0o644); err != nil {
+			fmt.Fprintf(s.stderr, "warning: could not materialize builtin skill %q: %v\n", sk.Name, err)
+		}
+	}
+}
+
 // splitFrontmatter is a thin wrapper kept for internal use; the real parser
 // lives in internal/frontmatter.
 func splitFrontmatter(s string) (map[string]string, string) {

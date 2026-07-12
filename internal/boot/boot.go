@@ -261,6 +261,10 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		MaxDepth:      cfg.SkillMaxDepth(),
 		Stderr:        opts.Stderr,
 	})
+	// Materialize built-in skills into the global skills directory so they
+	// appear as real files and are available across all projects. Idempotent:
+	// existing user files are never overwritten.
+	skillStore.MaterializeBuiltins()
 	skills := skillStore.List()
 	allSkills := skill.New(skill.Options{ProjectRoot: root, CustomPaths: cfg.SkillCustomPaths(), ExcludedPaths: cfg.SkillExcludedPaths(), MaxDepth: cfg.SkillMaxDepth(), Stderr: io.Discard}).List()
 	sysPrompt = skill.ApplyIndex(sysPrompt, skills)

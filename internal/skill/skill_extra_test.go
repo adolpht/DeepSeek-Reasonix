@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -292,5 +293,81 @@ func TestHasProjectScope(t *testing.T) {
 	st2 := New(Options{HomeDir: t.TempDir()})
 	if st2.HasProjectScope() {
 		t.Error("without project root should return false")
+	}
+}
+
+func TestMaterializeBuiltins(t *testing.T) {
+	home := t.TempDir()
+	st := New(Options{HomeDir: home, Stderr: io.Discard})
+
+	// Before materialization, the global skills dir should not exist.
+	globalDir := filepath.Join(home, ".rexion", SkillsDirname)
+	if _, err := os.Stat(globalDir); !os.IsNotExist(err) {
+		t.Fatalf("global dir should not exist before MaterializeBuiltins, got err=%v", err)
+	}
+
+	st.MaterializeBuiltins()
+
+	// After materialization, the global skills dir should exist.
+	if info, err := os.Stat(globalDir); err != nil || !info.IsDir() {
+		t.Fatalf("global dir should exist after MaterializeBuiltins, got err=%v", err)
+	}
+
+	// Each builtin skill should have a SKILL.md in the global dir.
+	builtins := builtinSkills()
+	for _, sk := range builtins {
+		folder := filepath.Join(globalDir, sk.Name, SkillFile)
+		if _, err := os.Stat(folder); err != nil {
+			t.Errorf("builtin skill %q not materialized at %s: %v", sk.Name, folder, err)
+		}
+	}
+
+	// Re-running should not overwrite existing files (idempotent).
+	// Write a marker into one file, re-run, and check it survives.
+	explorePath := filepath.Join(globalDir, "explore", SkillFile)
+	orig, err := os.ReadFile(explorePath)
+	if err != nil {
+		t.Fatalf("read explore skill: %v", err)
+	}
+	marker := orig[:0] // empty slice same base
+	_ = marker
+	// Overwrite with a custom marker.
+	customContent := "---\nname: explore\ndescription: custom marker\n---\n\ncustom body\n"
+	if err := os.WriteFile(explorePath, []byte(customContent), 0o644); err != nil {
+		t.Fatalf("write custom explore: %v", err)
+	}
+	st.MaterializeBuiltins()
+	got, err := os.ReadFile(explorePath)
+	if err != nil {
+		t.Fatalf("read explore after re-materialize: %v", err)
+	}
+	if string(got) != customContent {
+		t.Error("MaterializeBuiltins overwrote an existing user file — it should not")
+	}
+}
+
+func TestMaterializeBuiltinsDisabledNames(t *testing.T) {
+	home := t.TempDir()
+	st := New(Options{HomeDir: home, DisabledNames: []string{"explore", "review"}, Stderr: io.Discard})
+	st.MaterializeBuiltins()
+
+	globalDir := filepath.Join(home, ".rexion", SkillsDirname)
+	// Disabled skills should not be materialized.
+	for _, name := range []string{"explore", "review"} {
+		folder := filepath.Join(globalDir, name, SkillFile)
+		if _, err := os.Stat(folder); err == nil {
+			t.Errorf("disabled skill %q should not be materialized at %s", name, folder)
+		}
+	}
+}
+
+func TestMaterializeBuiltinsSkipWhenDisabled(t *testing.T) {
+	home := t.TempDir()
+	st := New(Options{HomeDir: home, DisableBuiltins: true, Stderr: io.Discard})
+	st.MaterializeBuiltins()
+
+	globalDir := filepath.Join(home, ".rexion", SkillsDirname)
+	if _, err := os.Stat(globalDir); err == nil {
+		t.Error("global dir should not be created when builtins are disabled")
 	}
 }

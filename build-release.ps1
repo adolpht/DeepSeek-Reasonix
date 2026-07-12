@@ -117,7 +117,8 @@ if (-not $SkipPlugins) {
     $standalonePlugins = @(
         "rexion-plugin-calendar",
         "rexion-plugin-slides",
-        "rexion-plugin-search"
+        "rexion-plugin-search",
+        "rexion-plugin-browser"
     )
     foreach ($p in $standalonePlugins) {
         Push-Location "$Root\cmd\$p"

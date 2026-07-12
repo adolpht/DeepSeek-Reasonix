@@ -1360,7 +1360,7 @@ func builtinSkills() []Skill {
 		"write_sheet")
 	sheetTools := append(append([]string(nil), readCodeTools...), "bash", "write_file",
 		"mcp__sheet__read_sheet", "mcp__sheet__write_sheet", "mcp__sheet__query_sheet", "mcp__sheet__chart_sheet")
-	return []Skill{
+	out := []Skill{
 		{
 			Name:        "init",
 			Description: "Bootstrap or refresh this project's AGENTS.md — analyze the codebase (structure, build/test commands, architecture, conventions) and write a concise memory file loaded into every future session. Inlined — runs in the main loop so you see and approve the write.",
@@ -1555,6 +1555,7 @@ func builtinSkills() []Skill {
 			AllowedTools: []string{"bash", "read_file", "grep"},
 		},
 	}
+	return append(out, builtinEvolveSkills()...)
 }
 
 // BuiltinNames returns the built-in skill names, used by callers that wire

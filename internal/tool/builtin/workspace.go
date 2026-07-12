@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"rexion/internal/sandbox"
@@ -101,7 +102,57 @@ func resolveIn(workDir, p string) string {
 	if filepath.IsAbs(p) {
 		return p
 	}
+	// On Windows, detect "X\path" (drive letter without colon) that should be
+	// treated as "X:\path". This can happen when a path is incorrectly stripped
+	// of its colon, e.g., from bash output or model-generated paths.
+	if runtime.GOOS == "windows" && looksLikeDriveLetterPath(p) {
+		// Fix the path by inserting the missing colon
+		return string(p[0]) + ":" + p[1:]
+	}
 	return filepath.Join(workDir, p)
+}
+
+// looksLikeDriveLetterPath reports whether p looks like a Windows drive letter
+// path that is missing its colon, e.g., "d\path" instead of "d:\path".
+// It matches patterns like "X\" or "X/" where X is a letter A-Z.
+// To avoid false positives on simple relative paths like "a/b.go", we require
+// additional heuristics: the path must either contain non-ASCII characters
+// (like Chinese directory names) or have multiple path separators.
+func looksLikeDriveLetterPath(p string) bool {
+	if len(p) < 3 {
+		return false
+	}
+	// Check for pattern: letter + separator + rest
+	c := p[0]
+	if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+		return false
+	}
+	sep := p[1]
+	if sep != '\\' && sep != '/' {
+		return false
+	}
+	// The rest should not start with another separator (avoid matching "\\server")
+	// and should not contain a colon already (avoid matching "d:file")
+	if len(p) > 2 && (p[2] == '\\' || p[2] == '/' || p[2] == ':') {
+		return false
+	}
+	// Additional heuristics to avoid false positives on simple relative paths
+	// like "a/b.go": require either non-ASCII chars or multiple separators
+	rest := p[2:]
+	hasNonASCII := false
+	sepCount := 0
+	for _, r := range rest {
+		if r >= 128 {
+			hasNonASCII = true
+		}
+		if r == '\\' || r == '/' {
+			sepCount++
+		}
+	}
+	// Only treat as drive-letter path if:
+	// 1. Contains non-ASCII chars (e.g., Chinese directory names), OR
+	// 2. Has multiple path separators (e.g., "d\foo\bar\file.txt")
+	return hasNonASCII || sepCount >= 1
 }
 
 // vendorDirs are directory names grep and glob skip during a recursive walk:
