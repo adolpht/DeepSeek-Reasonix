@@ -4147,6 +4147,116 @@ func revealPath(path string) error {
 	}
 }
 
+// --- Workspace file operations (create, rename, copy, trash) ---
+
+// CreateWorkspaceDir creates a new directory at rel under the active workspace.
+func (a *App) CreateWorkspaceDir(rel string) error {
+	abs, ok, err := a.workspacePath(rel)
+	if err != nil || !ok {
+		return os.ErrInvalid
+	}
+	if _, statErr := os.Stat(abs); statErr == nil {
+		return os.ErrExist
+	}
+	return os.Mkdir(abs, 0o755)
+}
+
+// CreateWorkspaceFile creates a new empty file at rel under the active workspace.
+func (a *App) CreateWorkspaceFile(rel string) error {
+	abs, ok, err := a.workspacePath(rel)
+	if err != nil || !ok {
+		return os.ErrInvalid
+	}
+	if _, statErr := os.Stat(abs); statErr == nil {
+		return os.ErrExist
+	}
+	f, err := os.Create(abs)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+// RenameWorkspacePath renames a file or directory from oldRel to newRel.
+// Both paths must be within the active workspace.
+func (a *App) RenameWorkspacePath(oldRel, newRel string) error {
+	oldAbs, ok, err := a.workspacePath(oldRel)
+	if err != nil || !ok {
+		return os.ErrInvalid
+	}
+	newAbs, ok2, err2 := a.workspacePath(newRel)
+	if err2 != nil || !ok2 {
+		return os.ErrInvalid
+	}
+	if _, statErr := os.Stat(oldAbs); statErr != nil {
+		return statErr
+	}
+	if _, statErr := os.Stat(newAbs); statErr == nil {
+		return os.ErrExist
+	}
+	return os.Rename(oldAbs, newAbs)
+}
+
+// CopyWorkspaceFile copies a file from srcRel to dstRel.
+// Both paths must be within the active workspace. Only regular files are supported.
+func (a *App) CopyWorkspaceFile(srcRel, dstRel string) error {
+	srcAbs, ok, err := a.workspacePath(srcRel)
+	if err != nil || !ok {
+		return os.ErrInvalid
+	}
+	dstAbs, ok2, err2 := a.workspacePath(dstRel)
+	if err2 != nil || !ok2 {
+		return os.ErrInvalid
+	}
+	info, statErr := os.Stat(srcAbs)
+	if statErr != nil {
+		return statErr
+	}
+	if !info.Mode().IsRegular() {
+		return os.ErrInvalid
+	}
+	return copyWorkspaceFile(srcAbs, dstAbs, info.Mode())
+}
+
+func copyWorkspaceFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		os.Remove(dst) // clean up partial copy
+		return err
+	}
+	return out.Close()
+}
+
+// TrashWorkspacePath moves a file or directory to the OS trash/recycle bin.
+func (a *App) TrashWorkspacePath(rel string) error {
+	abs, ok, err := a.workspacePath(rel)
+	if err != nil || !ok {
+		return os.ErrInvalid
+	}
+	if _, statErr := os.Stat(abs); statErr != nil {
+		return statErr
+	}
+	return trashPath(abs)
+}
+
+// emitWorkspaceFilesChanged notifies the frontend that workspace files have changed.
+func (a *App) emitWorkspaceFilesChanged() {
+	if a.ctx != nil {
+		wruntime.EventsEmit(a.ctx, "workspace:files-changed")
+	}
+}
+
 func (a *App) notice(text string) {
 	a.noticeForTab("", text)
 }
@@ -5867,7 +5977,7 @@ func (a *App) GenerateScheduledTask(description string) (GeneratedScheduledTaskV
 - "name": a short descriptive task name (e.g. "每日代码审查", "Weekly Report")
 - "cron": a valid cron expression in standard 5-field format (minute hour day month weekday). Examples: "0 * * * *" for hourly, "0 9 * * *" for daily 9am, "0 9 * * 1" for weekly Monday 9am, "0 9 1 * *" for monthly 1st 9am, "*/30 * * * *" for every 30 minutes. Do NOT include a leading seconds field.
 - "cronDesc": human-readable description of the schedule in the user's language
-- "skill": the most appropriate built-in skill name (e.g. "review", "test", "explore", "research", "weekly-report", "generate-tests"). If no specific skill fits, use "explore".
+- "skill": the most appropriate built-in skill name (e.g. "review", "test", "explore", "research", "doc-write", "generate-tests"). If no specific skill fits, use "explore".
 - "prompt": a detailed custom prompt that will be sent to the AI when the task fires. This should capture the full intent of the user's description so the AI knows exactly what to do.
 - "workspace": empty string (user will select)
 - "parameters": empty JSON object "{}"

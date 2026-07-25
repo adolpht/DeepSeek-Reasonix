@@ -139,6 +139,11 @@ func (s *tabEventSink) Emit(e event.Event) {
 		// Notify frontend that tab state (running → idle) changed.
 		wruntime.EventsEmit(s.app.ctx, "tabs:changed")
 	}
+	// Notify frontend that workspace files may have changed after a write tool
+	// completes successfully. This triggers a tree refresh in WorkspacePanel.
+	if e.Kind == event.ToolResult && !e.Tool.ReadOnly && e.Tool.Err == "" && s.app != nil {
+		s.app.emitWorkspaceFilesChanged()
+	}
 }
 
 func (a *App) emitReady(ctx context.Context) {

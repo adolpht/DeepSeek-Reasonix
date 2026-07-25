@@ -1,0 +1,65 @@
+{
+  "name": "weekly-report-automation",
+  "description": "每周五自动生成周报：邮件摘要 → 待办汇总 → git log → 周报文档",
+  "nodes": [
+    {
+      "id": "email-summary",
+      "label": "邮件摘要",
+      "kind": "skill",
+      "config": "email-summary",
+      "positionX": 100,
+      "positionY": 100
+    },
+    {
+      "id": "todo-summary",
+      "label": "待办汇总",
+      "kind": "skill",
+      "config": "mcp__calendar__list_todo",
+      "positionX": 100,
+      "positionY": 200
+    },
+    {
+      "id": "git-log",
+      "label": "Git提交记录",
+      "kind": "tool",
+      "config": "bash git log --since=\"7 days ago\" --oneline --no-merges",
+      "positionX": 100,
+      "positionY": 300
+    },
+    {
+      "id": "generate-report",
+      "label": "生成周报",
+      "kind": "skill",
+      "config": "weekly-report",
+      "positionX": 300,
+      "positionY": 200
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "email-summary",
+      "target": "generate-report",
+      "label": ""
+    },
+    {
+      "id": "e2",
+      "source": "todo-summary",
+      "target": "generate-report",
+      "label": ""
+    },
+    {
+      "id": "e3",
+      "source": "git-log",
+      "target": "generate-report",
+      "label": ""
+    }
+  ],
+  "trigger": "cron",
+  "triggerConfig": {
+    "cronExpr": "0 17 * * 5"
+  },
+  "errorStrategy": "continue",
+  "createdAt": 1721049600000,
+  "updatedAt": 1721049600000
+}

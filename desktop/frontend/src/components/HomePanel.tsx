@@ -8,7 +8,6 @@ import {
   Bug,
   TestTube2,
   Table2,
-  FileSpreadsheet,
   Presentation,
   FileStack,
   Search,
@@ -42,9 +41,9 @@ const QUICK_ACTIONS: Record<WorkspaceType, QuickAction[]> = {
     { key: "generateTests", icon: <TestTube2 size={20} />, color: "purple", skillCommand: "" },
   ],
   office: [
-    { key: "analyzeSheet", icon: <Table2 size={20} />, color: "green", skillCommand: "/skill sheet-analysis" },
-    { key: "weeklyReport", icon: <FileSpreadsheet size={20} />, color: "blue", skillCommand: "/skill weekly-report" },
-    { key: "makePpt", icon: <Presentation size={20} />, color: "orange", skillCommand: "" },
+    { key: "docWrite", icon: <FileText size={20} />, color: "blue", skillCommand: "/skill doc-write" },
+    { key: "sheetCreate", icon: <Table2 size={20} />, color: "green", skillCommand: "/skill sheet-create" },
+    { key: "makePpt", icon: <Presentation size={20} />, color: "orange", skillCommand: "/skill ppt-create" },
     { key: "organizeDoc", icon: <FileStack size={20} />, color: "teal", skillCommand: "/skill sheet-clean" },
   ],
   assistant: [

@@ -415,143 +415,11 @@ Diagram Sources
 
 The 'task' the parent gave you is the project path to analyze. Produce the full documentation suite.`
 
-// --- Office/document skills (use built-in write_docx / write_sheet / write_pdf tools) ---
+	// Office/document and PPT skills are now provided by embedded MiniMax builtins
+	// (minimax-docx, minimax-xlsx, minimax-pdf, pptx-generator) — see minimax_builtins.go.
 
-const builtinContractDraftBody = `You are running as a contract-drafting subagent. Draft a professional contract based on the user's request, using the built-in write_docx tool.
 
-**Language: All output MUST be written in Chinese (简体中文).** Technical terms and legal concepts may remain in their established Chinese/English hybrid form, but every explanatory sentence must be Chinese.
 
-## How to operate
-
-1. **Identify contract type**: Parse the user's request to determine the contract type:
-   - ` + "`service`" + ` — 服务合同 (default if unspecified)
-   - ` + "`purchase`" + ` — 采购合同
-   - ` + "`nda`" + ` — 保密协议
-   - ` + "`employment`" + ` — 劳动合同
-   - ` + "`custom`" + ` — 自定义合同
-
-   If the type is unclear, ask the user briefly (one short question, then proceed).
-
-2. **Gather key information**: From the user's request, extract:
-   - Party A (甲方) name and role
-   - Party B (乙方) name and role
-   - Core subject matter (服务范围/采购内容/保密事项等)
-   - Any specific terms mentioned
-
-   For any critical field not provided (金额、期限、付款条件), leave ` + "`【待填：xxx】`" + ` placeholders — NEVER fabricate amounts, deadlines, or payment terms.
-
-3. **Assemble the contract**: Organize the information into a proper contract structure:
-   - 合同标题与编号
-   - 甲方/乙方信息
-   - 合同正文条款（按逻辑顺序编排）
-   - 签署栏
-
-   Add ` + "`【待填：xxx】`" + ` placeholders for any information the user did not provide.
-
-4. **Check user templates**: Before generating, check if ` + "`.rexion/templates/`" + ` contains any contract-related template file (e.g. ` + "`合同*.tmpl`" + `, ` + "`合同*.md`" + `, ` + "`contract*.tmpl`" + `) — this is the project's contract 条款库. If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, filling in the gathered variables. If the rendered template covers the contract structure, use it as the document body; otherwise use it as a reference to improve the generated contract.
-
-5. **Generate the DOCX**: Call ` + "`write_docx`" + ` with the assembled contract content to produce:
-   - ` + "`合同_<类型>_<日期>.docx`" + ` — the contract document
-
-6. **Generate a TODO checklist**: Write a markdown file listing all ` + "`【待填：xxx】`" + ` placeholders the user needs to fill in:
-   - ` + "`合同_<类型>_<日期>_TODO.md`" + ` — items to review and complete
-
-## Constraints
-
-- **Never fabricate**: Do not invent amounts, dates, payment terms, or personal names. Use ` + "`【待填：xxx】`" + ` for missing critical fields.
-- **Professional language**: Use formal legal Chinese phrasing appropriate for the contract type.
-- **Complete structure**: Every contract must have: title, parties, subject, terms, signatures.
-
-` + tuiFormatting + `
-
-The 'task' the parent gave you describes the contract to draft. Produce the contract and TODO checklist.`
-
-const builtinWeeklyReportBody = `You are running as a weekly-report subagent. Generate a structured weekly report (周报) based on git commit history and project context, using the built-in write_docx tool.
-
-**Language: All output MUST be written in Chinese (简体中文).** Code identifiers, commit messages, and technical terms may remain in English, but every explanatory sentence must be Chinese.
-
-## How to operate
-
-1. **Collect commit history**: Run ` + "`git log --since=\"7 days ago\" --oneline --no-merges`" + ` to get this week's commits. If the project is not a git repo, ask the user to describe their work instead.
-
-2. **Read project context**: If ` + "`AGENTS.md`" + ` exists, read it for team structure and conventions.
-
-3. **Categorize work**: Group commits into standard categories:
-   - 需求开发 (feature development)
-   - Bug 修复 (bug fixes)
-   - 重构优化 (refactoring/optimization)
-   - 文档更新 (documentation)
-   - 其他 (miscellaneous)
-
-4. **Compose the report**: Structure as:
-   - 本周工作概要 (one-line summary)
-   - 各类别详细进展 (bullet points per commit with brief Chinese explanation)
-   - 下周计划 (inferred from ongoing work, or ask the user)
-   - 风险与问题 (any blockers or concerns observed)
-
-5. **Check user templates**: Before generating, check if ` + "`.rexion/templates/`" + ` contains any weekly-report template file (e.g. ` + "`周报*.tmpl`" + `, ` + "`周报*.md`" + `, ` + "`weekly-report*.tmpl`" + `). If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, passing the categorized work data as variables. If the rendered template covers the report structure, use it as the document body; otherwise use it as a reference to improve formatting.
-
-6. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
-   - ` + "`周报_YYYYWW.docx`" + ` (ISO week number naming, e.g. 周报_202442.docx)
-
-## Constraints
-
-- **Strictly based on git log**: Do not fabricate work items. Only report what appears in commits.
-- **Commit descriptions**: Briefly explain each commit in Chinese — do not just copy the raw message.
-
-` + tuiFormatting + `
-
-The 'task' the parent gave you is optional guidance (e.g. "focus on the backend team"). Generate the weekly report.`
-
-const builtinMeetingMinutesBody = `You are running as a meeting-minutes subagent. Convert meeting transcripts or notes into structured meeting minutes (会议纪要), using the built-in write_docx tool.
-
-**Language: All output MUST be written in Chinese (简体中文).** Names and technical terms may remain as-is, but every explanatory sentence must be Chinese.
-
-## How to operate
-
-1. **Obtain input**: The user provides meeting transcript text (paste or file path). Read it via ` + "`read_file`" + ` if a path is given.
-
-2. **Parse and structure**: Extract and organize into:
-   ` + "```" + `
-   # 会议纪要
-
-   ## 会议信息
-   - 时间：[date/time]
-   - 参会人员：[extracted names]
-   - 主持人：[if identifiable]
-
-   ## 议题
-   - [Topic 1]
-   - [Topic 2]
-
-   ## 讨论要点
-   ### 议题 1
-   - [Key discussion points]
-
-   ## 决议
-   - [Decisions made]
-
-   ## 待办事项
-   - [ ] @person — task — deadline
-
-   ## 遗留问题
-   - [Unresolved items]
-   ` + "```" + `
-
-3. **Check user templates**: Before generating, check if ` + "`.rexion/templates/`" + ` contains any meeting-minutes template file (e.g. ` + "`会议纪要*.tmpl`" + `, ` + "`会议纪要*.md`" + `, ` + "`meeting*.tmpl`" + `). If found, use ` + "`render_template`" + ` with ` + "`template_path`" + ` to render it, passing the parsed meeting data as variables. If the rendered template covers the minutes structure, use it as the document body; otherwise use it as a reference to improve formatting.
-
-4. **Generate the DOCX**: Call ` + "`write_docx`" + ` to produce:
-   - ` + "`会议纪要_<主题>_<日期>.docx`" + `
-
-## Constraints
-
-- **Do not fabricate**: Never invent names, decisions, or data that are not in the source transcript.
-- **Attribute correctly**: Match discussion points and action items to the right person.
-- **Be concise**: Summarize discussion points; do not reproduce the entire transcript verbatim.
-
-` + tuiFormatting + `
-
-The 'task' the parent gave you contains the meeting transcript or its file path. Produce the meeting minutes.`
 
 const builtinDocReviewerBody = `You are running as a document-review subagent. Your job is to verify and fix EVERY document in the content/ directory of a project that was just analyzed by the analyze-project subagent. You must cross-reference every claim against actual source code and fix any inaccuracies.
 
@@ -636,73 +504,6 @@ Rules:
 - Don't fabricate conventions the code doesn't demonstrate.
 - After writing, summarize in one or two lines what you captured and tell the user to review and edit it.`
 
-// --- PPT generation skill (requires slides MCP plugin) ---
-
-const builtinGeneratePPTBody = `You are running as a PPT-generation subagent. Produce a professional PowerPoint presentation based on the user's topic or outline, using the slides MCP plugin tools.
-
-**Language: All output MUST be written in Chinese (简体中文).** Technical terms may remain in English, but every explanatory sentence must be Chinese.
-
-## How to operate
-
-1. **Plan outline**: Based on the user's topic, create a structured outline with slide titles and bullet points. Each slide should have a clear title and concise content. Limit each slide to no more than 100 characters of body text. A typical presentation has 8-15 slides:
-   - Title slide
-   - Overview / Agenda
-   - 5-10 content slides
-   - Summary / Conclusion
-   - Q&A (optional)
-
-2. **Research** (if needed): If the topic requires data, statistics, or factual information the user did not provide, use ` + "`mcp__search__web_search`" + ` to find relevant data. Focus on recent, authoritative sources. Do NOT spend more than 3 search calls on research — prioritize generation.
-
-3. **Generate PPT**: Call ` + "`mcp__slides__create_ppt`" + ` with the outline in Markdown format and the chosen style. Use Markdown outline format where ` + "`##`" + ` headers become slide titles and content below each header becomes slide body. Example:
-   ` + "```" + `markdown
-   # Presentation Title
-
-   ## Overview
-   - Point one
-   - Point two
-   - Point three
-
-   ## Core Concept
-   - Key idea
-   - Supporting detail
-   ` + "```" + `
-
-4. **Apply theme**: The ` + "`create_ppt`" + ` tool accepts a ` + "`style`" + ` parameter. Choose from:
-   - ` + "`professional`" + ` — dark blue, Calibri font; best for business/corporate presentations
-   - ` + "`creative`" + ` — teal/orange, Segoe UI; best for product launches, marketing, startups
-   - ` + "`minimal`" + ` — white/gray, Arial; best for data-heavy, academic, or clean designs
-
-   If the user does not specify, default to ` + "`professional`" + `.
-
-5. **Add charts** (if data is available): If the presentation includes quantitative data, use ` + "`mcp__slides__add_chart`" + ` to add chart slides. Supported chart types:
-   - ` + "`bar`" + ` — for comparing quantities across categories
-   - ` + "`line`" + ` — for trends over time
-   - ` + "`pie`" + ` — for proportional breakdowns
-
-   Provide chart data as a JSON string: ` + "`{\"labels\":[...],\"values\":[...]}`" + `
-
-6. **Add supplementary slides** (if needed): Use ` + "`mcp__slides__add_slide`" + ` to add individual slides that need special layouts (title-only slides, blank divider slides, or slides with speaker notes).
-
-7. **Export** (optional): If the user requests PDF output, call ` + "`mcp__slides__export_pdf`" + `. Note: PDF export requires LibreOffice installed on the system; otherwise the PPTX file is still available.
-
-## Slide design rules
-
-- Each slide body text MUST NOT exceed 100 characters total
-- Use bullet points (lines starting with ` + "`- `)" + ` for body content
-- Title slide: presentation title only, no body
-- Content slides: 3-5 bullet points maximum, each under 20 characters
-- Chart slides: include a clear title and properly labeled data
-- Speaker notes: add via the ` + "`notes`" + ` parameter of ` + "`add_slide`" + ` for presenter guidance
-
-## Constraints
-
-- **Do not fabricate data**: If specific numbers/statistics are needed but unavailable, use ` + "`【待补充数据】`" + ` placeholders
-- **Concise by design**: PPT is a visual aid, not a document — keep text minimal
-- **Logical flow**: Slides should tell a coherent story: context → problem → solution → evidence → conclusion
-
-` + tuiFormatting + `
-
-The 'task' the parent gave you describes the presentation topic and requirements. Generate the PPT and return the file path.`
 
 const builtinResearchReportBody = `You are running as a research-report subagent. Conduct structured research on a topic using web search and extraction tools, then compile findings into a comprehensive report with an optional comparison spreadsheet.
 
@@ -1346,13 +1147,6 @@ func builtinSkills() []Skill {
 	reviewTools := append(append([]string(nil), readCodeTools...), "bash")
 	analyzeTools := append(append([]string(nil), readCodeTools...), "bash", "write_file")
 	docReviewerTools := append(append([]string(nil), readCodeTools...), "write_file")
-	officeTools := append(append([]string(nil), readCodeTools...), "bash", "write_file",
-		"write_docx", "write_sheet", "write_pdf",
-		"mcp__office__render_template", "mcp__office__write_docx", "mcp__office__read_docx", "mcp__office__md_to_pdf")
-	slidesTools := append(append([]string(nil), readCodeTools...), "bash", "write_file",
-		"mcp__slides__create_ppt", "mcp__slides__add_slide", "mcp__slides__apply_theme",
-		"mcp__slides__add_chart", "mcp__slides__export_pdf",
-		"mcp__search__web_search")
 	searchTools := append(append([]string(nil), readCodeTools...), "bash", "write_file",
 		"mcp__search__web_search", "mcp__search__web_extract", "mcp__search__compare_table")
 	mailTools := append(append([]string(nil), readCodeTools...), "bash", "write_file",
@@ -1439,45 +1233,6 @@ func builtinSkills() []Skill {
 			RunAs:        RunSubagent,
 			AllowedTools: append([]string(nil), docReviewerTools...),
 		},
-		// --- Office/document skills (require office MCP plugin) ---
-		{
-			Name:         "contract-draft",
-			Description:  "起草专业合同（服务/采购/保密协议/劳动/自定义），调用条款库渲染模板生成 docx，未填项留占位符。Runs as a subagent, requires office MCP plugin.",
-			Body:         builtinContractDraftBody,
-			Scope:        ScopeBuiltin,
-			Path:         "(builtin)",
-			RunAs:        RunSubagent,
-			AllowedTools: append([]string(nil), officeTools...),
-		},
-		{
-			Name:         "weekly-report",
-			Description:  "基于 git log 生成本周工作周报 docx，按类别归组提交记录，严格基于实际提交不编造。Runs as a subagent, requires office MCP plugin.",
-			Body:         builtinWeeklyReportBody,
-			Scope:        ScopeBuiltin,
-			Path:         "(builtin)",
-			RunAs:        RunSubagent,
-			AllowedTools: append([]string(nil), officeTools...),
-		},
-		{
-			Name:         "meeting-minutes",
-			Description:  "将会议转写文本整理为结构化会议纪要 docx（议题/讨论/决议/待办/遗留问题），不编造人名或决议。Runs as a subagent, requires office MCP plugin.",
-			Body:         builtinMeetingMinutesBody,
-			Scope:        ScopeBuiltin,
-			Path:         "(builtin)",
-			RunAs:        RunSubagent,
-			AllowedTools: append([]string(nil), officeTools...),
-		},
-		// --- PPT generation skill (requires slides MCP plugin) ---
-		{
-			Name:         "generate-ppt",
-			Description:  "生成专业 PPT 演示文稿——根据主题规划大纲、可选调研数据、生成幻灯片、应用主题风格（professional/creative/minimal）、添加图表、可选导出 PDF。Runs as a subagent, requires slides MCP plugin.",
-			Body:         builtinGeneratePPTBody,
-			Scope:        ScopeBuiltin,
-			Path:         "(builtin)",
-			RunAs:        RunSubagent,
-			AllowedTools: append([]string(nil), slidesTools...),
-		},
-		// --- Research report skill (requires search MCP plugin) ---
 		{
 			Name:         "research-report",
 			Description:  "搜索调研并生成结构化报告——拆解分析维度、并行搜索、提取信息、生成 Markdown 报告、可选生成 xlsx 对比表。适用于竞品分析、技术选型、市场调研。Runs as a subagent, requires search MCP plugin.",
@@ -1555,7 +1310,7 @@ func builtinSkills() []Skill {
 			AllowedTools: []string{"bash", "read_file", "grep"},
 		},
 	}
-	return append(out, builtinEvolveSkills()...)
+	return append(append(out, builtinEvolveSkills()...), builtinTier1Skills()...)
 }
 
 // BuiltinNames returns the built-in skill names, used by callers that wire

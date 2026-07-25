@@ -9,21 +9,27 @@ import type {
 import {
   ChevronDown,
   ChevronRight,
+  Clipboard,
   Copy,
   FileText,
   Folder,
   FolderOpen,
+  FolderPlus,
   FolderTree,
   FolderX,
   GitBranch,
   Maximize2,
   MessageSquarePlus,
   Minimize2,
+  Pencil,
   RefreshCw,
+  Scissors,
   Search,
+  Trash2,
   X,
+  FilePlus,
 } from "lucide-react";
-import { app } from "../lib/bridge";
+import { app, onWorkspaceFilesChanged } from "../lib/bridge";
 import { useT } from "../lib/i18n";
 import { loadLayoutSize, saveLayoutSize } from "../lib/layoutPreferences";
 import type { DirEntry, FilePreview, WorkspaceChangesView } from "../lib/types";
@@ -43,8 +49,6 @@ const WORKSPACE_PREVIEW_MIN_WIDTH = 360;
 const WORKSPACE_PREVIEW_TARGET_WIDTH = 480;
 const WORKSPACE_DUAL_PANEL_MIN_WIDTH = WORKSPACE_TREE_MIN_WIDTH + WORKSPACE_PREVIEW_MIN_WIDTH;
 const WORKSPACE_DUAL_PANEL_TARGET_WIDTH = WORKSPACE_TREE_DEFAULT_WIDTH + WORKSPACE_PREVIEW_TARGET_WIDTH;
-const WORKSPACE_CONTEXT_MENU_FILE_HEIGHT = 136;
-const WORKSPACE_CONTEXT_MENU_DIR_HEIGHT = 92;
 const WORKSPACE_SELECTION_MENU_HEIGHT = 48;
 const WORKSPACE_MAX_PREVIEW_TABS = 5;
 
@@ -212,7 +216,7 @@ export function WorkspacePanel({
   const [changes, setChanges] = useState<WorkspaceChangesView | null>(null);
   const [, setLoadingChanges] = useState(false);
   const [selectionMenu, setSelectionMenu] = useState<{ x: number; y: number; text: string; path: string } | null>(null);
-  const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
+  const [treeMenu, setTreeMenu] = useState<{ point: ContextMenuPoint; path: string; isDir: boolean } | null>(null);
   const [treeBlankMenuPoint, setTreeBlankMenuPoint] = useState<ContextMenuPoint | null>(null);
   const [platform, setPlatform] = useState("");
   const changesRequestRef = useRef(0);
@@ -223,6 +227,13 @@ export function WorkspacePanel({
   const [recentOpen, setRecentOpen] = useState(false);
   const recentAnchorRef = useRef<HTMLButtonElement>(null);
   const openDirsRef = useRef(openDirs);
+  // File operation state
+  const [clipboardOp, setClipboardOp] = useState<{ path: string; op: "copy" | "cut" } | null>(null);
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [confirmDeletePath, setConfirmDeletePath] = useState<string | null>(null);
+  const [creatingIn, setCreatingIn] = useState<{ dir: string; kind: "file" | "dir" } | null>(null);
+  const [createDraft, setCreateDraft] = useState("");
 
   useEffect(() => {
     openDirsRef.current = openDirs;
@@ -285,6 +296,10 @@ export function WorkspacePanel({
     setFilter("");
     setTreeVisible(true);
     setViewMode(initialViewMode);
+    setRenamingPath(null);
+    setConfirmDeletePath(null);
+    setCreatingIn(null);
+    setClipboardOp(null);
     void loadDir("");
   }, [cwd, initialViewMode, loadDir, open]);
 
@@ -328,6 +343,9 @@ export function WorkspacePanel({
     setTreeBlankMenuPoint(null);
     setSelectionMenu(null);
     setTreeMenu(null);
+    setRenamingPath(null);
+    setConfirmDeletePath(null);
+    setCreatingIn(null);
     if (viewMode === "changed") {
       void loadChanges();
       return;
@@ -336,6 +354,148 @@ export function WorkspacePanel({
     setEntriesByDir({});
     dirs.forEach((dir) => void loadDir(dir));
   }, [loadChanges, loadDir, viewMode]);
+
+  // Auto-refresh: subscribe to workspace:files-changed events from the Go backend.
+  // Emitted after agent tool calls that modify the filesystem.
+  // Debounced: rapid events (e.g. multi-file edits) are coalesced into one refresh.
+  useEffect(() => {
+    if (!open) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const off = onWorkspaceFilesChanged(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        void refreshWorkspaceList();
+      }, 200);
+    });
+    return () => {
+      off();
+      if (timer) clearTimeout(timer);
+    };
+  }, [open, refreshWorkspaceList]);
+
+  // --- File operation handlers ---
+
+  const closeTreeMenu = useCallback(() => {
+    setTreeMenu(null);
+    setConfirmDeletePath(null);
+  }, []);
+
+  const startRename = useCallback((path: string) => {
+    setTreeMenu(null);
+    setConfirmDeletePath(null);
+    const name = basename(path).replace(/\/$/, "");
+    setRenamingPath(path);
+    setRenameDraft(name);
+  }, []);
+
+  const commitRename = useCallback(async (oldPath: string) => {
+    const newName = renameDraft.trim();
+    setRenamingPath(null);
+    if (!newName) return;
+    const dir = parentPath(oldPath);
+    const newRel = (dir ? dir + "/" : "") + newName + (oldPath.endsWith("/") ? "/" : "");
+    if (newRel === oldPath) return;
+    try {
+      await app.RenameWorkspacePath(oldPath, newRel);
+      await refreshWorkspaceList();
+      // If the renamed file was selected, update the selection
+      if (selectedPath === oldPath) {
+        setSelectedPath(newRel);
+        setOpenTabs((tabs) => tabs.map((tab) => tab === oldPath ? newRel : tab));
+      }
+    } catch {
+      // Refresh to show the old name still present
+      await refreshWorkspaceList();
+    }
+  }, [renameDraft, refreshWorkspaceList, selectedPath]);
+
+  const startCreateIn = useCallback((dir: string, kind: "file" | "dir") => {
+    setTreeMenu(null);
+    setConfirmDeletePath(null);
+    setCreatingIn({ dir, kind });
+    setCreateDraft(kind === "file" ? t("workspace.newFileName") : t("workspace.newFolderName"));
+    // Ensure the target dir is expanded
+    setOpenDirs((prev) => new Set([...Array.from(prev), dir]));
+  }, [t]);
+
+  const commitCreate = useCallback(async () => {
+    if (!creatingIn) return;
+    const name = createDraft.trim();
+    const target = creatingIn;
+    setCreatingIn(null);
+    if (!name) return;
+    const rel = (target.dir ? target.dir + "/" : "") + name;
+    try {
+      if (target.kind === "file") {
+        await app.CreateWorkspaceFile(rel);
+      } else {
+        await app.CreateWorkspaceDir(rel);
+      }
+      await refreshWorkspaceList();
+      if (target.kind === "file") {
+        selectFile(rel);
+      }
+    } catch {
+      // Refresh to show current state even if create failed
+      await refreshWorkspaceList();
+    }
+  }, [creatingIn, createDraft, refreshWorkspaceList, selectFile]);
+
+  const handleTrash = useCallback(async (path: string) => {
+    setTreeMenu(null);
+    setConfirmDeletePath(null);
+    try {
+      await app.TrashWorkspacePath(path);
+      await refreshWorkspaceList();
+      // If the deleted file was selected, clear the selection
+      if (selectedPath === path || (path.endsWith("/") && selectedPath?.startsWith(path))) {
+        setSelectedPath(null);
+        setOpenTabs((tabs) => tabs.filter((tab) => tab !== path && !tab.startsWith(path)));
+        setPreview(null);
+      }
+    } catch {
+      // ignore
+    }
+  }, [refreshWorkspaceList, selectedPath]);
+
+  const handleCopy = useCallback((path: string) => {
+    setClipboardOp({ path, op: "copy" });
+    setTreeMenu(null);
+    setConfirmDeletePath(null);
+  }, []);
+
+  const handleCut = useCallback((path: string) => {
+    setClipboardOp({ path, op: "cut" });
+    setTreeMenu(null);
+    setConfirmDeletePath(null);
+  }, []);
+
+  const handlePaste = useCallback(async (targetDir: string) => {
+    if (!clipboardOp) return;
+    const srcName = basename(clipboardOp.path).replace(/\/$/, "");
+    const dstRel = (targetDir ? targetDir + "/" : "") + srcName;
+    // Skip if source and destination are the same
+    if (dstRel === clipboardOp.path) return;
+    const op = clipboardOp;
+    setTreeMenu(null);
+    setTreeBlankMenuPoint(null);
+    setConfirmDeletePath(null);
+    try {
+      if (op.op === "copy") {
+        await app.CopyWorkspaceFile(op.path, dstRel);
+      } else {
+        await app.RenameWorkspacePath(op.path, dstRel);
+      }
+      if (op.op === "cut") {
+        setClipboardOp(null);
+      }
+      await refreshWorkspaceList();
+    } catch {
+      // Refresh to show current state even if paste failed
+      await refreshWorkspaceList();
+    }
+  }, [clipboardOp, refreshWorkspaceList]);
 
   const refreshSelected = useCallback(() => {
     if (!selectedPath) return;
@@ -550,7 +710,8 @@ export function WorkspacePanel({
     event.stopPropagation();
     setTreeBlankMenuPoint(null);
     setSelectionMenu(null);
-    setTreeMenu({ x: event.clientX, y: event.clientY, path, isDir });
+    setConfirmDeletePath(null);
+    setTreeMenu({ point: contextMenuPointFromEvent(event), path, isDir });
   };
 
   const openTreeBlankMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -560,6 +721,7 @@ export function WorkspacePanel({
     event.stopPropagation();
     setSelectionMenu(null);
     setTreeMenu(null);
+    setConfirmDeletePath(null);
     setTreeBlankMenuPoint(contextMenuPointFromEvent(event));
   };
 
@@ -595,10 +757,67 @@ export function WorkspacePanel({
 
   const renderRows = (dir: string, depth: number): JSX.Element[] => {
     const entries = entriesByDir[dir] ?? [];
-    return entries.flatMap((entry) => {
+    const rows: JSX.Element[] = [];
+    // If creating in this dir, show the creation input first
+    if (creatingIn && creatingIn.dir === dir) {
+      rows.push(
+        <div
+          key="__creating__"
+          className="workspace-tree__row workspace-tree__row--creating"
+          style={{ paddingLeft: 8 + (depth + 1) * 14 }}
+        >
+          {creatingIn.kind === "dir" ? <Folder size={14} className="workspace-tree__icon workspace-tree__icon--dir" /> : <FileText size={14} className="workspace-tree__icon" />}
+          <input
+            autoFocus
+            className="workspace-tree__rename-input"
+            value={createDraft}
+            onChange={(e) => setCreateDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void commitCreate();
+              if (e.key === "Escape") setCreatingIn(null);
+            }}
+            onBlur={() => void commitCreate()}
+          />
+        </div>
+      );
+    }
+    for (const entry of entries) {
       const path = entryPath(dir, entry);
       const isOpen = openDirs.has(path);
       const active = selectedPath === path;
+      // Inline rename mode
+      if (renamingPath === path) {
+        const renameRow = (
+          <div
+            key={path}
+            className="workspace-tree__row workspace-tree__row--renaming"
+            style={{ paddingLeft: 8 + depth * 14 }}
+          >
+            {entry.isDir ? (
+              isOpen ? <ChevronDown size={13} className="workspace-tree__chev" /> : <ChevronRight size={13} className="workspace-tree__chev" />
+            ) : (
+              <span className="workspace-tree__chev" />
+            )}
+            {entry.isDir ? <Folder size={14} className="workspace-tree__icon workspace-tree__icon--dir" /> : <FileText size={14} className="workspace-tree__icon" />}
+            <input
+              autoFocus
+              className="workspace-tree__rename-input"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void commitRename(path);
+                if (e.key === "Escape") setRenamingPath(null);
+              }}
+              onBlur={() => void commitRename(path)}
+            />
+          </div>
+        );
+        rows.push(renameRow);
+        if (entry.isDir && isOpen) {
+          rows.push(...renderRows(path, depth + 1));
+        }
+        continue;
+      }
       const row = (
         <button
           key={path}
@@ -626,13 +845,147 @@ export function WorkspacePanel({
           <span className="workspace-tree__name">{entry.name}</span>
         </button>
       );
-      if (!entry.isDir || !isOpen) return [row];
-      return [row, ...renderRows(path, depth + 1)];
-    });
+      rows.push(row);
+      if (entry.isDir && isOpen) {
+        rows.push(...renderRows(path, depth + 1));
+      }
+    }
+    return rows;
   };
 
   const isMarkdown = selectedPath?.toLowerCase().endsWith(".md") ?? false;
+
+  const buildTreeMenuItems = useCallback((path: string, isDir: boolean): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [];
+    // File management operations
+    if (isDir) {
+      items.push(
+        {
+          key: "new-file",
+          icon: <FilePlus size={13} />,
+          label: t("workspace.newFile"),
+          onSelect: () => startCreateIn(path, "file"),
+        },
+        {
+          key: "new-folder",
+          icon: <FolderPlus size={13} />,
+          label: t("workspace.newFolder"),
+          onSelect: () => startCreateIn(path, "dir"),
+        },
+      );
+    }
+    items.push(
+      {
+        key: "copy",
+        icon: <Copy size={13} />,
+        label: t("workspace.copy"),
+        onSelect: () => handleCopy(path),
+      },
+      {
+        key: "cut",
+        icon: <Scissors size={13} />,
+        label: t("workspace.cut"),
+        onSelect: () => handleCut(path),
+      },
+    );
+    if (clipboardOp) {
+      // Can paste into a directory, or paste next to a file (into its parent)
+      const pasteTarget = isDir ? path : parentPath(path);
+      items.push({
+        key: "paste",
+        icon: <Clipboard size={13} />,
+        label: t("workspace.paste"),
+        onSelect: () => void handlePaste(pasteTarget),
+      });
+    }
+    items.push(
+      {
+        key: "rename",
+        icon: <Pencil size={13} />,
+        label: t("workspace.rename"),
+        onSelect: () => startRename(path),
+      },
+      {
+        key: "delete",
+        icon: <Trash2 size={13} />,
+        label: confirmDeletePath === path ? t("workspace.confirmDelete") : t("workspace.delete"),
+        danger: confirmDeletePath === path,
+        onSelect: () => {
+          if (confirmDeletePath === path) void handleTrash(path);
+          else setConfirmDeletePath(path);
+        },
+      },
+    );
+    // Separator before chat/reference operations
+    items.push({ type: "separator" as const, key: "chat-separator" });
+    items.push({
+      key: "add-reference",
+      icon: <MessageSquarePlus size={13} />,
+      label: isDir ? t("workspace.addFolderReferenceToChat") : t("workspace.addFileReferenceToChat"),
+      onSelect: addTreeReferenceToChat,
+    });
+    if (!isDir) {
+      items.push({
+        key: "add-content",
+        icon: <FileText size={13} />,
+        label: t("workspace.addFileContentToChat"),
+        onSelect: () => void addTreeFileToChat(),
+      });
+    }
+    items.push({ type: "separator" as const, key: "system-separator" });
+    items.push(
+      {
+        key: "reveal",
+        icon: <FolderOpen size={13} />,
+        label: t(revealLabelKey(platform)),
+        onSelect: () => {
+          setTreeMenu(null);
+          void app.RevealWorkspacePath(path);
+        },
+      },
+      {
+        key: "copy-path",
+        icon: <Copy size={13} />,
+        label: t("workspace.copyPath"),
+        onSelect: () => {
+          void navigator.clipboard.writeText(path);
+          setTreeMenu(null);
+        },
+      },
+    );
+    return items;
+  }, [clipboardOp, confirmDeletePath, handleCopy, handleCut, handlePaste, handleTrash, platform, startCreateIn, startRename, t, addTreeReferenceToChat, addTreeFileToChat]);
+
   const treeBlankMenuItems: ContextMenuItem[] = [
+    {
+      key: "new-file",
+      icon: <FilePlus size={13} />,
+      label: t("workspace.newFile"),
+      onSelect: () => {
+        setTreeBlankMenuPoint(null);
+        startCreateIn("", "file");
+      },
+    },
+    {
+      key: "new-folder",
+      icon: <FolderPlus size={13} />,
+      label: t("workspace.newFolder"),
+      onSelect: () => {
+        setTreeBlankMenuPoint(null);
+        startCreateIn("", "dir");
+      },
+    },
+    ...(clipboardOp
+      ? [
+          {
+            key: "paste",
+            icon: <Clipboard size={13} />,
+            label: t("workspace.paste"),
+            onSelect: () => void handlePaste(""),
+          } as ContextMenuItem,
+        ]
+      : []),
+    { type: "separator" as const, key: "refresh-separator" },
     {
       key: "refresh-tree",
       icon: <RefreshCw size={13} />,
@@ -911,50 +1264,14 @@ export function WorkspacePanel({
             : renderRows("", 0)}
         </div>
       </section>
-      {treeMenu && (
-        <FloatingMenu
-          x={treeMenu.x}
-          y={treeMenu.y}
-          estimatedHeight={treeMenu.isDir ? WORKSPACE_CONTEXT_MENU_DIR_HEIGHT : WORKSPACE_CONTEXT_MENU_FILE_HEIGHT}
-          className="workspace-tree-menu"
-        >
-          <FloatingMenuItems
-            items={[
-              {
-                icon: <MessageSquarePlus size={14} />,
-                label: treeMenu.isDir ? t("workspace.addFolderReferenceToChat") : t("workspace.addFileReferenceToChat"),
-                onSelect: addTreeReferenceToChat,
-              },
-              ...(treeMenu.isDir
-                ? []
-                : [
-                    {
-                      icon: <FileText size={14} />,
-                      label: t("workspace.addFileContentToChat"),
-                      onSelect: () => void addTreeFileToChat(),
-                    },
-                  ]),
-              {
-                icon: <FolderOpen size={14} />,
-                label: t(revealLabelKey(platform)),
-                onSelect: () => {
-                  const p = treeMenu!.path;
-                  setTreeMenu(null);
-                  void app.RevealWorkspacePath(p);
-                },
-              },
-              {
-                icon: <Copy size={14} />,
-                label: t("workspace.copyPath"),
-                onSelect: () => {
-                  void navigator.clipboard.writeText(treeMenu!.path);
-                  setTreeMenu(null);
-                },
-              },
-            ]}
-          />
-        </FloatingMenu>
-      )}
+      <ContextMenu
+        open={Boolean(treeMenu)}
+        point={treeMenu?.point ?? null}
+        items={treeMenu ? buildTreeMenuItems(treeMenu.path, treeMenu.isDir) : []}
+        minWidth={200}
+        ariaLabel={t("workspace.treeMenu")}
+        onClose={closeTreeMenu}
+      />
       <ContextMenu
         open={Boolean(treeBlankMenuPoint)}
         point={treeBlankMenuPoint}

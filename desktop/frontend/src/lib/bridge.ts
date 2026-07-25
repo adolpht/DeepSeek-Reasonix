@@ -185,6 +185,12 @@ export interface AppBindings {
   OpenWorkspacePath(rel: string): Promise<void>;
   RevealWorkspacePath(rel: string): Promise<void>;
   RevealPath(path: string): Promise<void>;
+  // Workspace file operations (create, rename, copy, trash).
+  CreateWorkspaceDir(rel: string): Promise<void>;
+  CreateWorkspaceFile(rel: string): Promise<void>;
+  RenameWorkspacePath(oldRel: string, newRel: string): Promise<void>;
+  CopyWorkspaceFile(srcRel: string, dstRel: string): Promise<void>;
+  TrashWorkspacePath(rel: string): Promise<void>;
   SavePastedImage(dataUrl: string): Promise<string>;
   SavePastedFile(name: string, dataUrl: string): Promise<string>;
   AttachDropped(path: string): Promise<DroppedItem>;
@@ -507,6 +513,13 @@ export function onProjectTreeChanged(cb: () => void): () => void {
 export function onTabsChanged(cb: () => void): () => void {
   if (realApp() && typeof window !== "undefined" && window.runtime) {
     return window.runtime.EventsOn("tabs:changed", () => cb());
+  }
+  return () => {};
+}
+
+export function onWorkspaceFilesChanged(cb: () => void): () => void {
+  if (realApp() && typeof window !== "undefined" && window.runtime) {
+    return window.runtime.EventsOn("workspace:files-changed", () => cb());
   }
   return () => {};
 }
@@ -1588,6 +1601,21 @@ function makeMockApp(): AppBindings {
     },
     async RevealPath(path: string) {
       console.info("mock RevealPath", path);
+    },
+    async CreateWorkspaceDir(_rel: string): Promise<void> {
+      // Browser mock: no-op
+    },
+    async CreateWorkspaceFile(_rel: string): Promise<void> {
+      // Browser mock: no-op
+    },
+    async RenameWorkspacePath(_oldRel: string, _newRel: string): Promise<void> {
+      // Browser mock: no-op
+    },
+    async CopyWorkspaceFile(_srcRel: string, _dstRel: string): Promise<void> {
+      // Browser mock: no-op
+    },
+    async TrashWorkspacePath(_rel: string): Promise<void> {
+      // Browser mock: no-op
     },
     async SavePastedImage(_dataUrl: string) {
       return ".Rexion/attachments/mock.png";

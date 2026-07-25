@@ -21,9 +21,11 @@ var writeDocxTool = toolDef{
 	schema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"path":    map[string]any{"type": "string", "description": "Absolute output path (.docx)"},
-			"content": map[string]any{"type": "string", "description": "Markdown content"},
-			"title":   map[string]any{"type": "string", "description": "Document title metadata (optional)"},
+			"path":         map[string]any{"type": "string", "description": "Absolute output path (.docx)"},
+			"content":      map[string]any{"type": "string", "description": "Markdown content"},
+			"title":        map[string]any{"type": "string", "description": "Document title metadata (optional)"},
+			"style_preset": map[string]any{"type": "string", "enum": []string{"plain", "report", "contract", "minutes", "letter"}, "description": "Document structure preset: plain (no extras), report (cover+TOC+headers/footers), contract (numbered clauses+signature block), minutes (agenda+checklist), letter (date+salutation+closing). Default: plain"},
+			"table_style":  map[string]any{"type": "string", "enum": []string{"plain", "professional", "alternating"}, "description": "Table rendering style: plain (default), professional (bold header+thin borders), alternating (alternating row shading). Default: plain"},
 		},
 		"required": []string{"path", "content"},
 	},
@@ -40,6 +42,8 @@ func runWriteDocx(args map[string]any) (any, error) {
 		return nil, err
 	}
 	title := argStringDefault(args, "title", "")
+	presetRaw := argStringDefault(args, "style_preset", "plain")
+	tblStyleRaw := argStringDefault(args, "table_style", "plain")
 
 	// Reject .docx-incompatible extensions early.
 	if !strings.HasSuffix(strings.ToLower(path), ".docx") {
@@ -52,11 +56,14 @@ func runWriteDocx(args map[string]any) (any, error) {
 		}
 	}
 
+	preset := normalizeStylePreset(presetRaw)
+	tblStyle := normalizeTableStyle(tblStyleRaw)
+
 	blocks := parseMarkdownBlocks(content)
-	if err := writeDocxWordZero(path, blocks, title); err != nil {
+	if err := writeDocxWordZero(path, blocks, title, preset, tblStyle); err != nil {
 		return nil, err
 	}
-	return fmt.Sprintf("wrote %d blocks to %s", len(blocks), path), nil
+	return fmt.Sprintf("wrote %d blocks to %s (preset=%s, table_style=%s)", len(blocks), path, string(preset), string(tblStyle)), nil
 }
 
 // mdBlock is one rendered paragraph/heading/table in the document body.
@@ -154,11 +161,17 @@ func parseTableLines(lines []string) [][]string {
 }
 
 // writeDocxWordZero creates a .docx file using the wordZero library.
-func writeDocxWordZero(path string, blocks []mdBlock, title string) error {
+// If preset is not plain, structural elements (cover page, TOC, headers/footers,
+// signature blocks) are added before/after the body content.
+func writeDocxWordZero(path string, blocks []mdBlock, title string, preset StylePreset, tblStyle TableStyle) error {
 	mdText := rebuildMarkdown(blocks)
 	converter := markdown.NewConverter(markdown.DefaultOptions())
 	doc, err := converter.ConvertString(mdText, nil)
 	if err == nil {
+		// Apply style preset structural additions.
+		if err := applyStylePreset(doc, preset, title); err != nil {
+			return fmt.Errorf("apply style preset: %w", err)
+		}
 		if title != "" {
 			hasTitleHeading := false
 			for _, blk := range blocks {
@@ -171,11 +184,17 @@ func writeDocxWordZero(path string, blocks []mdBlock, title string) error {
 				doc.AddHeadingParagraph(title, 1)
 			}
 		}
+		// Add preset closing elements (signature blocks, letter closings).
+		addPresetClosing(doc, preset)
 		return doc.Save(path)
 	}
 
 	// Fallback: build document manually from parsed blocks.
 	doc = document.New()
+	// Apply style preset before body content.
+	if err := applyStylePreset(doc, preset, title); err != nil {
+		return fmt.Errorf("apply style preset: %w", err)
+	}
 	for _, blk := range blocks {
 		switch blk.kind {
 		case "empty":
@@ -193,11 +212,13 @@ func writeDocxWordZero(path string, blocks []mdBlock, title string) error {
 		case "h6":
 			doc.AddHeadingParagraph(blk.text, 6)
 		case "table":
-			addTablePlugin(doc, blk.rows)
+			addTableWithStylePlugin(doc, blk.rows, tblStyle)
 		default:
 			doc.AddParagraph(blk.text)
 		}
 	}
+	// Add preset closing elements.
+	addPresetClosing(doc, preset)
 	return doc.Save(path)
 }
 
@@ -258,6 +279,10 @@ func rebuildMarkdown(blocks []mdBlock) string {
 }
 
 func addTablePlugin(doc *document.Document, rows [][]string) {
+	addTableWithStylePlugin(doc, rows, TableStylePlain)
+}
+
+func addTableWithStylePlugin(doc *document.Document, rows [][]string, style TableStyle) {
 	if len(rows) == 0 {
 		return
 	}
@@ -283,4 +308,6 @@ func addTablePlugin(doc *document.Document, rows [][]string) {
 			_ = tbl.SetCellText(r, c, cell)
 		}
 	}
+
+	applyTableStyle(tbl, style)
 }

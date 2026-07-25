@@ -3,6 +3,8 @@ package skill
 import (
 	"fmt"
 	"strings"
+
+	"rexion/internal/tool"
 )
 
 // IndexMaxChars caps the pinned skills-index block so it can't bloat the
@@ -37,6 +39,7 @@ func ApplyIndex(basePrompt string, skills []Skill) string {
 // indexLine renders one skill as "- name [tag] — description", clipped to a
 // stable width. The subagent tag goes after the name so a model copying the line
 // into run_skill's `name` arg still yields a clean identifier.
+// Unavailable skills get an additional [⚠️] tag with missing plugin names.
 func indexLine(sk Skill) string {
 	desc := strings.TrimSpace(strings.ReplaceAll(sk.Description, "\n", " "))
 	if desc == "" {
@@ -46,12 +49,40 @@ func indexLine(sk Skill) string {
 	if sk.RunAs == RunSubagent {
 		tag = " [🧬 subagent]"
 	}
+	if sk.Unavailable {
+		plugins := missingPluginNames(sk.MissingDeps)
+		tag += " [⚠️ 需安装 " + strings.Join(plugins, "/") + " 插件]"
+	}
 	max := 130 - len([]rune(sk.Name)) - len([]rune(tag))
 	clipped := clipRunes(desc, max)
 	if clipped == "" {
 		return "- " + sk.Name + tag
 	}
 	return "- " + sk.Name + tag + " — " + clipped
+}
+
+// missingPluginNames extracts unique MCP server names from a list of missing
+// tool names. For example, ["mcp__office__write_docx", "mcp__office__read_docx"]
+// becomes ["office"]. Non-MCP tool names are included as-is.
+func missingPluginNames(missing []string) []string {
+	seen := make(map[string]bool, len(missing))
+	var out []string
+	for _, name := range missing {
+		server, _, ok := tool.SplitMCPName(name)
+		if ok && server != "" {
+			if !seen[server] {
+				seen[server] = true
+				out = append(out, server)
+			}
+		} else {
+			// Non-MCP tool (e.g. a built-in that was removed) — include directly.
+			if !seen[name] {
+				seen[name] = true
+				out = append(out, name)
+			}
+		}
+	}
+	return out
 }
 
 // clipRunes truncates s to at most max runes (ellipsis included), never

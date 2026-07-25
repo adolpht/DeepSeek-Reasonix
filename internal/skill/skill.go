@@ -63,6 +63,14 @@ type Skill struct {
 	RunAs        RunAs  // inline | subagent
 	Model        string // optional model override for runAs=subagent (frontmatter `model:`)
 	Effort       string // optional effort for runAs=subagent (frontmatter `effort:`)
+	// Unavailable is set by ProbeAvailability when one or more tools in
+	// AllowedTools are not present in the live tool registry. A skill that
+	// is unavailable should still appear in the index (annotated with a
+	// warning tag) but its execution will return an error.
+	Unavailable bool
+	// MissingDeps lists the tool names from AllowedTools that were not found
+	// in the registry. Populated by ProbeAvailability.
+	MissingDeps []string
 }
 
 // IsValidName reports whether name is a usable skill identifier.
@@ -638,6 +646,9 @@ func (s *Store) MaterializeBuiltins() {
 			fmt.Fprintf(s.stderr, "warning: could not materialize builtin skill %q: %v\n", sk.Name, err)
 		}
 	}
+	// Materialize embedded MiniMax office skills (minimax-docx, minimax-xlsx,
+	// minimax-pdf, pptx-generator) alongside the regular builtins.
+	s.MaterializeMiniMaxBuiltins()
 }
 
 // splitFrontmatter is a thin wrapper kept for internal use; the real parser

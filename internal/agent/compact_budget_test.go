@@ -101,13 +101,13 @@ func TestSummarySystemPromptContainsFormat(t *testing.T) {
 	// The summarySystemPrompt now contains %d for the budget, verify it formats.
 	s := strings.Contains(summarySystemPrompt, "%d")
 	if !s {
-		t.Error("summarySystemPrompt should contain %d placeholder for budget")
+		t.Errorf("summarySystemPrompt should contain %%d placeholder for budget")
 	}
 }
 
 func TestSummaryCompressedSystemPromptContainsFormat(t *testing.T) {
 	s := strings.Contains(summaryCompressedSystemPrompt, "%d")
 	if !s {
-		t.Error("summaryCompressedSystemPrompt should contain %d placeholder for budget")
+		t.Errorf("summaryCompressedSystemPrompt should contain %%d placeholder for budget")
 	}
 }

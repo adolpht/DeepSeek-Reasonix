@@ -58,9 +58,9 @@ var intentKeywords = map[IntentType][]string{
 // skillIntentMap maps skill names to their target intent type.
 var skillIntentMap = map[string]IntentType{
 	"generate-ppt":     IntentOffice,
-	"contract-draft":   IntentOffice,
-	"weekly-report":    IntentOffice,
-	"meeting-minutes":  IntentOffice,
+	"doc-write":        IntentOffice,
+	"sheet-create":     IntentOffice,
+	"ppt-create":       IntentOffice,
 	"research-report":  IntentAssistant,
 	"explore":          IntentCoding,
 	"review":           IntentCoding,

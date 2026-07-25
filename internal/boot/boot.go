@@ -267,7 +267,6 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	skillStore.MaterializeBuiltins()
 	skills := skillStore.List()
 	allSkills := skill.New(skill.Options{ProjectRoot: root, CustomPaths: cfg.SkillCustomPaths(), ExcludedPaths: cfg.SkillExcludedPaths(), MaxDepth: cfg.SkillMaxDepth(), Stderr: io.Discard}).List()
-	sysPrompt = skill.ApplyIndex(sysPrompt, skills)
 
 	reg := tool.NewRegistry()
 	// Resolve the sandbox mode: CLI flag overrides config.
@@ -553,6 +552,14 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		cleanup = func() { prev(); replMgr.Close() }
 	}
 
+	// Probe skill availability against the now-fully-populated tool registry.
+	// Skills whose allowed-tools reference MCP servers that aren't configured
+	// (or built-in tools that don't exist) are marked Unavailable so the
+	// index can show a warning tag and execution can return a clear error.
+	skills = skill.ProbeAvailability(skills, reg)
+	allSkills = skill.ProbeAvailability(allSkills, reg)
+	sysPrompt = skill.ApplyIndex(sysPrompt, skills)
+
 	maxSteps := cfg.Agent.MaxSteps
 	if opts.MaxSteps > 0 {
 		maxSteps = opts.MaxSteps
@@ -640,6 +647,10 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	// task/skill meta-tools, to bar recursion), and an optional per-skill model.
 	// Its tool activity nests under the invoking call, like `task`.
 	skillRunner := func(sctx context.Context, sk skill.Skill, task string) (string, error) {
+		if sk.Unavailable {
+			missing := strings.Join(sk.MissingDeps, ", ")
+			return "", fmt.Errorf("skill %q is unavailable — required tools not found: %s. Install the corresponding plugin(s) and restart the session.", sk.Name, missing)
+		}
 		prov, price, ctxWin, compBudget := execProv, entry.Price, entry.ContextWindow, entry.CompletionBudget
 		modelRef := subagentModelRef(cfg, sk)
 		effortRef := subagentEffortRef(cfg, sk)

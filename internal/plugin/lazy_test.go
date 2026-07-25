@@ -228,6 +228,20 @@ func TestLazyCacheMissAsyncSpawn(t *testing.T) {
 	// Execute call.
 	waitForServer(t, host, "mock", 5*time.Second)
 
+	// The async goroutine swaps registry entries after the server is added to
+	// the host. There is a small window where the server is registered but the
+	// placeholder-to-real tool swap hasn't completed yet. Poll until the
+	// connect stub is gone or a short timeout elapses.
+	{
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, found := reg.Get("mcp__mock__connect"); !found {
+				break // swap completed
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
 	if _, found := reg.Get("mcp__mock__connect"); found {
 		t.Errorf("connect stub should be removed after swap, names=%v", reg.Names())
 	}

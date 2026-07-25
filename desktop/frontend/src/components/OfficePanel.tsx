@@ -1,4 +1,4 @@
-import { FileText, ClipboardList, FileSignature, Table, BarChart3, Palette } from "lucide-react";
+import { FileText, Table, Presentation, BarChart3, Palette } from "lucide-react";
 import { useT } from "../lib/i18n";
 
 // Office capability card definition — compact sidebar variant.
@@ -10,9 +10,9 @@ interface OfficeCard {
 
 const CARDS: OfficeCard[] = [
   { key: "productDesign",  icon: <Palette size={15} />,        color: "indigo" },
-  { key: "weeklyReport",   icon: <FileText size={15} />,       color: "blue"   },
-  { key: "meetingMinutes", icon: <ClipboardList size={15} />,  color: "green"  },
-  { key: "contractDraft",  icon: <FileSignature size={15} />, color: "purple" },
+  { key: "docWrite",       icon: <FileText size={15} />,       color: "blue"   },
+  { key: "sheetCreate",    icon: <Table size={15} />,          color: "green"  },
+  { key: "pptCreate",      icon: <Presentation size={15} />,   color: "purple" },
   { key: "sheetClean",     icon: <Table size={15} />,          color: "orange" },
   { key: "sheetAnalysis",  icon: <BarChart3 size={15} />,      color: "teal"   },
 ];
@@ -30,9 +30,9 @@ export function OfficePanel({
   const handleClick = (card: OfficeCard) => {
     const skillNames: Record<string, string> = {
       productDesign: "product-design",
-      weeklyReport: "weekly-report",
-      meetingMinutes: "meeting-minutes",
-      contractDraft: "contract-draft",
+      docWrite: "doc-write",
+      sheetCreate: "sheet-create",
+      pptCreate: "ppt-create",
       sheetClean: "sheet-clean",
       sheetAnalysis: "sheet-analysis",
     };

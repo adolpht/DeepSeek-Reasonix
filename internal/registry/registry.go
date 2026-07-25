@@ -76,6 +76,13 @@ func BuiltinSources() []Source {
 			Description: "Rexion 官方技能集合 — 编程、办公、生产力技能",
 			Trusted:     true,
 		},
+		{
+			Name:        "MiniMax Skills",
+			URL:         "https://raw.githubusercontent.com/MiniMax-AI/skills/main/index.json",
+			Type:        "index",
+			Description: "MiniMax 官方技能集 — 专业文档处理（DOCX/XLSX/PDF/PPT）、多模态生成、音乐创作、前端开发等",
+			Trusted:     true,
+		},
 	}
 }
 

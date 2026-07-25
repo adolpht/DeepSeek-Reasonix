@@ -5709,6 +5709,42 @@ a[href] {
   color: var(--workspace-selection-fg);
 }
 
+/* ── workspace tree: inline rename & create inputs ─────────────────────── */
+.workspace-tree__row--renaming,
+.workspace-tree__row--creating {
+  --wails-draggable: no-drag;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: var(--tree-row-height);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--tree-row-radius);
+  background: var(--tree-row-hover-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+}
+.workspace-tree__rename-input {
+  flex: 1;
+  min-width: 0;
+  height: calc(var(--tree-row-height) - 6px);
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--input-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+.workspace-tree__rename-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
 /* ── memory drawer ───────────────────────────────────────────────────────── */
 .drawer-backdrop {
   position: fixed;
