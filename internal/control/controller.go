@@ -732,7 +732,15 @@ func (c *Controller) SubmitIM(input string) {
 // included directly in the turn input. The agent only needs to create a
 // session, process each command, and mark it done.
 func (c *Controller) HandleIMMessage(summary string) {
-	input := "IM: new remote command(s) received. Details:\n" + summary + "\n\nProcess the IM command(s) now: for each command, call mcp__im__create_im_session to create a session, process the command, and mcp__im__mark_command_done to push the result back. Do NOT call poll_commands again — the commands above were already fetched."
+	// Include the workspace root so the agent knows where files can be written
+	// without hitting sandbox confinement. IM commands from remote users may
+	// specify paths outside the workspace; the agent should redirect output
+	// into the workspace unless the user explicitly configured wider access.
+	workspaceHint := ""
+	if c.cpRoot != "" {
+		workspaceHint = fmt.Sprintf("\n\nImportant: your workspace is %q — all file writes and commands must target paths within this workspace. If the command specifies an external path (e.g. Desktop, /tmp), redirect the output into the workspace instead and mention this in your reply.", c.cpRoot)
+	}
+	input := "IM: new remote command(s) received. Details:\n" + summary + workspaceHint + "\n\nProcess the IM command(s) now: for each command, call mcp__im__create_im_session to create a session, process the command, and mcp__im__mark_command_done to push the result back. Do NOT call poll_commands again — the commands above were already fetched."
 	c.SubmitIM(input)
 }
 
@@ -1320,7 +1328,7 @@ func (c *Controller) GenerateApprovalToken(tool, subject string) (*approval.Toke
 func (c *Controller) EnableInteractiveApproval() {
 	if c.executor != nil {
 		gate := permission.NewGate(c.policy, gateApprover{c})
-		gate.WorkspaceRoot = c.cpRoot // for bash validation path-scope checks
+		gate.WorkspaceRoot = c.cpRoot  // for bash validation path-scope checks
 		gate.OnRemember = c.onRemember // wire "always allow" persistence callback
 		c.executor.SetGate(gate)
 		c.executor.SetAsker(c)

@@ -16,7 +16,6 @@ import {
   PanelLeftOpen,
   PanelLeftClose,
   SquareTerminal,
-  MessageSquare,
   Store,
   Palette,
   Smartphone,
@@ -200,11 +199,6 @@ export function Sidebar({
               <Home size={16} />
             </button>
           </Tooltip>
-          <Tooltip label={t("sessionSidebar.title")} side="right">
-            <button className="sidebar__collapsed-btn" onClick={() => onNavigate("sessions")}>
-              <MessageSquare size={16} />
-            </button>
-          </Tooltip>
           <Tooltip label={t("officePanel.productDesign")} side="right">
             <button className="sidebar__collapsed-btn" onClick={() => { onExpand?.(); onActivateSkill("product-design"); }}>
               <SquarePen size={16} />
@@ -293,13 +287,6 @@ export function Sidebar({
           tooltipDisabled={navTooltipDisabled}
           onClick={() => onNavigate("home")}
           active={activePage === "home"}
-        />
-        <SidebarNavItem
-          icon={<MessageSquare size={15} />}
-          label={t("sessionSidebar.title")}
-          tooltipDisabled={navTooltipDisabled}
-          onClick={() => onNavigate("sessions")}
-          active={activePage === "sessions"}
         />
       </div>
 

@@ -1,0 +1,353 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- wml-subset.xsd — Simplified XSD for WordprocessingML structural validation
+     Validates:
+       - Correct element ordering (pPr before runs, rPr before t, etc.)
+       - Required attributes
+       - Valid child elements
+     This is a practical validation schema, not the full OOXML spec. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+           targetNamespace="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+           elementFormDefault="qualified">
+
+  <!-- ═══ Root: w:document ══════════════════════════════════════════════════ -->
+  <xs:element name="document" type="w:CT_Document"/>
+
+  <xs:complexType name="CT_Document">
+    <xs:sequence>
+      <xs:element name="body" type="w:CT_Body"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══ w:body ════════════════════════════════════════════════════════════ -->
+  <xs:complexType name="CT_Body">
+    <xs:sequence>
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element name="p" type="w:CT_Paragraph"/>
+        <xs:element name="tbl" type="w:CT_Table"/>
+      </xs:choice>
+      <xs:element name="sectPr" type="w:CT_SectPr" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══ w:p — CRITICAL: pPr must come before runs ════════════════════════ -->
+  <xs:complexType name="CT_Paragraph">
+    <xs:sequence>
+      <xs:element name="pPr" type="w:CT_PPr" minOccurs="0"/>
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element name="r" type="w:CT_Run"/>
+        <xs:element name="hyperlink" type="w:CT_Hyperlink"/>
+        <xs:element name="bookmarkStart" type="w:CT_BookmarkStart"/>
+        <xs:element name="bookmarkEnd" type="w:CT_BookmarkEnd"/>
+        <xs:element name="commentRangeStart"/>
+        <xs:element name="commentRangeEnd"/>
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══ w:pPr ════════════════════════════════════════════════════════════ -->
+  <xs:complexType name="CT_PPr">
+    <xs:all minOccurs="0">
+      <xs:element name="pStyle" type="w:CT_String25" minOccurs="0"/>
+      <xs:element name="keepNext" minOccurs="0"/>
+      <xs:element name="keepLines" minOccurs="0"/>
+      <xs:element name="pageBreakBefore" minOccurs="0"/>
+      <xs:element name="widowControl" minOccurs="0"/>
+      <xs:element name="numPr" type="w:CT_NumPr" minOccurs="0"/>
+      <xs:element name="ind" type="w:CT_Ind" minOccurs="0"/>
+      <xs:element name="jc" type="w:CT_Jc" minOccurs="0"/>
+      <xs:element name="spacing" type="w:CT_Spacing" minOccurs="0"/>
+      <xs:element name="outlineLvl" type="w:CT_DecimalNumber" minOccurs="0"/>
+      <xs:element name="pBdr" type="w:CT_PBdr" minOccurs="0"/>
+      <xs:element name="tabs" minOccurs="0"/>
+      <xs:element name="sectPr" type="w:CT_SectPr" minOccurs="0"/>
+      <xs:element name="rPr" type="w:CT_RPr" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <!-- ═══ w:r — CRITICAL: rPr must come before t/br/tab ══════════════════ -->
+  <xs:complexType name="CT_Run">
+    <xs:sequence>
+      <xs:element name="rPr" type="w:CT_RPr" minOccurs="0"/>
+      <xs:choice minOccurs="0" maxOccurs="unbounded">
+        <xs:element name="t" type="w:CT_Text"/>
+        <xs:element name="br" minOccurs="0"/>
+        <xs:element name="tab" minOccurs="0"/>
+        <xs:element name="cr" minOccurs="0"/>
+        <xs:element name="drawing" minOccurs="0"/>
+        <xs:element name="pict" minOccurs="0"/>
+        <xs:element name="fldChar" minOccurs="0"/>
+        <xs:element name="instrText" minOccurs="0"/>
+        <xs:element name="footnoteReference" type="w:CT_FtnEdnRef" minOccurs="0"/>
+        <xs:element name="endnoteReference" type="w:CT_FtnEdnRef" minOccurs="0"/>
+        <xs:element name="commentReference" minOccurs="0"/>
+        <xs:element name="delText" type="w:CT_Text" minOccurs="0"/>
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══ w:rPr ════════════════════════════════════════════════════════════ -->
+  <xs:complexType name="CT_RPr">
+    <xs:all minOccurs="0">
+      <xs:element name="rStyle" type="w:CT_String25" minOccurs="0"/>
+      <xs:element name="rFonts" type="w:CT_RFonts" minOccurs="0"/>
+      <xs:element name="b" minOccurs="0"/>
+      <xs:element name="bCs" minOccurs="0"/>
+      <xs:element name="i" minOccurs="0"/>
+      <xs:element name="iCs" minOccurs="0"/>
+      <xs:element name="strike" minOccurs="0"/>
+      <xs:element name="dstrike" minOccurs="0"/>
+      <xs:element name="outline" minOccurs="0"/>
+      <xs:element name="shadow" minOccurs="0"/>
+      <xs:element name="emboss" minOccurs="0"/>
+      <xs:element name="imprint" minOccurs="0"/>
+      <xs:element name="noProof" minOccurs="0"/>
+      <xs:element name="snapToGrid" minOccurs="0"/>
+      <xs:element name="vanish" minOccurs="0"/>
+      <xs:element name="webHidden" minOccurs="0"/>
+      <xs:element name="color" type="w:CT_Color" minOccurs="0"/>
+      <xs:element name="spacing" minOccurs="0"/>
+      <xs:element name="w" minOccurs="0"/>
+      <xs:element name="kern" minOccurs="0"/>
+      <xs:element name="position" minOccurs="0"/>
+      <xs:element name="sz" type="w:CT_HpsMeasure" minOccurs="0"/>
+      <xs:element name="szCs" type="w:CT_HpsMeasure" minOccurs="0"/>
+      <xs:element name="highlight" minOccurs="0"/>
+      <xs:element name="u" minOccurs="0"/>
+      <xs:element name="vertAlign" minOccurs="0"/>
+      <xs:element name="smallCaps" minOccurs="0"/>
+      <xs:element name="caps" minOccurs="0"/>
+      <xs:element name="lang" minOccurs="0"/>
+      <xs:element name="shd" minOccurs="0"/>
+      <xs:element name="bdr" minOccurs="0"/>
+      <xs:element name="em" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <!-- ═══ w:tbl — CRITICAL: tblPr → tblGrid → rows ═══════════════════════ -->
+  <xs:complexType name="CT_Table">
+    <xs:sequence>
+      <xs:element name="tblPr" type="w:CT_TblPr" minOccurs="0"/>
+      <xs:element name="tblGrid" type="w:CT_TblGrid" minOccurs="0"/>
+      <xs:element name="tr" type="w:CT_Row" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CT_TblPr">
+    <xs:all minOccurs="0">
+      <xs:element name="tblStyle" type="w:CT_String25" minOccurs="0"/>
+      <xs:element name="tblW" minOccurs="0"/>
+      <xs:element name="jc" minOccurs="0"/>
+      <xs:element name="tblInd" minOccurs="0"/>
+      <xs:element name="tblBorders" minOccurs="0"/>
+      <xs:element name="tblCellMar" minOccurs="0"/>
+      <xs:element name="tblLook" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="CT_TblGrid">
+    <xs:sequence>
+      <xs:element name="gridCol" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="w" type="xs:positiveInteger"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══ w:tr — CRITICAL: trPr before tc ═════════════════════════════════ -->
+  <xs:complexType name="CT_Row">
+    <xs:sequence>
+      <xs:element name="trPr" minOccurs="0">
+        <xs:complexType>
+          <xs:all minOccurs="0">
+            <xs:element name="cntrStyle" minOccurs="0"/>
+            <xs:element name="jc" minOccurs="0"/>
+            <xs:element name="trHeight" minOccurs="0"/>
+            <xs:element name="tblHeader" minOccurs="0"/>
+            <xs:element name="tblCellSpacing" minOccurs="0"/>
+          </xs:all>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="tc" type="w:CT_Cell" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══ w:tc — CRITICAL: tcPr before content, minimum 1 paragraph ═══════ -->
+  <xs:complexType name="CT_Cell">
+    <xs:sequence>
+      <xs:element name="tcPr" type="w:CT_TcPr" minOccurs="0"/>
+      <xs:choice minOccurs="1" maxOccurs="unbounded">
+        <xs:element name="p" type="w:CT_Paragraph"/>
+        <xs:element name="tbl" type="w:CT_Table"/>
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CT_TcPr">
+    <xs:all minOccurs="0">
+      <xs:element name="tcW" minOccurs="0"/>
+      <xs:element name="gridSpan" minOccurs="0"/>
+      <xs:element name="vMerge" minOccurs="0"/>
+      <xs:element name="tcBorders" minOccurs="0"/>
+      <xs:element name="shd" minOccurs="0"/>
+      <xs:element name="noWrap" minOccurs="0"/>
+      <xs:element name="tcMar" minOccurs="0"/>
+      <xs:element name="textDirection" minOccurs="0"/>
+      <xs:element name="vAlign" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <!-- ═══ Section properties ═══════════════════════════════════════════════ -->
+  <xs:complexType name="CT_SectPr">
+    <xs:all minOccurs="0">
+      <xs:element name="type" minOccurs="0"/>
+      <xs:element name="pgSz" minOccurs="0">
+        <xs:complexType>
+          <xs:attribute name="w" type="xs:positiveInteger"/>
+          <xs:attribute name="h" type="xs:positiveInteger"/>
+          <xs:attribute name="orient" default="portrait">
+            <xs:simpleType>
+              <xs:restriction base="xs:string">
+                <xs:enumeration value="portrait"/>
+                <xs:enumeration value="landscape"/>
+              </xs:restriction>
+            </xs:simpleType>
+          </xs:attribute>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="pgMar" minOccurs="0">
+        <xs:complexType>
+          <xs:attribute name="top" type="xs:integer"/>
+          <xs:attribute name="bottom" type="xs:integer"/>
+          <xs:attribute name="left" type="xs:integer"/>
+          <xs:attribute name="right" type="xs:integer"/>
+          <xs:attribute name="header" type="xs:integer"/>
+          <xs:attribute name="footer" type="xs:integer"/>
+          <xs:attribute name="gutter" type="xs:integer"/>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="cols" minOccurs="0"/>
+      <xs:element name="docGrid" minOccurs="0"/>
+      <xs:element name="headerReference" minOccurs="0" maxOccurs="3"/>
+      <xs:element name="footerReference" minOccurs="0" maxOccurs="3"/>
+      <xs:element name="titlePg" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <!-- ═══ Shared attribute/element types ═══════════════════════════════════ -->
+  <xs:complexType name="CT_String25">
+    <xs:attribute name="val" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="CT_DecimalNumber">
+    <xs:attribute name="val" type="xs:integer" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="CT_HpsMeasure">
+    <xs:attribute name="val" type="xs:positiveInteger" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="CT_Color">
+    <xs:attribute name="val" type="xs:string" use="required"/>
+    <xs:attribute name="themeColor" type="xs:string"/>
+  </xs:complexType>
+
+  <xs:complexType name="CT_RFonts">
+    <xs:attribute name="ascii" type="xs:string"/>
+    <xs:attribute name="hAnsi" type="xs:string"/>
+    <xs:attribute name="eastAsia" type="xs:string"/>
+    <xs:attribute name="cs" type="xs:string"/>
+  </xs:complexType>
+
+  <xs:complexType name="CT_Spacing">
+    <xs:attribute name="before" type="xs:nonNegativeInteger"/>
+    <xs:attribute name="after" type="xs:nonNegativeInteger"/>
+    <xs:attribute name="line" type="xs:nonNegativeInteger"/>
+    <xs:attribute name="lineRule">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="auto"/>
+          <xs:enumeration value="exact"/>
+          <xs:enumeration value="atLeast"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+
+  <xs:complexType name="CT_Ind">
+    <xs:attribute name="left" type="xs:nonNegativeInteger"/>
+    <xs:attribute name="right" type="xs:nonNegativeInteger"/>
+    <xs:attribute name="hanging" type="xs:nonNegativeInteger"/>
+    <xs:attribute name="firstLine" type="xs:integer"/>
+  </xs:complexType>
+
+  <xs:complexType name="CT_Jc">
+    <xs:attribute name="val" use="required">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="left"/>
+          <xs:enumeration value="center"/>
+          <xs:enumeration value="right"/>
+          <xs:enumeration value="both"/>
+          <xs:enumeration value="distribute"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:attribute>
+  </xs:complexType>
+
+  <xs:complexType name="CT_NumPr">
+    <xs:sequence>
+      <xs:element name="numId" type="w:CT_DecimalNumber" minOccurs="0"/>
+      <xs:element name="ilvl" type="w:CT_DecimalNumber" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CT_PBdr">
+    <xs:all minOccurs="0">
+      <xs:element name="top" minOccurs="0"/>
+      <xs:element name="bottom" minOccurs="0"/>
+      <xs:element name="left" minOccurs="0"/>
+      <xs:element name="right" minOccurs="0"/>
+      <xs:element name="between" minOccurs="0"/>
+      <xs:element name="bar" minOccurs="0"/>
+    </xs:all>
+  </xs:complexType>
+
+  <xs:complexType name="CT_FtnEdnRef">
+    <xs:attribute name="id" type="xs:integer" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="CT_Text">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="space">
+          <xs:simpleType>
+            <xs:restriction base="xs:string">
+              <xs:enumeration value="preserve"/>
+              <xs:enumeration value="default"/>
+            </xs:restriction>
+          </xs:simpleType>
+        </xs:attribute>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+
+  <xs:complexType name="CT_Hyperlink">
+    <xs:sequence>
+      <xs:element name="r" type="w:CT_Run" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:string"/>
+    <xs:attribute name="anchor" type="xs:string"/>
+  </xs:complexType>
+
+  <xs:complexType name="CT_BookmarkStart">
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="id" type="xs:integer" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="CT_BookmarkEnd">
+    <xs:attribute name="id" type="xs:integer" use="required"/>
+  </xs:complexType>
+
+</xs:schema>

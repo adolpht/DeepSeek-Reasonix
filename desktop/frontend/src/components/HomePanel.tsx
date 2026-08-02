@@ -35,19 +35,19 @@ interface QuickAction {
 
 const QUICK_ACTIONS: Record<WorkspaceType, QuickAction[]> = {
   coding: [
-    { key: "analyzeProject", icon: <Code2 size={20} />, color: "blue", skillCommand: "/explore" },
-    { key: "reviewCode", icon: <GitCompare size={20} />, color: "green", skillCommand: "/review" },
+    { key: "analyzeProject", icon: <Code2 size={20} />, color: "blue", skillCommand: "explore" },
+    { key: "reviewCode", icon: <GitCompare size={20} />, color: "green", skillCommand: "review" },
     { key: "fixBug", icon: <Bug size={20} />, color: "red", skillCommand: "" },
-    { key: "generateTests", icon: <TestTube2 size={20} />, color: "purple", skillCommand: "" },
+    { key: "generateTests", icon: <TestTube2 size={20} />, color: "purple", skillCommand: "generate-tests" },
   ],
   office: [
-    { key: "docWrite", icon: <FileText size={20} />, color: "blue", skillCommand: "/skill doc-write" },
-    { key: "sheetCreate", icon: <Table2 size={20} />, color: "green", skillCommand: "/skill sheet-create" },
-    { key: "makePpt", icon: <Presentation size={20} />, color: "orange", skillCommand: "/skill ppt-create" },
-    { key: "organizeDoc", icon: <FileStack size={20} />, color: "teal", skillCommand: "/skill sheet-clean" },
+    { key: "docWrite", icon: <FileText size={20} />, color: "blue", skillCommand: "minimax-docx" },
+    { key: "sheetCreate", icon: <Table2 size={20} />, color: "green", skillCommand: "minimax-xlsx" },
+    { key: "makePpt", icon: <Presentation size={20} />, color: "orange", skillCommand: "pptx-generator" },
+    { key: "organizeDoc", icon: <FileStack size={20} />, color: "teal", skillCommand: "sheet-clean" },
   ],
   assistant: [
-    { key: "searchResearch", icon: <Search size={20} />, color: "blue", skillCommand: "" },
+    { key: "searchResearch", icon: <Search size={20} />, color: "blue", skillCommand: "research-report" },
     { key: "summarizeArticle", icon: <FileText size={20} />, color: "green", skillCommand: "" },
     { key: "translateContent", icon: <Languages size={20} />, color: "purple", skillCommand: "" },
     { key: "scheduleManage", icon: <CalendarCheck size={20} />, color: "orange", skillCommand: "" },
@@ -122,7 +122,7 @@ export function HomePanel({
   const handleQuickAction = (action: QuickAction) => {
     onSwitchMode(workspaceType);
     if (action.skillCommand) {
-      onActivateSkill(action.skillCommand.startsWith("/") ? action.skillCommand.slice(1) : action.skillCommand);
+      onActivateSkill(action.skillCommand);
     }
   };
 

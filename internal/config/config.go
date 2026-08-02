@@ -17,11 +17,16 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"rexion/internal/credential"
 	"rexion/internal/netclient"
 	"rexion/internal/provider"
 )
 
 var validSkillName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
+
+// credentialStore is the process-level secure store, used as a fallback when
+// an API key is not found in the environment. Initialized lazily.
+var credentialStore = credential.New()
 
 // IsValidSkillName reports whether name is a usable skill identifier.
 func IsValidSkillName(name string) bool { return validSkillName.MatchString(name) }
@@ -686,6 +691,10 @@ type AgentConfig struct {
 	// ReadinessLevel sets the quality bar for accepting a final answer:
 	// "basic" (default), "verified", or "merge-ready".
 	ReadinessLevel string `toml:"readiness_level"`
+	// BuiltinRules controls the always-on code-efficiency ruleset (the
+	// ponytail "lazy senior dev" ladder). "on" (default) folds it into the
+	// cache-stable prefix; "off" skips it entirely.
+	BuiltinRules string `toml:"builtin_rules"`
 }
 
 // AgentPoolConfig for multi-agent parallel orchestration
@@ -1866,11 +1875,20 @@ func (c *Config) ResolveModelWithFallback(ref string) (resolvedRef string, fallb
 }
 
 // APIKey resolves the entry's API key from its api_key_env.
+// It first checks os.Getenv; if empty, falls back to the DPAPI-secured
+// credential store so that keys entered via the GUI survive a shell restart.
 func (e *ProviderEntry) APIKey() string {
 	if e.APIKeyEnv == "" {
 		return ""
 	}
-	return os.Getenv(e.APIKeyEnv)
+	if v := os.Getenv(e.APIKeyEnv); v != "" {
+		return v
+	}
+	// Fallback: check the secure credential store.
+	if v, err := credentialStore.Get(e.APIKeyEnv); err == nil {
+		return v
+	}
+	return ""
 }
 
 // Configured reports whether the provider's api_key_env is set — the same check

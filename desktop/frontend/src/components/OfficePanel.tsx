@@ -30,9 +30,9 @@ export function OfficePanel({
   const handleClick = (card: OfficeCard) => {
     const skillNames: Record<string, string> = {
       productDesign: "product-design",
-      docWrite: "doc-write",
-      sheetCreate: "sheet-create",
-      pptCreate: "ppt-create",
+      docWrite: "minimax-docx",
+      sheetCreate: "minimax-xlsx",
+      pptCreate: "pptx-generator",
       sheetClean: "sheet-clean",
       sheetAnalysis: "sheet-analysis",
     };

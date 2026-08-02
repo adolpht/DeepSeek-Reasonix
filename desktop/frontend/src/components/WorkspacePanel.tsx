@@ -28,6 +28,7 @@ import {
   Trash2,
   X,
   FilePlus,
+  FileX,
 } from "lucide-react";
 import { app, onWorkspaceFilesChanged } from "../lib/bridge";
 import { useT } from "../lib/i18n";
@@ -177,6 +178,7 @@ function formatBytes(n: number): string {
 export function WorkspacePanel({
   open,
   cwd,
+  tabId,
   maximized,
   panelWidth,
   onClose,
@@ -190,6 +192,7 @@ export function WorkspacePanel({
 }: {
   open: boolean;
   cwd?: string;
+  tabId?: string;
   maximized: boolean;
   panelWidth?: number;
   onClose: () => void;
@@ -755,6 +758,33 @@ export function WorkspacePanel({
     }
   };
 
+  const addToGitignore = useCallback(async (path: string) => {
+    if (!tabId) return;
+    setTreeMenu(null);
+    try {
+      // Read existing .gitignore content
+      const existing = await app.ReadFile(".gitignore");
+      const lines = existing.body.split("\n");
+      // Normalize path: replace backslashes with forward slashes for .gitignore
+      const ignorePath = path.replace(/\\/g, "/");
+      // Check if the path (or a pattern matching it) is already in .gitignore
+      const alreadyIgnored = lines.some((line) => {
+        const trimmed = line.trim();
+        return trimmed !== "" && !trimmed.startsWith("#") && trimmed === ignorePath;
+      });
+      if (alreadyIgnored) return;
+      // Append the path to .gitignore
+      const newContent = existing.body.endsWith("\n")
+        ? existing.body + ignorePath + "\n"
+        : existing.body + "\n" + ignorePath + "\n";
+      await app.ExportToWorkspace(tabId, ".gitignore", newContent);
+    } catch {
+      // .gitignore doesn't exist yet — create it
+      const ignorePath = path.replace(/\\/g, "/");
+      await app.ExportToWorkspace(tabId, ".gitignore", ignorePath + "\n");
+    }
+  }, [tabId]);
+
   const renderRows = (dir: string, depth: number): JSX.Element[] => {
     const entries = entriesByDir[dir] ?? [];
     const rows: JSX.Element[] = [];
@@ -932,6 +962,13 @@ export function WorkspacePanel({
         onSelect: () => void addTreeFileToChat(),
       });
     }
+    items.push({ type: "separator" as const, key: "git-separator" });
+    items.push({
+      key: "add-to-gitignore",
+      icon: <FileX size={13} />,
+      label: t("workspace.addToGitignore"),
+      onSelect: () => void addToGitignore(path),
+    });
     items.push({ type: "separator" as const, key: "system-separator" });
     items.push(
       {
@@ -954,7 +991,7 @@ export function WorkspacePanel({
       },
     );
     return items;
-  }, [clipboardOp, confirmDeletePath, handleCopy, handleCut, handlePaste, handleTrash, platform, startCreateIn, startRename, t, addTreeReferenceToChat, addTreeFileToChat]);
+  }, [clipboardOp, confirmDeletePath, handleCopy, handleCut, handlePaste, handleTrash, platform, startCreateIn, startRename, t, addTreeReferenceToChat, addTreeFileToChat, addToGitignore]);
 
   const treeBlankMenuItems: ContextMenuItem[] = [
     {

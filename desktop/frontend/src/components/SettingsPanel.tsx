@@ -26,9 +26,10 @@ import { InlineConfirmButton } from "./InlineConfirmButton";
 import { Tooltip } from "./Tooltip";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { MCPServersSettingsPage, OfficePluginsSettingsPage, SkillsSettingsPage } from "./CapabilitiesPanel";
+import { DataVaultPanel } from "./DataVaultPanel";
 import { MemorySettingsPage } from "./MemoryPanel";
 
-const SETTINGS_TABS: SettingsTab[] = ["general", "models", "mcp", "officePlugins", "skills", "memory", "permissions", "sandbox", "network", "appearance", "updates"];
+const SETTINGS_TABS: SettingsTab[] = ["general", "models", "mcp", "officePlugins", "skills", "memory", "permissions", "sandbox", "network", "appearance", "updates", "datavault"];
 
 // SettingsPanel is the desktop settings centre — a centred modal with left
 // navigation and a right content area. It hosts all settings pages plus MCP,
@@ -169,6 +170,7 @@ export function SettingsPanel({ onClose, onChanged, initialTab, autoSwitchMode, 
                   </SettingsPageShell>
                 )}
                 {tab === "updates" && s && <SettingsPageShell s={s} tab={tab} busy={busy} apply={apply}><UpdatesSection configPath={s.configPath} /></SettingsPageShell>}
+                {tab === "datavault" && <DataVaultPanel onClose={onClose} />}
               </>
             )}
           </main>
@@ -200,6 +202,7 @@ function settingsPageKind(tab: SettingsTab): "form" | "manager" {
     case "officePlugins":
     case "skills":
     case "memory":
+    case "datavault":
       return "manager";
     default:
       return "form";
@@ -298,6 +301,8 @@ function settingsTabLabel(id: SettingsTab, t: ReturnType<typeof useT>): string {
       return t("settings.tab.appearance");
     case "updates":
       return t("settings.tab.updates");
+    case "datavault":
+      return t("datavault.title");
   }
 }
 
@@ -327,6 +332,10 @@ function settingsTabMeta(id: SettingsTab, s: SettingsView, t: ReturnType<typeof 
       return t("settings.appearanceMeta");
     case "updates":
       return t("settings.updatesMeta");
+    case "datavault":
+      return t("datavault.title");
+    default:
+      return "";
   }
 }
 

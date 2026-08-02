@@ -37,9 +37,21 @@ export const zh: Record<DictKey, string> = {
   "palette.sessions": "会话",
   "palette.navigation": "导航",
   "palette.actions": "操作",
+  "palette.skills": "技能",
+  "palette.workflows": "工作流",
   "palette.footNavigate": "选择",
   "palette.footRun": "运行",
   "palette.footClose": "关闭",
+
+  // 快捷键
+  "shortcuts.title": "快捷键",
+  "shortcuts.newSession": "新建会话",
+  "shortcuts.focusInput": "聚焦输入框",
+  "shortcuts.toggleSidebar": "切换侧边栏",
+  "shortcuts.toggleDock": "切换右侧面板",
+  "shortcuts.newTab": "新建项目标签页",
+  "shortcuts.closeTab": "关闭标签页",
+  "shortcuts.commandPalette": "命令面板",
 
   // 通知中心
   "notifications.clearAll": "清除全部",
@@ -220,6 +232,7 @@ export const zh: Record<DictKey, string> = {
   "workspace.createError": "创建失败",
   "workspace.pasteError": "粘贴失败",
   "workspace.alreadyExists": "同名文件或文件夹已存在",
+  "workspace.addToGitignore": "添加到 .gitignore",
 
   // MCP 与技能抽屉
   "caps.title": "MCP 与技能",
@@ -540,6 +553,10 @@ export const zh: Record<DictKey, string> = {
   "approval.allowSession": "本会话内允许",
   "approval.allowPersistent": "总是允许（保存）",
   "approval.sideEffect": "将执行",
+  "approval.autoApprove": "自动",
+  "approval.countdown": "{s}秒后自动允许",
+  "approval.suggestSession": "此工具已批准 {n} 次",
+  "approval.suggestSessionAction": "本会话内允许",
 
   // 提问卡片
   "ask.title": "需要你决定",
@@ -1218,6 +1235,39 @@ export const zh: Record<DictKey, string> = {
   "context.time": "耗时",
   "context.durationSeconds": "{seconds}秒",
   "context.durationMinutesSeconds": "{minutes}分{seconds}秒",
+  "context.compactionHistory": "压缩历史",
+  "context.compactionMeta": "{count} 次压缩",
+  "context.compactionNote": "当前会话进行了 {count} 次上下文压缩",
+  "context.noCompactions": "暂无压缩记录",
+  "context.filterCompactions": "筛选压缩记录...",
+  "context.compactAuto": "自动压缩",
+  "context.compactManual": "手动压缩",
+  "context.compactMessages": "已折叠 {count} 条消息",
+  "context.compactMore": "还有 {count} 次",
+  "context.compactRunning": "正在压缩…",
+  "context.compactSummary": "查看压缩摘要",
+  "context.memoryEntries": "记忆条目",
+  "context.memoryMeta": "{count} 条记忆",
+  "context.memoryNote": "Agent 记忆中存储了 {count} 条事实",
+  "context.noMemory": "暂无记忆条目",
+  "context.filterMemory": "筛选记忆...",
+  "context.memoryAvailable": "Agent 记忆可用",
+
+  // 数据金库面板
+  "datavault.title": "数据金库",
+  "datavault.description": "查看所有数据存储位置、导出备份或焚毁可删除数据。",
+  "datavault.locations": "数据位置",
+  "datavault.totalSize": "总计：{size}",
+  "datavault.noLocations": "未找到数据位置",
+  "datavault.export": "导出全部数据",
+  "datavault.exporting": "导出中…",
+  "datavault.exportSuccess": "已导出到 {path}",
+  "datavault.purge": "焚毁可删除数据",
+  "datavault.purgeConfirm": "此操作将永久删除会话、记忆和凭证数据，不可恢复。",
+  "datavault.purgeYes": "确认焚毁",
+  "datavault.purgeNo": "取消",
+  "datavault.purging": "焚毁中…",
+  "datavault.purgeSuccess": "所有可删除数据已焚毁。",
 
   // 崩溃兜底页
   "crash.title": "Rexion 遇到错误 —— 请截图发送",

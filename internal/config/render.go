@@ -85,6 +85,10 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 		}
 		b.WriteString("\n")
 
+		b.WriteString("[desktop.coding]\n")
+		fmt.Fprintf(&b, "openspec_enabled = %v   # enable the 10 built-in opsx-* SDD skills in the coding workspace\n", c.Desktop.Coding.OpenSpecEnabled)
+		b.WriteString("\n")
+
 		b.WriteString("[notifications]\n")
 		fmt.Fprintf(&b, "enabled = %v   # system notifications for CLI chat/run; default off\n", c.Notifications.Enabled)
 		fmt.Fprintf(&b, "turn_done = %v   # notify when a turn finishes\n", c.Notifications.TurnDone)
@@ -195,6 +199,11 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 		fmt.Fprintf(&b, "output_style = %q   # persona/tone folded into the prompt\n", c.Agent.OutputStyle)
 	} else {
 		b.WriteString("# output_style = \"explanatory\"   # explanatory | learning | concise | custom; empty = default\n")
+	}
+	if !BuiltinRulesEnabled(c.Agent.BuiltinRules) {
+		b.WriteString("builtin_rules = \"off\"   # on (default) | off; the code-efficiency ladder in the system prompt\n")
+	} else {
+		b.WriteString("# builtin_rules = \"off\"   # on (default) | off; the code-efficiency ladder in the system prompt\n")
 	}
 	b.WriteString("\n")
 

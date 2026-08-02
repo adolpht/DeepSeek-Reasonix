@@ -36,9 +36,21 @@ export const en = {
   "palette.sessions": "Sessions",
   "palette.navigation": "Navigation",
   "palette.actions": "Actions",
+  "palette.skills": "Skills",
+  "palette.workflows": "Workflows",
   "palette.footNavigate": "navigate",
   "palette.footRun": "run",
   "palette.footClose": "close",
+
+  // Keyboard shortcuts
+  "shortcuts.title": "Shortcuts",
+  "shortcuts.newSession": "New session",
+  "shortcuts.focusInput": "Focus input",
+  "shortcuts.toggleSidebar": "Toggle sidebar",
+  "shortcuts.toggleDock": "Toggle right dock",
+  "shortcuts.newTab": "New project tab",
+  "shortcuts.closeTab": "Close tab",
+  "shortcuts.commandPalette": "Command palette",
 
   // Notifications
   "notifications.clearAll": "Clear all",
@@ -219,6 +231,7 @@ export const en = {
   "workspace.createError": "Failed to create",
   "workspace.pasteError": "Failed to paste",
   "workspace.alreadyExists": "A file or folder with this name already exists",
+  "workspace.addToGitignore": "Add to .gitignore",
 
   // mcp & skills drawer
   "caps.title": "MCP & Skills",
@@ -539,6 +552,10 @@ export const en = {
   "approval.allowSession": "Allow for session",
   "approval.allowPersistent": "Always allow (save)",
   "approval.sideEffect": "Will execute",
+  "approval.autoApprove": "auto",
+  "approval.countdown": "Auto-approve in {s}s",
+  "approval.suggestSession": "This tool has been approved {n} times",
+  "approval.suggestSessionAction": "Allow for session",
 
   // ask card
   "ask.title": "Need your decision",
@@ -1217,6 +1234,39 @@ export const en = {
   "context.time": "Time",
   "context.durationSeconds": "{seconds}s",
   "context.durationMinutesSeconds": "{minutes}m {seconds}s",
+  "context.compactionHistory": "Compaction history",
+  "context.compactionMeta": "{count} compactions",
+  "context.compactionNote": "This session had {count} compaction passes",
+  "context.noCompactions": "No compactions yet",
+  "context.filterCompactions": "Filter compactions...",
+  "context.compactAuto": "Auto compaction",
+  "context.compactManual": "Manual compaction",
+  "context.compactMessages": "{count} messages folded",
+  "context.compactMore": "+{count} more",
+  "context.compactRunning": "Running…",
+  "context.compactSummary": "Show compaction summaries",
+  "context.memoryEntries": "Memory entries",
+  "context.memoryMeta": "{count} facts",
+  "context.memoryNote": "Agent memory has {count} stored facts",
+  "context.noMemory": "No memory entries yet",
+  "context.filterMemory": "Filter memory...",
+  "context.memoryAvailable": "Agent memory available",
+
+  // DataVault panel
+  "datavault.title": "Data Vault",
+  "datavault.description": "View all stored data locations, export a backup, or purge removable data.",
+  "datavault.locations": "Data locations",
+  "datavault.totalSize": "Total: {size}",
+  "datavault.noLocations": "No data locations found",
+  "datavault.export": "Export all data",
+  "datavault.exporting": "Exporting…",
+  "datavault.exportSuccess": "Exported to {path}",
+  "datavault.purge": "Purge removable data",
+  "datavault.purgeConfirm": "This will permanently delete sessions, memory, and credentials. This cannot be undone.",
+  "datavault.purgeYes": "Purge",
+  "datavault.purgeNo": "Cancel",
+  "datavault.purging": "Purging…",
+  "datavault.purgeSuccess": "All removable data has been purged.",
 
   // crash page
   "crash.title": "Rexion hit an error — screenshot this and send it over",

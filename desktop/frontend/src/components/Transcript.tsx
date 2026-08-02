@@ -309,7 +309,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
   // ── Layer state ────────────────────────────────────────────────────────────
   const [expandedWarmTurns, setExpandedWarmTurns] = useState<Set<number>>(new Set());
   const [coldPage, setColdPage] = useState(0);
-
   // Compute turn groups (memoised — only rebuilds when user turns change,
   // not on every streaming token). The warm previews are static once built.
   const turnGroupKey = questions.length;

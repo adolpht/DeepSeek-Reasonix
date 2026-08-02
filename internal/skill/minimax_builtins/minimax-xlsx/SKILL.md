@@ -1,11 +1,11 @@
 ---
 name: minimax-xlsx
-description: "Excel 电子表格创建、读取、分析、编辑和验证 — XML 模板创建、pandas 分析、零格式损失编辑、公式验证、专业财务格式"
+description: "Excel 电子表格创建、读取、分析、编辑和验证 — MCP 工具驱动，支持 XML 模板创建、零格式损失编辑、公式验证、专业财务格式"
 runAs: subagent
 allowed-tools: read_file, ls, glob, grep, bash, write_file, write_sheet, mcp__sheet__read_sheet, mcp__sheet__write_sheet, mcp__sheet__query_sheet
 license: MIT
 metadata:
-  version: "1.0"
+  version: "2.0"
   category: productivity
   author: MiniMaxAI
 ---
@@ -14,48 +14,105 @@ metadata:
 
 Handle the request directly. Do NOT spawn sub-agents. Always write the output file the user requests.
 
+## Execution Paths (Priority Order)
+
+### Path 1: MCP Tools (ALWAYS available, PREFERRED)
+
+The `write_sheet` / `mcp__sheet__write_sheet`, `read_sheet` / `mcp__sheet__read_sheet`, and `query_sheet` / `mcp__sheet__query_sheet` tools handle most spreadsheet operations without any external dependencies.
+
+**Capabilities:**
+- **READ**: Read sheet data, headers, dimensions, cell values
+- **CREATE**: Create new workbooks with sheets, data, formulas, formatting
+- **EDIT**: Modify existing cells, add formulas, change formatting
+- **QUERY**: Aggregate data (SUM, AVG, COUNT, etc.) across ranges
+- **CHART**: Generate charts from data
+
+**When to use:** All spreadsheet creation, data entry, simple-to-moderate editing, and analysis tasks.
+
+### Path 2: Python Scripts (for XML-level operations)
+
+For tasks requiring direct XML manipulation (unpack → edit XML → pack), use the Python scripts under `SKILL_DIR/scripts/`. These use only Python standard library — no openpyxl or pandas required.
+
+**Setup check:** Verify Python 3 is available: `python3 --version`. Scripts are at `SKILL_DIR/scripts/`.
+
+**When to use:** Precise XML-level edits, formula validation, row/column insertion with formula shifting, zero-format-loss editing of existing files.
+
+### Path 3: Python + pandas (for data analysis)
+
+For complex data analysis, use pandas (if available). For basic analysis, Path 1's `query_sheet` is sufficient.
+
+**When to use:** Custom aggregation, statistical analysis, pivot tables, data transformation.
+
 ## Task Routing
 
-| Task | Method | Guide |
-|------|--------|-------|
-| **READ** — analyze existing data | `xlsx_reader.py` + pandas | `references/read-analyze.md` |
-| **CREATE** — new xlsx from scratch | XML template | `references/create.md` + `references/format.md` |
-| **EDIT** — modify existing xlsx | XML unpack→edit→pack | `references/edit.md` (+ `format.md` if styling needed) |
-| **FIX** — repair broken formulas in existing xlsx | XML unpack→fix `<f>` nodes→pack | `references/fix.md` |
-| **VALIDATE** — check formulas | `formula_check.py` | `references/validate.md` |
+| Task | Primary Path | Fallback |
+|------|-------------|----------|
+| **READ** — analyze existing data | MCP `read_sheet` / `query_sheet` | Path 2: `xlsx_reader.py` |
+| **CREATE** — new xlsx from scratch | MCP `write_sheet` | Path 2: XML template |
+| **EDIT** — modify existing xlsx | MCP `write_sheet` (simple) / Path 2 (XML-level) | Path 2: unpack→edit→pack |
+| **FIX** — repair broken formulas | Path 2: XML unpack→fix→pack | MCP `write_sheet` to rewrite |
+| **VALIDATE** — check formulas | Path 2: `formula_check.py` | Manual formula review |
 
-## READ — Analyze data (read `references/read-analyze.md` first)
+## READ — Analyze data
 
-Start with `xlsx_reader.py` for structure discovery, then pandas for custom analysis. Never modify the source file.
+**Primary (MCP):**
+```
+mcp__sheet__read_sheet({ path: "input.xlsx", sheet: "Sheet1", max_rows: 1000 })
+mcp__sheet__query_sheet({ path: "input.xlsx", query: "SELECT * FROM Sheet1 WHERE A > 100" })
+```
 
-**Formatting rule**: When the user specifies decimal places (e.g. "2 decimal places"), apply that format to ALL numeric values — use `f'{v:.2f}'` on every number. Never output `12875` when `12875.00` is required.
+**Advanced (Python):** If `SKILL_DIR/scripts/` exists:
+```bash
+python3 SKILL_DIR/scripts/xlsx_reader.py input.xlsx
+```
 
-**Aggregation rule**: Always compute sums/means/counts directly from the DataFrame column — e.g. `df['Revenue'].sum()`. Never re-derive column values before aggregation.
+**Formatting rule**: When the user specifies decimal places (e.g. "2 decimal places"), apply that format to ALL numeric values. Never output `12875` when `12875.00` is required.
 
-## CREATE — XML template (read `references/create.md` + `references/format.md`)
+**Aggregation rule**: Always compute sums/means/counts directly from the data — never re-derive column values before aggregation.
 
-Copy `templates/minimal_xlsx/` → edit XML directly → pack with `xlsx_pack.py`. Every derived value MUST be an Excel formula (`<f>SUM(B2:B9)</f>`), never a hardcoded number. Apply font colors per `format.md`.
+## CREATE — New spreadsheet
 
-## EDIT — XML direct-edit (read `references/edit.md` first)
+**Primary (MCP):**
+```
+mcp__sheet__write_sheet({
+  path: "output.xlsx",
+  sheet: "Sheet1",
+  headers: ["A", "B", "C"],
+  rows: [[1, 2, 3], [4, 5, 6]],
+  formulas: { "C2": "=SUM(A2:B2)" }
+})
+```
+
+**Advanced (XML template):** If `SKILL_DIR/scripts/` exists, read `references/create.md` + `references/format.md`:
+```bash
+# Copy SKILL_DIR/templates/minimal_xlsx/ → edit XML directly → pack
+python3 SKILL_DIR/scripts/xlsx_pack.py /tmp/xlsx_work/ output.xlsx
+```
+Every derived value MUST be an Excel formula, never a hardcoded number.
+
+## EDIT — Modify existing spreadsheet
+
+**Primary (MCP, for simple edits):**
+```
+mcp__sheet__write_sheet({ path: "input.xlsx", sheet: "Sheet1", cells: { "B3": "new value" } })
+```
+
+**Advanced (XML-level, zero format loss):** Read `references/edit.md` first.
 
 **CRITICAL — EDIT INTEGRITY RULES:**
 1. **NEVER create a new `Workbook()`** for edit tasks. Always load the original file.
 2. The output MUST contain the **same sheets** as the input (same names, same data).
 3. Only modify the specific cells the task asks for — everything else must be untouched.
-4. **After saving output.xlsx, verify it**: open with `xlsx_reader.py` or `pandas` and confirm the original sheet names and a sample of original data are present. If verification fails, you wrote the wrong file — fix it before delivering.
+4. **After saving, verify**: open with `read_sheet` and confirm original sheet names and sample data are present.
 
-Never use openpyxl round-trip on existing files (corrupts VBA, pivots, sparklines). Instead: unpack → use helper scripts → repack.
-
-**"Fill cells" / "Add formulas to existing cells" = EDIT task.** If the input file already exists and you are told to fill, update, or add formulas to specific cells, you MUST use the XML edit path. Never create a new `Workbook()`. Example — fill B3 with a cross-sheet SUM formula:
+**XML edit workflow (if scripts available):**
 ```bash
 python3 SKILL_DIR/scripts/xlsx_unpack.py input.xlsx /tmp/xlsx_work/
-# Find the target sheet's XML via xl/workbook.xml → xl/_rels/workbook.xml.rels
-# Then use the Edit tool to add <f> inside the target <c> element:
-#   <c r="B3"><f>SUM('Sales Data'!D2:D13)</f><v></v></c>
+# ... edit XML with the Edit tool ...
 python3 SKILL_DIR/scripts/xlsx_pack.py /tmp/xlsx_work/ output.xlsx
 ```
 
-**Add a column** (formulas, numfmt, styles auto-copied from adjacent column):
+**Add a column (if scripts available):**
 ```bash
 python3 SKILL_DIR/scripts/xlsx_unpack.py input.xlsx /tmp/xlsx_work/
 python3 SKILL_DIR/scripts/xlsx_add_column.py /tmp/xlsx_work/ --col G \
@@ -65,48 +122,29 @@ python3 SKILL_DIR/scripts/xlsx_add_column.py /tmp/xlsx_work/ --col G \
     --border-row 10 --border-style medium
 python3 SKILL_DIR/scripts/xlsx_pack.py /tmp/xlsx_work/ output.xlsx
 ```
-The `--border-row` flag applies a top border to ALL cells in that row (not just the new column). Use it when the task requires accounting-style borders on total rows.
 
-**Insert a row** (shifts existing rows, updates SUM formulas, fixes circular refs):
+**Insert a row (if scripts available):**
 ```bash
 python3 SKILL_DIR/scripts/xlsx_unpack.py input.xlsx /tmp/xlsx_work/
-# IMPORTANT: Find the correct --at row by searching for the label text
-# in the worksheet XML, NOT by using the row number from the prompt.
-# The prompt may say "row 5 (Office Rent)" but Office Rent might actually
-# be at row 4. Always locate the row by its text label first.
 python3 SKILL_DIR/scripts/xlsx_insert_row.py /tmp/xlsx_work/ --at 5 \
     --sheet "Budget FY2025" --text A=Utilities \
     --values B=3000 C=3000 D=3500 E=3500 \
     --formula 'F=SUM(B{row}:E{row})' --copy-style-from 4
 python3 SKILL_DIR/scripts/xlsx_pack.py /tmp/xlsx_work/ output.xlsx
 ```
-**Row lookup rule**: When the task says "after row N (Label)", always find the row by searching for "Label" in the worksheet XML (`grep -n "Label" /tmp/xlsx_work/xl/worksheets/sheet*.xml` or check sharedStrings.xml). Use the actual row number + 1 for `--at`. Do NOT call `xlsx_shift_rows.py` separately — `xlsx_insert_row.py` calls it internally.
 
-**Apply row-wide borders** (e.g. accounting line on a TOTAL row):
-After running helper scripts, apply borders to ALL cells in the target row, not just newly added cells. In `xl/styles.xml`, append a new `<border>` with the desired style, then append a new `<xf>` in `<cellXfs>` that clones each cell's existing `<xf>` but sets the new `borderId`. Apply the new style index to every `<c>` in the row via the `s` attribute:
-```xml
-<!-- In xl/styles.xml, append to <borders>: -->
-<border>
-  <left/><right/><top style="medium"/><bottom/><diagonal/>
-</border>
-<!-- Then append to <cellXfs> an xf clone with the new borderId for each existing style -->
-```
-**Key rule**: When a task says "add a border to row N", iterate over ALL cells A through the last column, not just newly added cells.
+## FIX — Repair broken formulas
 
-**Manual XML edit** (for anything the helper scripts don't cover):
+Read `references/fix.md` first. Unpack → fix broken `<f>` nodes → pack. Preserve all original sheets and data.
+
+## VALIDATE — Check formulas
+
+**If scripts available:**
 ```bash
-python3 SKILL_DIR/scripts/xlsx_unpack.py input.xlsx /tmp/xlsx_work/
-# ... edit XML with the Edit tool ...
-python3 SKILL_DIR/scripts/xlsx_pack.py /tmp/xlsx_work/ output.xlsx
+python3 SKILL_DIR/scripts/formula_check.py file.xlsx --json    # JSON output
+python3 SKILL_DIR/scripts/formula_check.py file.xlsx --report  # Human-readable report
 ```
-
-## FIX — Repair broken formulas (read `references/fix.md` first)
-
-This is an EDIT task. Unpack → fix broken `<f>` nodes → pack. Preserve all original sheets and data.
-
-## VALIDATE — Check formulas (read `references/validate.md` first)
-
-Run `formula_check.py` for static validation. Use `libreoffice_recalc.py` for dynamic recalculation when available.
+Exit code 0 = all formulas valid.
 
 ## Financial Color Standard
 
@@ -119,12 +157,11 @@ Run `formula_check.py` for static validation. Use `libreoffice_recalc.py` for dy
 ## Key Rules
 
 1. **Formula-First**: Every calculated cell MUST use an Excel formula, not a hardcoded number
-2. **CREATE → XML template**: Copy minimal template, edit XML directly, pack with `xlsx_pack.py`
-3. **EDIT → XML**: Never openpyxl round-trip. Use unpack/edit/pack scripts
-4. **Always produce the output file** — this is the #1 priority
-5. **Validate before delivery**: `formula_check.py` exit code 0 = safe
+2. **MCP-first**: Use MCP tools by default; fall back to Python scripts only for XML-level operations
+3. **Always produce the output file** — this is the #1 priority
+4. **Validate before delivery**: If scripts available, run `formula_check.py`; otherwise verify formulas manually
 
-## Utility Scripts
+## Utility Scripts (if SKILL_DIR/scripts/ exists)
 
 ```bash
 python3 SKILL_DIR/scripts/xlsx_reader.py input.xlsx                 # structure discovery

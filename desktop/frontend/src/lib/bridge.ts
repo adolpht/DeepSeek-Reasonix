@@ -70,6 +70,7 @@ import type {
   WorkspaceView,
   WorkflowView,
   WorkflowRunStateView,
+  DataVaultView,
 } from "./types";
 
 // AppBindings is derived from the Wails-generated Go → TS method signatures, so
@@ -210,6 +211,10 @@ export interface AppBindings {
   SavePKMFile(name: string, content: string): Promise<void>;
   AppendPKMFile(name: string, content: string): Promise<void>;
   SuppressAutoLearnTypeForTab(tabID: string, type: string): Promise<void>;
+  // DataVault — data inventory, export, and purge
+  DataVault(): Promise<DataVaultView>;
+  DataVaultExport(): Promise<string>;
+  DataVaultPurge(): Promise<void>;
   // Recipe management bindings
   SaveRecipe(r: RecipeView): Promise<void>;
   LoadRecipe(name: string): Promise<RecipeView>;
@@ -1711,6 +1716,16 @@ function makeMockApp(): AppBindings {
     },
     async SuppressAutoLearnTypeForTab(_tabID: string, _type: string) {
       // Browser mock: no-op
+    },
+    // DataVault mock methods
+    async DataVault(): Promise<DataVaultView> {
+      return { locations: [], totalSize: 0 };
+    },
+    async DataVaultExport(): Promise<string> {
+      return "";
+    },
+    async DataVaultPurge() {
+      // no-op
     },
     // Recipe management mock methods
     async SaveRecipe(r: RecipeView) {

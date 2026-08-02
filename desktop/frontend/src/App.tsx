@@ -29,7 +29,7 @@ import { StatusBar } from "./components/StatusBar";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { UpdateBanner } from "./components/UpdateBanner";
-import { ContextPanel } from "./components/ContextPanel";
+import { ContextPanel, type CompactionRecord, type MemoryFactBrief } from "./components/ContextPanel";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { Tooltip } from "./components/Tooltip";
@@ -47,7 +47,6 @@ import { SessionSync } from "./components/SessionSync";
 import { SupervisionOverlay } from "./components/SupervisionOverlay";
 import type { SupervisionAction } from "./components/SupervisionOverlay";
 import { CalendarPanel } from "./components/CalendarPanel";
-import { SessionSidebar } from "./components/SessionSidebar";
 import { SideChat } from "./components/SideChat";
 import { IMSessionsPanel } from "./components/IMSessionsPanel";
 import { SchedulerPanel } from "./components/SchedulerPanel";
@@ -64,7 +63,7 @@ import { CommandPalette, type PaletteItem } from "./components/CommandPalette";
 import { NotificationCenter, NotificationBell } from "./components/NotificationCenter";
 import { diffsFor, docExportPath, parseTodos } from "./lib/tools";
 import { shouldShowTodoPanel } from "./lib/todoVisibility";
-import type { ComposerInsertRequest, Mode, SessionMeta, SettingsTab, TabMeta, WorkspaceType } from "./lib/types";
+import type { ComposerInsertRequest, Mode, SessionMeta, SettingsTab, SkillView, TabMeta, WorkflowView, WorkspaceType } from "./lib/types";
 import { loadLayoutSize, saveLayoutSize } from "./lib/layoutPreferences";
 import {
   applyTheme,
@@ -455,7 +454,11 @@ export default function App() {
   // CommandPalette (⌘K/Ctrl+K) and NotificationCenter drawer state.
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
-  const [sessionSidebarOpen, setSessionSidebarOpen] = useState(false);
+  // Palette data: cached skills & workflows, fetched when the palette opens.
+  const [paletteSkills, setPaletteSkills] = useState<SkillView[]>([]);
+  const [paletteWorkflows, setPaletteWorkflows] = useState<WorkflowView[]>([]);
+  // Context panel memory facts, fetched alongside the dock refresh.
+  const [contextMemoryFacts, setContextMemoryFacts] = useState<MemoryFactBrief[]>([]);
   const [sideChatOpen, setSideChatOpen] = useState(false);
   const topicRenameSkipCommitRef = useRef(false);
   const topicRenameCommitHandledRef = useRef(false);
@@ -992,6 +995,45 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+
+
+  // Prefetch skills & workflows when the palette opens so the items are
+  // available by the time the user starts typing.
+  useEffect(() => {
+    if (!commandPaletteOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [caps, wfs] = await Promise.all([
+          app.Capabilities().catch(() => ({ skills: [] as SkillView[] })),
+          app.ListWorkflows().catch(() => [] as WorkflowView[]),
+        ]);
+        if (!cancelled) {
+          setPaletteSkills(caps.skills ?? []);
+          setPaletteWorkflows(wfs ?? []);
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [commandPaletteOpen]);
+
+  // Refresh memory facts when the context dock is shown or dockRefreshKey changes.
+  useEffect(() => {
+    if (rightDockMode !== "context") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const mem = await app.Memory().catch(() => null);
+        if (!cancelled && mem) {
+          setContextMemoryFacts((mem.facts ?? []).map((f) => ({
+            name: f.name, title: f.title ?? "", description: f.description, type: f.type,
+          })));
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [rightDockMode, dockRefreshKey]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1221,6 +1263,67 @@ export default function App() {
     setWorkspacePanelOpen(false);
   }, [workspacePanelOpen]);
 
+  // Global keyboard shortcuts for common operations.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const inInput = tag === "input" || tag === "textarea" || (target?.isContentEditable ?? false);
+
+      // Ctrl/Cmd+N: New session
+      if (!e.shiftKey && !e.altKey && e.key === "n") {
+        if (inInput) return;
+        e.preventDefault();
+        cancel();
+        void newSession();
+        return;
+      }
+
+      // Ctrl/Cmd+L: Focus composer input
+      if (!e.shiftKey && !e.altKey && e.key === "l") {
+        e.preventDefault();
+        const textarea = document.querySelector<HTMLTextAreaElement>(".composer__input");
+        if (textarea) textarea.focus();
+        return;
+      }
+
+      // Ctrl/Cmd+.: Toggle sidebar
+      if (!e.shiftKey && !e.altKey && e.key === ".") {
+        e.preventDefault();
+        setSidebarCollapsed((v) => {
+          const next = !v;
+          saveSidebarCollapsed(next);
+          return next;
+        });
+        return;
+      }
+
+      // Ctrl/Cmd+Shift+L: Toggle right dock visibility
+      if (e.shiftKey && !e.altKey && e.key === "L") {
+        e.preventDefault();
+        if (workspacePanelOpen) {
+          closeWorkspacePanel();
+        } else {
+          openWorkspacePanel("preview");
+        }
+        return;
+      }
+
+      // Ctrl/Cmd+W: Close current tab (only if multiple tabs exist)
+      if (!e.shiftKey && !e.altKey && e.key === "w") {
+        if (inInput) return;
+        if (tabMetas.length <= 1) return;
+        e.preventDefault();
+        if (activeTabId) void closeTab(activeTabId);
+        return;
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [cancel, newSession, setSidebarCollapsed, workspacePanelOpen, closeWorkspacePanel, openWorkspacePanel, tabMetas.length, activeTabId, closeTab]);
+
   const openRightDockMode = useCallback(
     (mode: RightDockMode) => {
       openWorkspacePanel(mode);
@@ -1259,12 +1362,14 @@ export default function App() {
   }, []);
 
   const handleTabChange = useCallback(async (id: string) => {
+    setNavPage(null); // exit home/settings nav when switching tabs
     await switchTab(id);
     await refreshTabMetas();
     setTabRevealSignal((signal) => signal + 1);
   }, [refreshTabMetas, switchTab]);
 
   const handleNewTab = useCallback(async () => {
+    setNavPage(null); // exit home/settings nav when creating a new tab
     const activeWorkspaceRoot = activeTab?.workspaceRoot || state.meta?.cwd || "";
     const targetScope = activeTab?.scope === "global" || !activeWorkspaceRoot ? "global" : "project";
     const workspaceRoot = targetScope === "project" ? activeWorkspaceRoot : "";
@@ -1365,6 +1470,7 @@ export default function App() {
   }, [refreshTabMetas, rewind]);
 
   const handleOpenTopic = useCallback(async (scope: string, workspaceRoot: string, topicId: string) => {
+    setNavPage(null); // exit home/settings nav when opening a session
     if (scope === "global") {
       await openGlobalTab(topicId);
     } else {
@@ -1473,8 +1579,34 @@ export default function App() {
       group: t("palette.actions"),
       run: () => void openTrash(),
     });
+    // Skills group — trigger a skill via the composer (/skillname).
+    for (const s of paletteSkills) {
+      if (!s.enabled) continue;
+      items.push({
+        id: `skill:${s.name}`,
+        title: s.name,
+        hint: s.description,
+        group: t("palette.skills"),
+        keywords: [s.scope, s.runAs],
+        run: () => {
+          setComposerInsertRequest({ id: Date.now(), text: `/${s.name} ` });
+        },
+      });
+    }
+    // Workflows group — open the workflow editor on the named workflow.
+    for (const w of paletteWorkflows) {
+      items.push({
+        id: `wf:${w.name}`,
+        title: w.name,
+        hint: w.description,
+        group: t("palette.workflows"),
+        run: () => {
+          setWorkflowModalOpen(true);
+        },
+      });
+    }
     return items;
-  }, [tabMetas, t, handleTabChange, openWorkspacePanel, cancel, startNewSession, openAllHistory, openTrash]);
+  }, [tabMetas, t, handleTabChange, openWorkspacePanel, cancel, startNewSession, openAllHistory, openTrash, paletteSkills, paletteWorkflows, setComposerInsertRequest]);
 
   const closeHistory = useCallback(() => setHistView(null), []);
   const onResumeSession = useCallback(
@@ -1659,7 +1791,6 @@ export default function App() {
             // "memory" lives in the settings centre (MemorySettingsPage) — both
             // reuse existing implementations instead of dead navPage branches.
             // "terminal" toggles the embedded terminal in the right dock.
-            // "sessions" toggles the session management sidebar panel.
             if (page === "files") {
               openWorkspacePanel("files");
             } else if (page === "memory") {
@@ -1667,8 +1798,6 @@ export default function App() {
             } else if (page === "terminal") {
               if (!workspacePanelRenderable) openWorkspacePanel("files");
               setTerminalDockOpen((v) => !v);
-            } else if (page === "sessions") {
-              setSessionSidebarOpen((v) => !v);
             } else if (page === "scheduled") {
               setSchedulerOpen(true);
             } else if (page === "trace") {
@@ -1886,7 +2015,7 @@ export default function App() {
 	                rewindDisabled={state.running || state.messageAction != null || state.approval != null || state.ask != null}
 	                onPreview={handleToolPreview}
 	                workspaceType={workspaceType}
-	              />
+              />
               </>
             )}
           </main>
@@ -2122,6 +2251,8 @@ export default function App() {
                   sessionCurrency={state.sessionCurrency}
                   scopeLabel={topicScopeLabel(activeTab)}
                   refreshKey={dockRefreshKey}
+                  compactions={state.items.filter((it): it is Extract<typeof it, { kind: "compaction" }> => it.kind === "compaction").map((c): CompactionRecord => ({ id: c.id, trigger: c.trigger, messages: c.messages, summary: c.summary, archive: c.archive, pending: c.pending }))}
+                  memoryFacts={contextMemoryFacts}
                 />
               ) : rightDockMode === "dailyBrief" ? (
                 <DailyBriefPanel />
@@ -2133,6 +2264,7 @@ export default function App() {
                 <WorkspacePanel
                   open={workspacePanelRenderable}
                   cwd={state.meta?.cwd}
+                  tabId={activeTabId}
                   maximized={workspacePanelMaximized}
                   panelWidth={workspacePanelRenderWidth}
                   onClose={() => setWorkspacePanel(false)}
@@ -2352,19 +2484,6 @@ export default function App() {
         open={notificationCenterOpen}
         onClose={() => setNotificationCenterOpen(false)}
       />
-      {sessionSidebarOpen && (
-        <SessionSidebar
-          sessions={histView?.sessions ?? []}
-          activeSessionId={activeTabId}
-          isRunning={state.running}
-          onSwitchSession={(id) => { setSessionSidebarOpen(false); void handleTabChange(id); }}
-          onNewSession={() => { setSessionSidebarOpen(false); cancel(); void startNewSession(); }}
-          onCloseSession={(id) => void handleTabClose(id)}
-          onRenameSession={async (path, title) => { await renameSession(path, title); }}
-          scope={activeTab?.scope === "project" ? "project" : "global"}
-          workspaceRoot={activeTab?.workspaceRoot}
-        />
-      )}
       <SideChat
         visible={sideChatOpen}
         contextItems={state.items}

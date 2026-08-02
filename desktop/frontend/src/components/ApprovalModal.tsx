@@ -1,7 +1,27 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../lib/i18n";
 import type { WireApproval } from "../lib/types";
 import { PromptAction, PromptDetailToggle, PromptShelf } from "./PromptShelf";
+
+const LOW_RISK_PATTERNS = ["read", "list", "search", "grep", "glob", "ls", "cat", "head", "stat", "info", "query", "find", "which", "echo", "pwd"];
+
+function isLowRiskTool(toolName: string): boolean {
+  const name = toolName.toLowerCase();
+  return LOW_RISK_PATTERNS.some((p) => name.includes(p));
+}
+
+function loadAutoApproveTimeout(): number {
+  try {
+    const val = window.localStorage.getItem("Rexion.approval.autoApproveTimeout");
+    if (val != null) {
+      const n = parseInt(val, 10);
+      if (!isNaN(n)) return n;
+    }
+  } catch {}
+  return 30000;
+}
+
+const SESSION_APPROVAL_COUNTS = new Map<string, number>();
 
 function summarizeSideEffect(toolName: string, subject: string): string | null {
   if (!subject.trim()) return null;
@@ -94,12 +114,32 @@ export function ApprovalModal({
   const [revisionOpen, setRevisionOpen] = useState(false);
   const [revisionText, setRevisionText] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const isPlanApproval = approval.tool === "exit_plan_mode";
   const subject = approval.subject.trim();
   const subjectSummary = subject.split("\n").find((line) => line.trim())?.trim() ?? "";
   const summary = summarizeSideEffect(approval.tool, subject);
+
+  const lowRisk = !isPlanApproval && isLowRiskTool(approval.tool);
+  const autoTimeout = loadAutoApproveTimeout();
+  const autoTimeoutSec = autoTimeout > 0 ? Math.ceil(autoTimeout / 1000) : 0;
+  const sessionCount = SESSION_APPROVAL_COUNTS.get(approval.tool) ?? 0;
+  const showSuggestion = sessionCount >= 3 && !dismissedSuggestion;
+
+  const handleAnswer = useCallback(
+    (allow: boolean, session: boolean, persist: boolean) => {
+      if (allow && !session && !persist) {
+        const prev = SESSION_APPROVAL_COUNTS.get(approval.tool) ?? 0;
+        SESSION_APPROVAL_COUNTS.set(approval.tool, prev + 1);
+      }
+      setCountdown(null);
+      onAnswer(allow, session, persist);
+    },
+    [approval.tool, onAnswer],
+  );
 
   const choosePlanAction = (key: string) => {
     if (key === "1") setRevisionOpen((open) => !open);
@@ -108,10 +148,10 @@ export function ApprovalModal({
   };
 
   const chooseToolAction = (key: string) => {
-    if (key === "1") onAnswer(true, false, false);
-    else if (key === "2") onAnswer(true, true, false);
-    else if (key === "3") onAnswer(true, true, true);
-    else if (key === "4" || key === "Escape") onAnswer(false, false, false);
+    if (key === "1") handleAnswer(true, false, false);
+    else if (key === "2") handleAnswer(true, true, false);
+    else if (key === "3") handleAnswer(true, true, true);
+    else if (key === "4" || key === "Escape") handleAnswer(false, false, false);
   };
 
   useEffect(() => {
@@ -119,7 +159,13 @@ export function ApprovalModal({
     setRevisionOpen(false);
     setRevisionText("");
     setDetailsOpen(false);
-  }, [approval.id]);
+    setDismissedSuggestion(false);
+    if (lowRisk && autoTimeout > 0) {
+      setCountdown(autoTimeoutSec);
+    } else {
+      setCountdown(null);
+    }
+  }, [approval.id, lowRisk, autoTimeout]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -133,7 +179,16 @@ export function ApprovalModal({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isPlanApproval, onAnswer, onExitPlan]);
+  }, [isPlanApproval, handleAnswer, onExitPlan]);
+
+  useEffect(() => {
+    if (countdown == null || countdown <= 0) {
+      if (countdown === 0) handleAnswer(true, false, false);
+      return;
+    }
+    const id = setInterval(() => setCountdown((c) => (c != null ? c - 1 : null)), 1000);
+    return () => clearInterval(id);
+  }, [countdown, handleAnswer]);
 
   useEffect(() => {
     if (revisionOpen) inputRef.current?.focus();
@@ -218,10 +273,27 @@ export function ApprovalModal({
               onClick={() => setDetailsOpen((open) => !open)}
             />
           )}
-          <PromptAction keyLabel="1" label={t("approval.allowOnce")} onClick={() => onAnswer(true, false, false)} selected />
-          <PromptAction keyLabel="2" label={t("approval.allowSession")} onClick={() => onAnswer(true, true, false)} />
-          <PromptAction keyLabel="3" label={t("approval.allowPersistent")} onClick={() => onAnswer(true, true, true)} />
-          <PromptAction keyLabel="4" label={t("approval.deny")} onClick={() => onAnswer(false, false, false)} />
+          <button
+            className="prompt-action prompt-action--selected"
+            onClick={() => handleAnswer(true, false, false)}
+          >
+            <span className="prompt-action__key">1</span>
+            <span className="prompt-action__label">{t("approval.allowOnce")}</span>
+            {countdown != null && countdown > 0 && (
+              <span className="approval__countdown">
+                <span
+                  className="approval__countdown-ring"
+                  style={{ "--countdown-pct": `${(countdown / autoTimeoutSec) * 100}%` } as React.CSSProperties}
+                >
+                  <span className="approval__countdown-sec">{countdown}</span>
+                </span>
+                <span className="approval__countdown-badge">{t("approval.autoApprove")}</span>
+              </span>
+            )}
+          </button>
+          <PromptAction keyLabel="2" label={t("approval.allowSession")} onClick={() => handleAnswer(true, true, false)} />
+          <PromptAction keyLabel="3" label={t("approval.allowPersistent")} onClick={() => handleAnswer(true, true, true)} />
+          <PromptAction keyLabel="4" label={t("approval.deny")} onClick={() => handleAnswer(false, false, false)} />
         </>
       }
     >
@@ -229,6 +301,19 @@ export function ApprovalModal({
         <div className="approval__summary" role="note">
           <span className="approval__summary-label">{t("approval.sideEffect")}</span>
           <span className="approval__summary-text">{summary}</span>
+        </div>
+      )}
+      {showSuggestion && (
+        <div className="approval__suggestion">
+          <span className="approval__suggestion-text">
+            {t("approval.suggestSession", { n: sessionCount })}
+          </span>
+          <button className="approval__suggestion-btn" onClick={() => handleAnswer(true, true, false)}>
+            {t("approval.suggestSessionAction")}
+          </button>
+          <button className="approval__suggestion-dismiss" onClick={() => setDismissedSuggestion(true)} aria-label={t("common.close")}>
+            ✕
+          </button>
         </div>
       )}
       {detailsOpen && subject && (

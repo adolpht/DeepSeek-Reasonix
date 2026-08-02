@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- business-rules.xsd — Business rules validation for DOCX documents
+     Checks:
+       - Font contamination (direct formatting that overrides styles)
+       - Table structure integrity
+       - Section properties correctness
+       - Drawing count verification
+     This is a Schematron-style rule set expressed as XSD assertions.
+     Used with: $CLI validate --input doc.docx --gate-check business-rules.xsd -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+           targetNamespace="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+           elementFormDefault="qualified">
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       RULE 1: Font contamination check
+       Direct rPr fonts (w:rFonts) inside paragraphs that also reference
+       pStyle indicate font contamination — the style should define fonts,
+       not inline formatting. This is the primary cause of template override.
+       ══════════════════════════════════════════════════════════════════════════ -->
+
+  <!-- Contaminated run: has both rStyle/pStyle AND direct rFonts -->
+  <!-- A clean document uses styles for font specification; direct rFonts
+       should only appear on runs that intentionally deviate from the style. -->
+
+  <xs:element name="FontContaminationReport" type="FontContaminationType"/>
+
+  <xs:complexType name="FontContaminationType">
+    <xs:sequence>
+      <xs:element name="contaminatedRun" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="paragraphIndex" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="runIndex" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="pStyle" type="xs:string"/>
+          <xs:attribute name="directAsciiFont" type="xs:string"/>
+          <xs:attribute name="directEastAsiaFont" type="xs:string"/>
+          <xs:attribute name="severity" type="xs:string"/>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="summary">
+        <xs:complexType>
+          <xs:attribute name="totalContaminatedRuns" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="totalRuns" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="contaminationRatio" type="xs:decimal" use="required"/>
+          <xs:attribute name="verdict" use="required">
+            <xs:simpleType>
+              <xs:restriction base="xs:string">
+                <xs:enumeration value="PASS"/>
+                <xs:enumeration value="FAIL"/>
+              </xs:restriction>
+            </xs:simpleType>
+          </xs:attribute>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       RULE 2: Table structure integrity
+       - Every table must have at least 1 row
+       - Every row must have at least 1 cell
+       - Every cell must have at least 1 paragraph
+       - GridSpan values must not exceed the table's column count
+       - VerticalMerge Continue must follow a Restart
+       ══════════════════════════════════════════════════════════════════════════ -->
+
+  <xs:element name="TableIntegrityReport" type="TableIntegrityType"/>
+
+  <xs:complexType name="TableIntegrityType">
+    <xs:sequence>
+      <xs:element name="tableCheck" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="issue" minOccurs="0" maxOccurs="unbounded">
+              <xs:complexType>
+                <xs:attribute name="type" use="required">
+                  <xs:simpleType>
+                    <xs:restriction base="xs:string">
+                      <xs:enumeration value="emptyTable"/>
+                      <xs:enumeration value="emptyRow"/>
+                      <xs:enumeration value="emptyCell"/>
+                      <xs:enumeration value="gridSpanOverflow"/>
+                      <xs:enumeration value="orphanedMergeContinue"/>
+                      <xs:enumeration value="missingSectPrInBody"/>
+                    </xs:restriction>
+                  </xs:simpleType>
+                </xs:attribute>
+                <xs:attribute name="rowIndex" type="xs:nonNegativeInteger"/>
+                <xs:attribute name="cellIndex" type="xs:nonNegativeInteger"/>
+                <xs:attribute name="detail" type="xs:string"/>
+              </xs:complexType>
+            </xs:element>
+          </xs:sequence>
+          <xs:attribute name="tableIndex" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="rowCount" type="xs:nonNegativeInteger"/>
+          <xs:attribute name="colCount" type="xs:nonNegativeInteger"/>
+          <xs:attribute name="valid" type="xs:boolean" use="required"/>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="summary">
+        <xs:complexType>
+          <xs:attribute name="totalTables" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="validTables" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="verdict" use="required">
+            <xs:simpleType>
+              <xs:restriction base="xs:string">
+                <xs:enumeration value="PASS"/>
+                <xs:enumeration value="FAIL"/>
+              </xs:restriction>
+            </xs:simpleType>
+          </xs:attribute>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       RULE 3: Section properties correctness
+       - sectPr must be the LAST child of w:body
+       - sectPr inside pPr must not be in the last paragraph AND body-level
+       - PageSize must have both w and h attributes
+       - PageMargin values must be non-negative
+       - Multiple sectPr elements must have consistent page dimensions
+         (unless intentional section breaks)
+       ══════════════════════════════════════════════════════════════════════════ -->
+
+  <xs:element name="SectionPropertiesReport" type="SectionPropertiesType"/>
+
+  <xs:complexType name="SectionPropertiesType">
+    <xs:sequence>
+      <xs:element name="section" minOccurs="1" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="index" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="location" use="required">
+            <xs:simpleType>
+              <xs:restriction base="xs:string">
+                <xs:enumeration value="body"/>      <!-- body-level sectPr (last section) -->
+                <xs:enumeration value="pPr"/>       <!-- inside paragraph pPr -->
+              </xs:restriction>
+            </xs:simpleType>
+          </xs:attribute>
+          <xs:attribute name="pageSizeValid" type="xs:boolean" use="required"/>
+          <xs:attribute name="marginsValid" type="xs:boolean" use="required"/>
+          <xs:attribute name="width" type="xs:positiveInteger"/>
+          <xs:attribute name="height" type="xs:positiveInteger"/>
+          <xs:attribute name="orient" type="xs:string"/>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="issue" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="type" use="required">
+            <xs:simpleType>
+              <xs:restriction base="xs:string">
+                <xs:enumeration value="sectPrNotLastChild"/>
+                <xs:enumeration value="missingPageSize"/>
+                <xs:enumeration value="negativeMargin"/>
+                <xs:enumeration value="duplicateSectPr"/>
+              </xs:restriction>
+            </xs:simpleType>
+          </xs:attribute>
+          <xs:attribute name="detail" type="xs:string"/>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="summary">
+        <xs:complexType>
+          <xs:attribute name="totalSections" type="xs:positiveInteger" use="required"/>
+          <xs:attribute name="verdict" use="required">
+            <xs:simpleType>
+              <xs:restriction base="xs:string">
+                <xs:enumeration value="PASS"/>
+                <xs:enumeration value="FAIL"/>
+              </xs:restriction>
+            </xs:simpleType>
+          </xs:attribute>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       RULE 4: Drawing count verification
+       Verifies that inline and floating images/drawings are properly
+       referenced and that the relationship targets exist.
+       ══════════════════════════════════════════════════════════════════════════ -->
+
+  <xs:element name="DrawingCountReport" type="DrawingCountType"/>
+
+  <xs:complexType name="DrawingCountType">
+    <xs:sequence>
+      <xs:element name="inlineDrawing" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="paragraphIndex" type="xs:nonNegativeInteger"/>
+          <xs:attribute name="relationshipId" type="xs:string" use="required"/>
+          <xs:attribute name="relationshipValid" type="xs:boolean" use="required"/>
+          <xs:attribute name="widthEmu" type="xs:positiveInteger"/>
+          <xs:attribute name="heightEmu" type="xs:positiveInteger"/>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="anchorDrawing" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:attribute name="paragraphIndex" type="xs:nonNegativeInteger"/>
+          <xs:attribute name="relationshipId" type="xs:string" use="required"/>
+          <xs:attribute name="relationshipValid" type="xs:boolean" use="required"/>
+          <xs:attribute name="widthEmu" type="xs:positiveInteger"/>
+          <xs:attribute name="heightEmu" type="xs:positiveInteger"/>
+          <xs:attribute name="behindDoc" type="xs:boolean"/>
+          <xs:attribute name="wrapType" type="xs:string"/>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="summary">
+        <xs:complexType>
+          <xs:attribute name="totalInlineDrawings" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="totalAnchorDrawings" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="brokenRelationships" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="verdict" use="required">
+            <xs:simpleType>
+              <xs:restriction base="xs:string">
+                <xs:enumeration value="PASS"/>
+                <xs:enumeration value="FAIL"/>
+              </xs:restriction>
+            </xs:simpleType>
+          </xs:attribute>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       Composite validation report (all rules)
+       ══════════════════════════════════════════════════════════════════════════ -->
+
+  <xs:element name="BusinessRulesReport" type="BusinessRulesReportType"/>
+
+  <xs:complexType name="BusinessRulesReportType">
+    <xs:sequence>
+      <xs:element ref="FontContaminationReport" minOccurs="1"/>
+      <xs:element ref="TableIntegrityReport" minOccurs="1"/>
+      <xs:element ref="SectionPropertiesReport" minOccurs="1"/>
+      <xs:element ref="DrawingCountReport" minOccurs="1"/>
+      <xs:element name="overallVerdict">
+        <xs:complexType>
+          <xs:attribute name="result" use="required">
+            <xs:simpleType>
+              <xs:restriction base="xs:string">
+                <xs:enumeration value="PASS"/>
+                <xs:enumeration value="FAIL"/>
+              </xs:restriction>
+            </xs:simpleType>
+          </xs:attribute>
+          <xs:attribute name="rulesPassed" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="rulesFailed" type="xs:nonNegativeInteger" use="required"/>
+          <xs:attribute name="rulesTotal" type="xs:positiveInteger" use="required"/>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+</xs:schema>

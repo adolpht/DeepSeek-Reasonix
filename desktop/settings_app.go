@@ -12,8 +12,14 @@ import (
 	"rexion/internal/boot"
 	"rexion/internal/config"
 	"rexion/internal/control"
+	"rexion/internal/credential"
 	"rexion/internal/provider"
 )
+
+// credentialStore is the secure credential store (DPAPI on Windows,
+// AES-encrypted file on other platforms). Used by SetProviderKey/ClearProviderKey
+// to persist API keys safely alongside the .env file.
+var credentialStore = credential.New()
 
 // settings_app.go is the desktop Settings panel's command surface: it reads the
 // resolved config and applies edits through internal/config/edit.go (the
@@ -1001,9 +1007,14 @@ func (a *App) SetProviderKey(apiKeyEnv, value string) error {
 	if strings.TrimSpace(apiKeyEnv) == "" {
 		return fmt.Errorf("this provider has no api_key_env set")
 	}
+	// Write to .env for compatibility with CLI sessions.
 	if err := upsertDotEnv(apiKeyEnv, value); err != nil {
 		return err
 	}
+	// Also persist to the DPAPI-secured credential store so the key
+	// survives even if the .env file is deleted or the user switches
+	// shells where the env-var isn't set.
+	_ = credentialStore.Set(apiKeyEnv, value)
 	return a.rebuild()
 }
 
@@ -1016,6 +1027,8 @@ func (a *App) ClearProviderKey(apiKeyEnv string) error {
 	if err := removeDotEnv(apiKeyEnv); err != nil {
 		return err
 	}
+	// Also remove from the secure credential store.
+	_ = credentialStore.Delete(apiKeyEnv)
 	return a.rebuild()
 }
 

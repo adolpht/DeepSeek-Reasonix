@@ -548,7 +548,21 @@ export interface MemoryView {
 }
 
 // SettingsTab is the top-level navigation item in the Settings Centre modal.
-export type SettingsTab = "general" | "models" | "providers" | "mcp" | "skills" | "memory" | "permissions" | "sandbox" | "network" | "appearance" | "updates" | "officePlugins";
+export type SettingsTab = "general" | "models" | "providers" | "mcp" | "skills" | "memory" | "permissions" | "sandbox" | "network" | "appearance" | "updates" | "officePlugins" | "datavault";
+
+// DataVault — data inventory for export and purge.
+export interface DataVaultLocation {
+  label: string;
+  path: string;
+  kind: string;
+  size?: number;
+  removable: boolean;
+}
+
+export interface DataVaultView {
+  locations: DataVaultLocation[];
+  totalSize: number;
+}
 
 // Settings panel payloads (desktop/settings_app.go).
 export interface ProviderView {

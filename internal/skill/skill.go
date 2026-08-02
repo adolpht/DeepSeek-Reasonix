@@ -492,7 +492,13 @@ func (s *Store) CreateWithContent(name string, scope Scope, content string) (str
 // references/*.md files to its body (Anthropic Skills compatibility), so depth
 // material is available without on-demand resolution. Flat skills have no
 // references dir and are returned unchanged.
+//
+// It also replaces the placeholder SKILL_DIR with the skill's parent
+// directory (absolute path) so that subagents can locate sibling scripts,
+// templates, and assets at runtime.
 func loadBodyWithReferences(skillPath, body string) string {
+	skillDir := filepath.Dir(skillPath)
+	body = strings.ReplaceAll(body, "SKILL_DIR", filepath.ToSlash(skillDir))
 	if filepath.Base(skillPath) != SkillFile {
 		return body
 	}
@@ -519,6 +525,7 @@ func loadBodyWithReferences(skillPath, body string) string {
 			continue
 		}
 		trimmed := strings.TrimSpace(string(content))
+		trimmed = strings.ReplaceAll(trimmed, "SKILL_DIR", filepath.ToSlash(skillDir))
 		if trimmed == "" {
 			continue
 		}

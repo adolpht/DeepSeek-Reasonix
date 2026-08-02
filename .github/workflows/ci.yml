@@ -147,6 +147,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Guard against tracked binaries
+        run: bash ./scripts/check-tracked-binaries.sh
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

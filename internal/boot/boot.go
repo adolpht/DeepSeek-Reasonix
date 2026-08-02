@@ -240,6 +240,14 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 	readinessLevel := readiness.ParseLevel(instruction.ExtractReadinessLevel(mem.Docs))
 	sysPrompt = memory.Compose(sysPrompt, mem)
 
+	// Built-in always-on efficiency rules (ponytail ruleset, MIT © DietrichGebert):
+	// folded into the cache-stable prefix once, right after memory, so every turn
+	// after the first hits the prefix cache — always in effect, no skill call.
+	// Controlled by [agent] builtin_rules = "off" to disable.
+	if config.BuiltinRulesEnabled(cfg.Agent.BuiltinRules) {
+		sysPrompt += "\n\n" + config.BuiltinRules
+	}
+
 	// Skills: discover playbooks (built-in + project/custom/global) and fold their
 	// one-liner index into the same cache-stable prefix — names + descriptions
 	// only; bodies load on demand via run_skill or "/<name>". Bodies never enter

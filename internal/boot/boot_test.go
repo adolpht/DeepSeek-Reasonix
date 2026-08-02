@@ -345,6 +345,9 @@ default_model = "test-model"
 [codegraph]
 enabled = false
 
+[pkm]
+enabled = false
+
 [agent]
 system_prompt = "JUST THE BASE"
 
@@ -372,9 +375,10 @@ api_key_env = "REXION_TEST_KEY_UNSET"
 	if i := strings.Index(sys, "\n\n# Skills"); i >= 0 {
 		base = sys[:i]
 	}
-	// The language policy is always appended at boot; strip it so this assertion
-	// is purely about whether project/ancestor memory leaked into the base.
-	base = stripLanguagePolicy(base)
+	// The built-in ruleset and language policy are always appended at boot;
+	// strip them (outermost first) so this assertion is purely about whether
+	// project/ancestor memory leaked into the base.
+	base = stripPromptExtras(base)
 	if base != "JUST THE BASE" {
 		t.Fatalf("expected untouched base prompt, got:\n%s", sys)
 	}
@@ -412,6 +416,81 @@ api_key_env = "REXION_TEST_KEY_UNSET"
 	}
 }
 
+// TestBuildBuiltinRulesOnByDefault verifies the efficiency ladder is injected
+// when the config field is absent (the default).
+func TestBuildBuiltinRulesOnByDefault(t *testing.T) {
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+	writeFile(t, dir, "Rexion.toml", `
+default_model = "test-model"
+
+[codegraph]
+enabled = false
+
+[pkm]
+enabled = false
+
+[agent]
+system_prompt = "BASE"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REXION_TEST_KEY_UNSET"
+`)
+
+	ctrl, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	sys := systemMessage(ctrl.History())
+	if !strings.Contains(sys, config.BuiltinRules) {
+		t.Fatalf("builtin rules missing from system prompt (should be on by default):\n%s", sys)
+	}
+}
+
+// TestBuildBuiltinRulesOff verifies that builtin_rules = "off" suppresses
+// the efficiency ladder injection.
+func TestBuildBuiltinRulesOff(t *testing.T) {
+	dir := robustTempDir(t)
+	t.Chdir(dir)
+	writeFile(t, dir, "Rexion.toml", `
+default_model = "test-model"
+
+[codegraph]
+enabled = false
+
+[pkm]
+enabled = false
+
+[agent]
+system_prompt = "BASE"
+builtin_rules = "off"
+
+[[providers]]
+name = "test-model"
+kind = "openai"
+base_url = "https://example.invalid"
+model = "x"
+api_key_env = "REXION_TEST_KEY_UNSET"
+`)
+
+	ctrl, err := Build(context.Background(), Options{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer ctrl.Close()
+
+	sys := systemMessage(ctrl.History())
+	if strings.Contains(sys, config.BuiltinRules) {
+		t.Fatalf("builtin rules present in system prompt despite builtin_rules = \"off\":\n%s", sys)
+	}
+}
+
 func systemMessage(msgs []provider.Message) string {
 	for _, m := range msgs {
 		if m.Role == provider.RoleSystem {
@@ -421,9 +500,13 @@ func systemMessage(msgs []provider.Message) string {
 	return ""
 }
 
-func stripLanguagePolicy(s string) string {
+// stripPromptExtras removes the always-appended suffix blocks (built-in
+// ruleset, then language policy) so a base-prompt assertion sees only the
+// configured prompt plus anything memory actually contributed.
+func stripPromptExtras(s string) string {
 	s = strings.TrimSpace(s)
 	for _, policy := range []string{
+		config.BuiltinRules,
 		config.LanguagePolicy,
 	} {
 		s = strings.TrimSpace(strings.TrimSuffix(s, policy))

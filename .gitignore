@@ -6,6 +6,12 @@
 /reasonix
 /reasonix.exe
 reasonix-plugin-*.exe
+rexion*.exe
+*.test.exe
+/cmd/bin/
+/cmd/rexion-plugin-*/*.exe
+/desktop/bin/
+/desktop/desktop.exe
 
 # Website (Astro) build output
 /site/dist/

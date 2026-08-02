@@ -1,12 +1,29 @@
 // ContextPanel shows the active tab's context gauge, token usage, read files,
-// and workspace changes. All visible text is routed through the i18n dictionary.
+// workspace changes, compaction history, and memory entries. All visible text is
+// routed through the i18n dictionary.
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FileText, Search } from "lucide-react";
+import { ArrowLeft, FileText, Search, Minimize2, Brain } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app } from "../lib/bridge";
 import { useT, type Translator } from "../lib/i18n";
 import type { DictKey } from "../locales/en";
 import type { ContextInfo, ContextPanelInfo, WireUsage } from "../lib/types";
+
+export interface CompactionRecord {
+  id: string;
+  trigger: string;
+  messages: number;
+  summary: string;
+  archive: string;
+  pending: boolean;
+}
+
+export interface MemoryFactBrief {
+  name: string;
+  title: string;
+  description: string;
+  type: string;
+}
 
 interface ContextPanelProps {
   tabId?: string;
@@ -16,9 +33,11 @@ interface ContextPanelProps {
   sessionCurrency?: string;
   scopeLabel?: string;
   refreshKey?: number;
+  compactions?: CompactionRecord[];
+  memoryFacts?: MemoryFactBrief[];
 }
 
-type ContextDetail = "read" | "changed";
+type ContextDetail = "read" | "changed" | "compactions" | "memory";
 
 function fmtTokens(n: number): string {
   if (n >= 1000) return `${Math.round(n / 1000)}k`;
@@ -92,7 +111,7 @@ function contextHealth(usagePct: number, cachePct: number, readCount: number): H
   };
 }
 
-export function ContextPanel({ tabId, context, usage, sessionCost, sessionCurrency, scopeLabel, refreshKey }: ContextPanelProps) {
+export function ContextPanel({ tabId, context, usage, sessionCost, sessionCurrency, scopeLabel, refreshKey, compactions, memoryFacts }: ContextPanelProps) {
   const t = useT();
   const [info, setInfo] = useState<ContextPanelInfo | null>(null);
   const [detailView, setDetailView] = useState<ContextDetail | null>(null);
@@ -165,14 +184,32 @@ export function ContextPanel({ tabId, context, usage, sessionCost, sessionCurren
   };
   const filteredReadRows = filterRows(readRows);
   const filteredChangedRows = filterRows(changedRows);
+  const compactionList = compactions ?? [];
+  const memoryList = memoryFacts ?? [];
   const health = contextHealth(usagePct, cachePct, readRows.length);
   const detailRows = detailView === "changed" ? filteredChangedRows : filteredReadRows;
-  const detailTitle = detailView === "changed" ? t("context.sessionChanges") : t("context.referencedFiles");
-  const detailCount = detailView === "changed" ? changedRows.length : readRows.length;
-  const detailEmpty = detailView === "changed" ? t("context.noChanges") : t("context.noReads");
-  const detailPlaceholder = detailView === "changed" ? t("context.filterChanges") : t("context.filterReads");
+  const detailTitle = detailView === "changed" ? t("context.sessionChanges")
+    : detailView === "compactions" ? t("context.compactionHistory")
+    : detailView === "memory" ? t("context.memoryEntries")
+    : t("context.referencedFiles");
+  const detailCount = detailView === "changed" ? changedRows.length
+    : detailView === "compactions" ? compactionList.length
+    : detailView === "memory" ? memoryList.length
+    : readRows.length;
+  const detailEmpty = detailView === "changed" ? t("context.noChanges")
+    : detailView === "compactions" ? t("context.noCompactions")
+    : detailView === "memory" ? t("context.noMemory")
+    : t("context.noReads");
+  const detailPlaceholder = detailView === "changed" ? t("context.filterChanges")
+    : detailView === "compactions" ? t("context.filterCompactions")
+    : detailView === "memory" ? t("context.filterMemory")
+    : t("context.filterReads");
   const detailNote = detailView === "changed"
     ? t("context.changedNote", { count: detailCount })
+    : detailView === "compactions"
+    ? t("context.compactionNote", { count: detailCount })
+    : detailView === "memory"
+    ? t("context.memoryNote", { count: detailCount })
     : t("context.readNote", { count: detailCount });
 
   const openDetail = (next: ContextDetail) => {
@@ -211,10 +248,16 @@ export function ContextPanel({ tabId, context, usage, sessionCost, sessionCurren
         {detailView ? (
           <section className="context-panel__detail">
             <div className="context-panel__detail-note">{detailNote}</div>
-            <FileTable
-              empty={detailEmpty}
-              rows={detailRows}
-            />
+            {detailView === "compactions" ? (
+              <CompactionTable compactions={compactionList} empty={detailEmpty} />
+            ) : detailView === "memory" ? (
+              <MemoryTable facts={memoryList} empty={detailEmpty} />
+            ) : (
+              <FileTable
+                empty={detailEmpty}
+                rows={detailRows}
+              />
+            )}
           </section>
         ) : (
           <section className="context-panel__overview">
@@ -263,6 +306,16 @@ export function ContextPanel({ tabId, context, usage, sessionCost, sessionCurren
               onAction={() => openDetail("changed")}
               rows={changedRows.slice(0, 3)}
               empty={t("context.noChanges")}
+            />
+            <CompactionPreview
+              count={compactionList.length}
+              lastTrigger={compactionList.length > 0 ? compactionList[0].trigger : undefined}
+              lastMessages={compactionList.length > 0 ? compactionList[0].messages : 0}
+              onAction={() => openDetail("compactions")}
+            />
+            <MemoryPreview
+              count={memoryList.length}
+              onAction={() => openDetail("memory")}
             />
           </section>
         )}
@@ -346,6 +399,138 @@ function FileTable({
           <span className="context-panel__file-meta">
             <span className="context-panel__file-turn">{row.meta}</span>
             {row.time && <span>{row.time}</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CompactionPreview({
+  count,
+  lastTrigger,
+  lastMessages,
+  onAction,
+}: {
+  count: number;
+  lastTrigger?: string;
+  lastMessages: number;
+  onAction: () => void;
+}) {
+  const t = useT();
+  return (
+    <section className="context-panel__preview">
+      <header className="context-panel__preview-head">
+        <h3>{t("context.compactionHistory")}</h3>
+        <span>{t("context.compactionMeta", { count })}</span>
+        {count > 0 && <button type="button" onClick={onAction}>{t("context.viewAll")}</button>}
+      </header>
+      {count > 0 ? (
+        <div className="context-panel__file-list context-panel__file-list--compact">
+          <div className="context-panel__file-row">
+            <span className="context-panel__file-main">
+              <Minimize2 size={14} />
+              <span className="context-panel__file-copy">
+                <span>{lastTrigger === "auto" ? t("context.compactAuto") : t("context.compactManual")}</span>
+                <small>{t("context.compactMessages", { count: lastMessages })}</small>
+              </span>
+            </span>
+            <span className="context-panel__file-meta">
+              <span>{count > 1 ? t("context.compactMore", { count: count - 1 }) : ""}</span>
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="context-panel__empty">{t("context.noCompactions")}</div>
+      )}
+    </section>
+  );
+}
+
+function MemoryPreview({
+  count,
+  onAction,
+}: {
+  count: number;
+  onAction: () => void;
+}) {
+  const t = useT();
+  return (
+    <section className="context-panel__preview">
+      <header className="context-panel__preview-head">
+        <h3>{t("context.memoryEntries")}</h3>
+        <span>{t("context.memoryMeta", { count })}</span>
+        {count > 0 && <button type="button" onClick={onAction}>{t("context.viewAll")}</button>}
+      </header>
+      {count > 0 ? (
+        <div className="context-panel__empty" style={{ padding: "4px 8px" }}>{t("context.memoryAvailable")}</div>
+      ) : (
+        <div className="context-panel__empty">{t("context.noMemory")}</div>
+      )}
+    </section>
+  );
+}
+
+function CompactionTable({
+  compactions,
+  empty,
+}: {
+  compactions: CompactionRecord[];
+  empty: string;
+}) {
+  const t = useT();
+  if (compactions.length === 0) return <div className="context-panel__empty">{empty}</div>;
+  return (
+    <div className="context-panel__file-list">
+      {compactions.map((c) => (
+        <div className="context-panel__file-row" key={c.id}>
+          <span className="context-panel__file-main">
+            <Minimize2 size={14} />
+            <span className="context-panel__file-copy">
+              <span>{c.trigger === "auto" ? t("context.compactAuto") : t("context.compactManual")}</span>
+              <small>{c.pending ? t("context.compactRunning") : t("context.compactMessages", { count: c.messages })}</small>
+              {c.archive && <small>{c.archive}</small>}
+            </span>
+          </span>
+        </div>
+      ))}
+      {compactions.some((c) => c.summary) && (
+        <details className="context-panel__compaction-detail" style={{ marginTop: 8 }}>
+          <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--text-2)" }}>{t("context.compactSummary")}</summary>
+          <div style={{ marginTop: 4, fontSize: 12, whiteSpace: "pre-wrap", color: "var(--text-2)" }}>
+            {compactions.filter((c) => c.summary).reverse().map((c, i) => (
+              <div key={i} style={{ marginBottom: 8, padding: "6px 8px", background: "var(--surface-2)", borderRadius: 4 }}>
+                {c.summary}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function MemoryTable({
+  facts,
+  empty,
+}: {
+  facts: MemoryFactBrief[];
+  empty: string;
+}) {
+  if (facts.length === 0) return <div className="context-panel__empty">{empty}</div>;
+  return (
+    <div className="context-panel__file-list">
+      {facts.map((f) => (
+        <div className="context-panel__file-row" key={f.name}>
+          <span className="context-panel__file-main">
+            <Brain size={14} />
+            <span className="context-panel__file-copy">
+              <span>{f.title || f.name}</span>
+              {f.description && <small>{f.description}</small>}
+            </span>
+          </span>
+          <span className="context-panel__file-meta">
+            <span className="context-panel__file-turn">{f.type}</span>
           </span>
         </div>
       ))}

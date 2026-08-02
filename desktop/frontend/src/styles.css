@@ -4734,6 +4734,99 @@ a[href] {
   -webkit-box-orient: vertical;
 }
 
+/* ── approval countdown (auto-approve for low-risk tools) ──────────────── */
+.approval__countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+.approval__countdown-ring {
+  --countdown-pct: 100%;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+}
+.approval__countdown-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--accent) calc(var(--countdown-pct) * 1%),
+    color-mix(in srgb, var(--accent) 25%, var(--border-soft)) 0
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+}
+.approval__countdown-sec {
+  position: relative;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+}
+.approval__countdown-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 1px 4px;
+  line-height: 1.25;
+}
+
+/* ── approval session suggestion banner ────────────────────────────────── */
+.approval__suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  margin: 6px 0 0;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-soft));
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.approval__suggestion-text {
+  flex: 1 1 auto;
+  color: var(--fg-dim);
+}
+.approval__suggestion-btn {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-soft));
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.approval__suggestion-btn:hover {
+  background: color-mix(in srgb, var(--accent) 25%, var(--bg-soft));
+}
+.approval__suggestion-dismiss {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: var(--fg-dim);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.12s;
+}
+.approval__suggestion-dismiss:hover {
+  opacity: 1;
+}
+
 /* ── ask tool: decision details ───────────────────────────────────────────── */
 .ask-shelf__crumbs {
   display: flex;

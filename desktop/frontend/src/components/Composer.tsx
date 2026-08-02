@@ -344,8 +344,8 @@ export function Composer({
   // are sorted to the top so they appear first in the slash menu.
   const MODE_SKILLS: Record<string, string[]> = {
     coding: ["explore", "review", "generate-tests", "review-pr"],
-    office: ["doc-write", "sheet-analysis", "sheet-create", "ppt-create"],
-    assistant: ["daily-brief", "research-report", "generate-ppt", "sheet-analysis"],
+    office: ["minimax-docx", "sheet-analysis", "minimax-xlsx", "pptx-generator"],
+    assistant: ["research-report", "sheet-analysis", "email-summary", "invoice-collect"],
   };
   const slashMatches = useMemo(() => {
     if (slashQuery === null) return [];

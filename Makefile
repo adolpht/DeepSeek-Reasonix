@@ -50,7 +50,7 @@ test:
 
 hooks:
 	@git config core.hooksPath .githooks
-	@echo "installed: core.hooksPath -> .githooks (pre-push runs go vet)"
+	@echo "installed: core.hooksPath -> .githooks (pre-push runs go vet + binary guard)"
 
 cross:
 	@mkdir -p dist
