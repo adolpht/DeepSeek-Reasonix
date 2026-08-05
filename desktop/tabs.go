@@ -548,6 +548,13 @@ func (a *App) CloseTab(tabID string) error {
 	if tab.Ctrl != nil {
 		tab.Ctrl.Cancel()
 		_ = tab.Ctrl.Snapshot()
+		// If the session never had user interaction, remove any orphan
+		// .meta sidecar so empty sessions leave no trace on disk.
+		if !tab.Ctrl.SessionHasContent() {
+			if path := tab.Ctrl.SessionPath(); path != "" {
+				_ = os.Remove(path + ".meta")
+			}
+		}
 		tab.Ctrl.Close()
 	}
 	if tab.sink != nil {
@@ -676,7 +683,12 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 			path = agent.NewSessionPath(dir, ctrl.Label())
 			ctrl.SetSessionPath(path)
 		}
-		// Write/update scope/session meta.
+		// Wire the controller onto the tab early so persistTabSessionPath
+		// can check SessionHasContent — an empty session should not write
+		// a .meta sidecar to disk.
+		a.mu.Lock()
+		tab.Ctrl = ctrl
+		a.mu.Unlock()
 		if path != "" {
 			a.persistTabSessionPath(tab, path)
 			if strings.TrimSpace(tab.TopicID) != "" {
@@ -695,7 +707,6 @@ func (a *App) buildTabController(tab *WorkspaceTab) {
 	}
 
 	a.mu.Lock()
-	tab.Ctrl = ctrl
 	tab.Label = ctrl.Label()
 	tab.Ready = true
 	tab.StartupErr = ""
@@ -837,6 +848,15 @@ func (a *App) tabSnapshotLoop(tab *WorkspaceTab) {
 		a.mu.RUnlock()
 		if ctrl != nil {
 			if err := ctrl.Snapshot(); err == nil {
+				// Snapshot returns nil for empty sessions too (HasContent
+				// guard inside), so only persist the .meta sidecar when
+				// the session has real content — otherwise an unused tab
+				// would leave an orphan .meta on disk.
+				if ctrl.SessionHasContent() {
+					if path := ctrl.SessionPath(); path != "" {
+						_ = saveTabSessionMeta(tab, path)
+					}
+				}
 				if !a.maybeAutoTitleTopic(tab) {
 					a.emitProjectTreeChanged()
 				}
@@ -2510,6 +2530,14 @@ func (a *App) rememberTabSessionPath(tab *WorkspaceTab, path string) {
 func (a *App) persistTabSessionPath(tab *WorkspaceTab, path string) {
 	path = canonicalTabSessionPath(path)
 	if tab == nil || path == "" {
+		return
+	}
+	// Only write the .meta sidecar when the session has real content.
+	// An empty session (just a system prompt) should leave no artifacts
+	// on disk; the meta is written on the first successful Snapshot
+	// after the session gains user/assistant/tool messages.
+	if tab.Ctrl != nil && !tab.Ctrl.SessionHasContent() {
+		a.rememberTabSessionPath(tab, path)
 		return
 	}
 	_ = saveTabSessionMeta(tab, path)

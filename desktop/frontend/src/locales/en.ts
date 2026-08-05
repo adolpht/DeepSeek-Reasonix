@@ -1083,6 +1083,8 @@ export const en = {
   "turnActions.rewind": "Rewind",
   "transcript.showEarlierHistory": "Show {n} earlier turns",
   "transcript.toolCount": "{n} tools",
+  "transcript.toolRun": "{n} tool calls",
+  "transcript.toolRunErrors": "{n} failed",
   "notice.info": "Notice",
   "notice.warning": "Warning",
   "questionNav.label": "Question navigation",

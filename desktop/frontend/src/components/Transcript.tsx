@@ -5,6 +5,7 @@ import { useT } from "../lib/i18n";
 import { AssistantMessage, TurnActions, UserMessage } from "./Message";
 import { ProcessCard, ProcessCompactIcon, ProcessInfoIcon, ProcessPhaseIcon, ProcessStatusIcon } from "./ProcessCard";
 import { ToolCard } from "./ToolCard";
+import { ToolRunGroup } from "./ToolRunGroup";
 import { ChevronRight } from "lucide-react";
 import { Welcome } from "./Welcome";
 
@@ -86,6 +87,21 @@ function repinIfWasPinned(
 function warmUserPreview(text: string): string {
   const cleaned = text.replace(/@\.Rexion\/attachments\/[^\s]+/g, "[image]").replace(/\s+/g, " ").trim();
   return cleaned.length <= 80 ? cleaned : cleaned.slice(0, 77) + "...";
+}
+// Flush a collected run of consecutive tool calls: a single call keeps its own
+// card, longer runs collapse behind one ToolRunGroup header.
+function pushToolRun(
+  out: ReactNode[],
+  pending: ToolItem[],
+  opts: { subcalls: ReadonlyMap<string, ToolItem[]>; onPreview?: (path: string, kind: string) => void },
+) {
+  if (pending.length === 0) return;
+  if (pending.length === 1) {
+    const it = pending[0];
+    out.push(<ToolCard key={it.id} item={it} subcalls={opts.subcalls.get(it.id)} onPreview={opts.onPreview} />);
+  } else {
+    out.push(<ToolRunGroup key={`run-${pending[0].id}`} items={pending} subcalls={opts.subcalls} onPreview={opts.onPreview} />);
+  }
 }
 
 // ── Turn grouping ─────────────────────────────────────────────────────────────
@@ -384,6 +400,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
     let actionText = "";
     let actionReady = false;
     let activeTurn: number | undefined;
+    let pendingTools: ToolItem[] = [];
+    const flushTools = () => {
+      pushToolRun(out, pendingTools, { subcalls: subcallsByParent, onPreview });
+      pendingTools = [];
+    };
     const pushTurnActions = () => {
       if (activeTurn == null || !actionReady || actionText.trim() === "") return;
       const turn = activeTurn;
@@ -412,6 +433,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
       const it = items[i];
       switch (it.kind) {
         case "user": {
+          flushTools();
           pushTurnActions();
           const tn = userTurn.get(it.id);
           activeTurn = tn;
@@ -421,6 +443,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
           break;
         }
         case "assistant":
+          flushTools();
           out.push(<LiveAssistantMessage key={it.id} item={it as AssistantItem} />);
           if (!it.streaming && it.text.trim() !== "") {
             actionText = it.text;
@@ -430,16 +453,27 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
         case "tool":
           if (it.parentId) break;
           if (it.name === "todo_write" || it.name === "exit_plan_mode") {
+            flushTools();
             out.push(<ToolCard key={it.id} item={it} subcalls={subcallsByParent.get(it.id)} onPreview={onPreview} className="tool--plan-internal" />);
           } else {
-            out.push(<ToolCard key={it.id} item={it} subcalls={subcallsByParent.get(it.id)} onPreview={onPreview} />);
+            pendingTools.push(it);
           }
           break;
-        case "phase": out.push(<PhaseCard key={it.id} text={it.text} />); break;
-        case "notice": out.push(<NoticeCard key={it.id} level={it.level} text={it.text} />); break;
-        case "compaction": out.push(<CompactionCard key={it.id} item={it} />); break;
+        case "phase":
+          flushTools();
+          out.push(<PhaseCard key={it.id} text={it.text} />);
+          break;
+        case "notice":
+          flushTools();
+          out.push(<NoticeCard key={it.id} level={it.level} text={it.text} />);
+          break;
+        case "compaction":
+          flushTools();
+          out.push(<CompactionCard key={it.id} item={it} />);
+          break;
       }
     }
+    flushTools();
     pushTurnActions();
     return out;
   }, [hotStartIdx, items, openAction, actionPending, rewindDisabled, onRewind, subcallsByParent, userTurn, checkpointsByTurn]);
@@ -649,6 +683,11 @@ function WarmTurnItems({
   let actionText = "";
   let actionReady = false;
   let activeTurn: number | undefined;
+  let pendingTools: ToolItem[] = [];
+  const flushTools = () => {
+    pushToolRun(nodes, pendingTools, { subcalls, onPreview });
+    pendingTools = [];
+  };
   const pushTurnActions = () => {
     if (activeTurn == null || !actionReady || actionText.trim() === "") return;
     const turn = activeTurn;
@@ -677,6 +716,7 @@ function WarmTurnItems({
     const it = items[i];
     switch (it.kind) {
       case "user": {
+        flushTools();
         pushTurnActions();
         const tn = userTurnMap.get(it.id);
         activeTurn = tn;
@@ -686,6 +726,7 @@ function WarmTurnItems({
         break;
       }
       case "assistant": {
+        flushTools();
         nodes.push(<AssistantMessage key={it.id} item={it} />);
         if (!it.streaming && it.text.trim() !== "") {
           actionText = it.text;
@@ -695,16 +736,25 @@ function WarmTurnItems({
       }
       case "tool": {
         if (it.parentId) break;
-        if (it.name === "todo_write") break;
-        if (it.name === "exit_plan_mode") break;
-        nodes.push(<ToolCard key={it.id} item={it} subcalls={subcalls.get(it.id)} onPreview={onPreview} />);
+        if (it.name === "todo_write" || it.name === "exit_plan_mode") break;
+        pendingTools.push(it);
         break;
       }
-      case "phase": nodes.push(<PhaseCard key={it.id} text={it.text} />); break;
-      case "notice": nodes.push(<NoticeCard key={it.id} level={it.level} text={it.text} />); break;
-      case "compaction": nodes.push(<CompactionCard key={it.id} item={it} />); break;
+      case "phase":
+        flushTools();
+        nodes.push(<PhaseCard key={it.id} text={it.text} />);
+        break;
+      case "notice":
+        flushTools();
+        nodes.push(<NoticeCard key={it.id} level={it.level} text={it.text} />);
+        break;
+      case "compaction":
+        flushTools();
+        nodes.push(<CompactionCard key={it.id} item={it} />);
+        break;
     }
   }
+  flushTools();
   pushTurnActions();
   return nodes;
 }

@@ -787,10 +787,19 @@ a[href] {
 }
 .sidebar__bottom {
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   border-top: 1px solid var(--border-soft);
   padding-top: 6px;
   margin-top: 4px;
   background: var(--sidebar-bg);
+  /* Pinned management + config sections; scroll internally on short windows so
+     the conversation/office scroll area never gets crushed to nothing. */
+  max-height: 55%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 /* ── Office Panel (sidebar) ─────────────────────────────────── */
@@ -2997,6 +3006,90 @@ a[href] {
   font-family: var(--mono);
   font-size: 12px;
   white-space: pre-wrap;
+}
+/* ── tool run: consecutive tool calls collapse behind one header ────────── */
+.tool-run {
+  margin: 6px auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  overflow: hidden;
+  transition: border-color 0.12s;
+}
+.tool-run:hover {
+  border-color: var(--border);
+}
+.tool-run--running {
+  border-color: var(--accent-soft);
+}
+.tool-run__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.tool-run__head:hover {
+  background: var(--bg-soft);
+  color: var(--fg);
+}
+.tool-run__chevron {
+  flex-shrink: 0;
+  color: var(--fg-faint);
+  transition: transform 0.15s;
+}
+.tool-run__chevron--open {
+  transform: rotate(90deg);
+}
+.tool-run__icon {
+  flex-shrink: 0;
+  color: var(--fg-dim);
+  opacity: 0.82;
+}
+.tool-run__title {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.tool-run__names {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: var(--font-code);
+  color: var(--fg-faint);
+}
+.tool-run__meta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.tool-run__errors {
+  color: var(--err);
+}
+.tool-run__body {
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg);
+  padding: 4px 0;
+}
+.tool-run__body > .tool {
+  margin: 6px 10px;
 }
 
 /* ── rich tool card ──────────────────────────────────────────────────────── */

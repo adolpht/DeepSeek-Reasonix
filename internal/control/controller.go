@@ -1875,6 +1875,16 @@ func (c *Controller) snapshot(markActivity bool) error {
 	return nil
 }
 
+// SessionHasContent reports whether the current session carries at least one
+// user, assistant, or tool message — i.e. more than just a system prompt.
+// An "empty" conversation that has never been used should not be persisted.
+func (c *Controller) SessionHasContent() bool {
+	if c.executor == nil {
+		return false
+	}
+	return c.executor.Session().HasContent()
+}
+
 func (c *Controller) messageCount() int {
 	if c.executor == nil {
 		return 0

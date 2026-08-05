@@ -312,6 +312,10 @@ export function Sidebar({
           <OfficePanel onActivateSkill={onActivateSkill} />
         </SidebarSection>
 
+      </div>
+
+      {/* ── Bottom: 管理 + 配置 (Management + Config) ── pinned ── */}
+      <div className="sidebar__bottom">
         {/* ── 管理 (Management) ── */}
         <SidebarSection title={t("sidebar.management")} storageKey="management">
           <SidebarNavItem
@@ -370,10 +374,7 @@ export function Sidebar({
             onClick={onOpenRepoWiki}
           />
         </SidebarSection>
-      </div>
 
-      {/* ── Bottom: 配置 (Config) — fixed ── */}
-      <div className="sidebar__bottom">
         <SidebarSection title={t("sidebar.config")} storageKey="config" defaultCollapsed>
           <SidebarNavItem
             icon={<Brain size={15} />}

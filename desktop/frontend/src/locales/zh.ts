@@ -1084,6 +1084,8 @@ export const zh: Record<DictKey, string> = {
   "turnActions.rewind": "回溯",
   "transcript.showEarlierHistory": "展开前 {n} 轮对话",
   "transcript.toolCount": "{n} 个工具",
+  "transcript.toolRun": "{n} 次工具调用",
+  "transcript.toolRunErrors": "{n} 个失败",
   "notice.info": "提示",
   "notice.warning": "警告",
   "questionNav.label": "问题导航",
