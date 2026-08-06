@@ -60,7 +60,6 @@ import type {
   TemplateMeta,
   TerminalOutput,
   TerminalView,
-  TodoView,
   TopicMeta,
   UpdateInfo,
   UpdateProgress,
@@ -109,6 +108,9 @@ export interface AppBindings {
   SubmitToTab(tabID: string, input: string): Promise<void>;
   SubmitDisplay(display: string, input: string): Promise<void>;
   SubmitDisplayToTab(tabID: string, display: string, input: string): Promise<void>;
+  // EnhancePromptForTab rewrites a user's draft prompt via the tab's
+  // single-turn enhancer; empty string means unavailable/empty draft.
+  EnhancePromptForTab(tabID: string, draft: string): Promise<string>;
   RunShell(command: string): Promise<void>;
   RunShellForTab(tabID: string, command: string): Promise<void>;
   RunAnalyzeProject(projectPath: string, model: string): Promise<void>;
@@ -275,6 +277,14 @@ export interface AppBindings {
   SetActiveTab(tabID: string): Promise<void>;
   ReorderTabs(tabIDs: string[]): Promise<void>;
   CloseTab(tabID: string): Promise<void>;
+  // SideChat (旁路对话): a hidden tab branched from the active tab's context.
+  // OpenSideChat returns the side-chat tab ID; SubmitToTab/ApproveTab/
+  // AnswerQuestionForTab already accept any tab ID, so the side chat reuses
+  // them. CloseSideChat tears it down; PromoteSideChatLastReply ships the
+  // side chat's last assistant reply into the main tab and closes it.
+  OpenSideChat(): Promise<string>;
+  CloseSideChat(tabID: string): Promise<void>;
+  PromoteSideChatLastReply(tabID: string): Promise<string>;
   ListProjectTree(): Promise<ProjectNode[]>;
   RenameProject(workspaceRoot: string, title: string): Promise<void>;
   SetProjectColor(workspaceRoot: string, color: string): Promise<void>;
@@ -368,11 +378,6 @@ export interface AppBindings {
   OpenTabForScheduledTask(taskName: string): Promise<void>;
   GenerateScheduledTask(description: string): Promise<GeneratedScheduledTaskView>;
   ListTaskExecLogs(taskName: string, limit: number): Promise<TaskExecLogView[]>;
-  // Todos
-  ListTodos(): Promise<TodoView[]>;
-  CreateTodo(title: string, description: string, dueDate: string, priority: string): Promise<void>;
-  UpdateTodo(id: string, title: string, description: string, dueDate: string, priority: string, status: string): Promise<void>;
-  DeleteTodo(id: string): Promise<void>;
   GetRecentMailSummaries(): Promise<{ from: string; subject: string; date: string }[]>;
   // IM Sessions dock panel — list tracked IM sessions and fetch detail.
   // The Go side dispatches mcp__im__list_im_sessions / get_im_session via
@@ -1007,45 +1012,6 @@ function makeMockApp(): AppBindings {
         });
         return;
       }
-      if (trimmedInput === "/todo-preview" || trimmedInput === "todo preview" || trimmedInput === "todo预览") {
-        await delay(250);
-        if (cancelled) return;
-        emit({
-          kind: "tool_dispatch",
-          tool: {
-            id: "mock-todo-preview",
-            name: "todo_write",
-            args: JSON.stringify({
-              todos: [
-                { content: t("mock.todo1"), status: "completed" },
-                { content: t("mock.todo2"), activeForm: t("mock.todo2ActiveForm"), status: "in_progress" },
-                { content: t("mock.todo3"), status: "pending" },
-              ],
-            }),
-            readOnly: false,
-          },
-        });
-        await delay(150);
-        emit({
-          kind: "tool_result",
-          tool: {
-            id: "mock-todo-preview",
-            name: "todo_write",
-            args: JSON.stringify({
-              todos: [
-                { content: t("mock.todo1"), status: "completed" },
-                { content: t("mock.todo2"), activeForm: t("mock.todo2ActiveForm"), status: "in_progress" },
-                { content: t("mock.todo3"), status: "pending" },
-              ],
-            }),
-            output: "todo list updated",
-            readOnly: false,
-            durationMs: 150,
-          },
-        });
-        emit({ kind: "turn_done" });
-        return;
-      }
       if (trimmedInput === "/process-preview" || trimmedInput === "process preview" || trimmedInput === "过程预览") {
         await delay(200);
         if (cancelled) return;
@@ -1121,6 +1087,10 @@ function makeMockApp(): AppBindings {
         },
         async SubmitDisplayToTab(_tabID, display, input) {
           await this.SubmitDisplay(display, input);
+        },
+        async EnhancePromptForTab(_tabID, draft) {
+          // Browser mock: return the draft unchanged (no model in dev).
+          return draft.trim();
         },
         async RunShell(command) {
           cancelled = false;
@@ -2028,6 +1998,17 @@ function makeMockApp(): AppBindings {
         mockTabs[mockTabs.length - 1] = { ...mockTabs[mockTabs.length - 1], active: true };
       }
     },
+    async OpenSideChat() {
+      // Mock: return a synthetic side-chat tab ID. Real wiring hits Go.
+      const id = `side_${Date.now()}`;
+      return id;
+    },
+    async CloseSideChat(_tabID: string) {
+      // Mock no-op: side-chat state is frontend-only in dev mode.
+    },
+    async PromoteSideChatLastReply(_tabID: string) {
+      return "";
+    },
     async ListProjectTree() {
       return cloneProjectTree();
     },
@@ -2383,12 +2364,6 @@ function makeMockApp(): AppBindings {
     async ListTaskExecLogs(_taskName: string, _limit: number): Promise<TaskExecLogView[]> {
       return [];
     },
-    async ListTodos(): Promise<TodoView[]> {
-      return [
-        { id: "t1", title: t("todos.mockTitle1"), description: "", dueDate: "", priority: "high", status: "in_progress", source: "user", createdAt: Date.now() - 86400_000, updatedAt: Date.now() - 3600_000 },
-        { id: "t2", title: t("todos.mockTitle2"), description: "", dueDate: "", priority: "medium", status: "pending", source: "agent", createdAt: Date.now() - 172800_000, updatedAt: Date.now() - 86400_000 },
-      ];
-    },
     async GetRecentMailSummaries(): Promise<{ from: string; subject: string; date: string }[]> {
       // Browser mock: in the Wails shell this calls the Go-side
       // GetRecentMailSummaries which dispatches mcp__mail__read_mail via
@@ -2411,15 +2386,6 @@ function makeMockApp(): AppBindings {
     async ClearIMSessions(): Promise<number> {
       // Browser mock: no-op, return 0 cleared.
       return 0;
-    },
-    async CreateTodo(_title: string, _description: string, _dueDate: string, _priority: string): Promise<void> {
-      // no-op in mock
-    },
-    async UpdateTodo(_id: string, _title: string, _description: string, _dueDate: string, _priority: string, _status: string): Promise<void> {
-      // no-op in mock
-    },
-    async DeleteTodo(_id: string): Promise<void> {
-      // no-op in mock
     },
     async ClipboardAssistAction(_action: string, _text: string): Promise<void> {
       // Browser mock: no-op

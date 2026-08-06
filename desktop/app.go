@@ -91,6 +91,9 @@ type App struct {
 	workflowStore    *workflow.Store
 	clipboardHistory *ClipboardHistory
 	terminals        *terminalManager
+	// wsWatcher auto-refreshes the frontend file tree on external filesystem
+	// changes (see workspace_watcher.go). Nil when fsnotify init failed.
+	wsWatcher *workspaceWatcher
 
 	// workflowRuns tracks in-progress and recently-completed workflow executions.
 	// Keyed by workflow name; only the latest run per workflow is kept.
@@ -364,6 +367,14 @@ func NewApp() *App {
 			},
 		)
 	}
+	// Watch the active workspace for external file changes so the frontend file
+	// tree auto-refreshes. Best-effort: fsnotify failure only disables the
+	// watcher (the agent-tool event path still refreshes the tree).
+	if ww, err := newWorkspaceWatcher(app.emitWorkspaceFilesChanged); err == nil {
+		app.wsWatcher = ww
+	} else {
+		fmt.Fprintf(os.Stderr, "warning: workspace watcher init failed: %v\n", err)
+	}
 	return app
 }
 
@@ -582,6 +593,7 @@ func (a *App) restoreOrBuildTabs() {
 		for _, tab := range toBuild {
 			a.startTabControllerBuild(tab)
 		}
+		a.syncWorkspaceWatcher()
 		return
 	}
 
@@ -595,6 +607,7 @@ func (a *App) restoreOrBuildTabs() {
 	a.activeTabID = tab.ID
 	a.mu.Unlock()
 	a.startTabControllerBuild(tab)
+	a.syncWorkspaceWatcher()
 }
 
 func (a *App) createTabEntry(scope, workspaceRoot, topicID string) *WorkspaceTab {
@@ -630,6 +643,11 @@ func (a *App) snapshotAllTabs() {
 // shutdown snapshots all tabs, saves the final window geometry, and closes tabs.
 func (a *App) shutdown(context.Context) {
 	a.stopTray()
+	// Stop the workspace file watcher first so no events fire mid-teardown.
+	if a.wsWatcher != nil {
+		a.wsWatcher.close()
+		a.wsWatcher = nil
+	}
 	// Kill all live terminal PTY sessions so no orphan shell processes survive.
 	if a.terminals != nil {
 		a.terminals.closeAll()
@@ -759,6 +777,21 @@ func (a *App) SubmitDisplayToTab(tabID, display, input string) {
 		return
 	}
 	ctrl.SubmitDisplay(display, input)
+}
+
+// EnhancePromptForTab rewrites a user's draft prompt via the tab's single-turn
+// enhancer (no agent loop). Empty result means enhancement is unavailable
+// (no enhancer configured) or the draft was empty — the frontend then keeps the
+// draft as-is.
+func (a *App) EnhancePromptForTab(tabID, draft string) (string, error) {
+	defer recoverPanic("EnhancePromptForTab")
+	ctrl := a.ctrlByTabID(tabID)
+	if ctrl == nil {
+		return "", nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return ctrl.EnhancePrompt(ctx, draft)
 }
 
 // executeScheduledTask is the callback invoked by the scheduler when a scheduled
@@ -4257,6 +4290,24 @@ func (a *App) emitWorkspaceFilesChanged() {
 	}
 }
 
+// syncWorkspaceWatcher re-points the file-change watcher at the active tab's
+// workspace root. Cheap no-op when the root hasn't changed, so callers may
+// invoke it after any tab switch. Skips watching when there is no project
+// workspace (global scope / no tabs).
+func (a *App) syncWorkspaceWatcher() {
+	if a.wsWatcher == nil {
+		return
+	}
+	root := strings.TrimSpace(a.activeWorkspaceRoot())
+	if root == "" || root == "." {
+		return
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	a.wsWatcher.watch(filepath.Clean(root))
+}
+
 func (a *App) notice(text string) {
 	a.noticeForTab("", text)
 }
@@ -6050,19 +6101,6 @@ Return ONLY the JSON object, no markdown fences, no explanation.`
 	return result, nil
 }
 
-// TodoView is the JSON-serialisable form of a todo for the frontend.
-type TodoView struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	DueDate     string `json:"dueDate"`
-	Priority    string `json:"priority"`
-	Status      string `json:"status"`
-	Source      string `json:"source"`
-	CreatedAt   int64  `json:"createdAt"`
-	UpdatedAt   int64  `json:"updatedAt"`
-}
-
 // NotificationView is the JSON-serialisable form of a notification for the frontend.
 type NotificationView struct {
 	ID        string `json:"id"`
@@ -6325,83 +6363,6 @@ func (a *App) DeleteScheduledTask(id string) error {
 	return nil
 }
 
-// ListTodos returns all todos.
-func (a *App) ListTodos() []TodoView {
-	ds := a.ds()
-	if ds == nil {
-		return []TodoView{}
-	}
-	todos, err := ds.ListTodos()
-	if err != nil {
-		return []TodoView{}
-	}
-	out := make([]TodoView, len(todos))
-	for i, t := range todos {
-		out[i] = todoViewFromModel(t)
-	}
-	return out
-}
-
-// CreateTodo creates a new todo item.
-func (a *App) CreateTodo(title, description, dueDate, priority string) error {
-	ds := a.ds()
-	if ds == nil {
-		return fmt.Errorf("data store not available")
-	}
-	now := time.Now().UnixMilli()
-	t := datastore.Todo{
-		ID:          datastore.NewID(),
-		Title:       strings.TrimSpace(title),
-		Description: strings.TrimSpace(description),
-		DueDate:     strings.TrimSpace(dueDate),
-		Priority:    datastore.ValidatePriority(priority),
-		Status:      "pending",
-		Source:      "user",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-	return ds.CreateTodo(t)
-}
-
-// UpdateTodo updates an existing todo item.
-func (a *App) UpdateTodo(id, title, description, dueDate, priority, status string) error {
-	ds := a.ds()
-	if ds == nil {
-		return fmt.Errorf("data store not available")
-	}
-	t := datastore.Todo{
-		ID:          strings.TrimSpace(id),
-		Title:       strings.TrimSpace(title),
-		Description: strings.TrimSpace(description),
-		DueDate:     strings.TrimSpace(dueDate),
-		Priority:    datastore.ValidatePriority(priority),
-		Status:      datastore.ValidateTodoStatus(status),
-		UpdatedAt:   time.Now().UnixMilli(),
-	}
-	// Preserve CreatedAt and Source by loading the current todo.
-	existing, err := ds.ListTodos()
-	if err != nil {
-		return err
-	}
-	for _, e := range existing {
-		if e.ID == t.ID {
-			t.CreatedAt = e.CreatedAt
-			t.Source = e.Source
-			break
-		}
-	}
-	return ds.UpdateTodo(t)
-}
-
-// DeleteTodo deletes a todo item by ID.
-func (a *App) DeleteTodo(id string) error {
-	ds := a.ds()
-	if ds == nil {
-		return fmt.Errorf("data store not available")
-	}
-	return ds.DeleteTodo(id)
-}
-
 // computeNextRun parses a cron expression and returns the next fire time as
 // unix milliseconds. Returns 0 if the expression cannot be parsed.
 func computeNextRun(cronExpr string, from time.Time) int64 {
@@ -6424,20 +6385,6 @@ func scheduledTaskViewFromModel(t datastore.ScheduledTask) ScheduledTaskView {
 		LastResult: t.LastResult,
 		NextRun:    t.NextRun,
 		CreatedAt:  t.CreatedAt,
-	}
-}
-
-func todoViewFromModel(t datastore.Todo) TodoView {
-	return TodoView{
-		ID:          t.ID,
-		Title:       t.Title,
-		Description: t.Description,
-		DueDate:     t.DueDate,
-		Priority:    t.Priority,
-		Status:      t.Status,
-		Source:      t.Source,
-		CreatedAt:   t.CreatedAt,
-		UpdatedAt:   t.UpdatedAt,
 	}
 }
 

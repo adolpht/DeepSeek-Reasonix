@@ -124,8 +124,6 @@ export const en = {
   "sidebar.trace": "Execution trace",
   "sidebar.workflow": "Workflow Editor",
   "sidebar.terminal": "Terminal",
-  "sidebar.assistantSchedule": "Calendar",
-  "sidebar.assistantTodos": "Todos",
   "sidebar.assistantFeed": "Info stream",
   "sidebar.assistant": "Assistant",
   "sidebar.config": "Config",
@@ -488,6 +486,8 @@ export const en = {
   "composer.removeCurrentProjectDisabled": "Current project cannot be removed",
   "composer.resize": "Drag to resize composer, double-click to reset",
   "composer.send": "Send (Enter)",
+  "composer.enhance": "Enhance prompt with AI",
+  "composer.enhancing": "Enhancing…",
   "composer.stop": "Stop (Esc)",
   "composer.stopShort": "Stop",
   "composer.pastedLabel": "[Pasted text #{id} · {lines} lines]",
@@ -721,17 +721,14 @@ export const en = {
   // Daily Brief
   "sidebar.dailyBrief": "Daily Brief",
   "dailyBrief.title": "Daily Brief",
-  "dailyBrief.pendingTodos": "Pending Todos",
   "dailyBrief.recentMail": "Recent Mail",
   "dailyBrief.scheduledTasks": "Scheduled Tasks",
   "dailyBrief.recentSessions": "Recent Sessions",
-  "dailyBrief.noTodos": "No pending todos.",
   "dailyBrief.noMail": "Ask the agent to check your mail.",
   "dailyBrief.noTasks": "No scheduled tasks.",
   "dailyBrief.noSessions": "No recent sessions.",
   "dailyBrief.loadError": "Failed to load.",
   "dailyBrief.refresh": "Refresh",
-  "dailyBrief.completeTodo": "Complete",
 
   // IM Sessions panel
   "sidebar.imSessions": "IM Sessions",
@@ -1064,10 +1061,6 @@ export const en = {
   "settings.langAuto": "Auto (system)",
   "settings.config": "config: {path}",
 
-  // todo bar
-  "todo.title": "To-dos",
-  "todo.dismiss": "Dismiss the task list",
-  "todo.stale": "Progress may be stale",
 
   // slash menu tags
   "slash.project": "project",
@@ -1315,10 +1308,6 @@ export const en = {
   "mock.askQ2Opt2Desc": "Check desktop/wails.json and main.go to infer the entry point",
   "mock.askQ2Opt3Label": "Let me try building",
   "mock.askQ2Opt3Desc": "Handle git conflicts first, then attempt local build and report results",
-  "mock.todo1": "Review current frontend structure",
-  "mock.todo2": "Optimize approval and Ask decision bar layout",
-  "mock.todo2ActiveForm": "Adjusting decision bar layout",
-  "mock.todo3": "Verify three preview states",
   "mock.newSession": "New session",
   "mock.memoryBody": "# User memory\n\nAlways respond in English.",
   "mock.changedFile1Prompt": "Update draft spec v0.3",
@@ -1496,31 +1485,7 @@ export const en = {
   "scheduler.noExecHistory": "No execution history yet",
 
   // Calendar panel
-  "calendarPanel.month": "Month",
-  "calendarPanel.week": "Week",
-  "calendarPanel.day": "Day",
-  "calendarPanel.today": "Today",
-  "calendarPanel.addTodo": "Add todo",
-  "calendarPanel.noTodos": "No todos",
-  "calendarPanel.priorityHigh": "High",
-  "calendarPanel.priorityMedium": "Medium",
-  "calendarPanel.priorityLow": "Low",
 
-  // Todos
-  "todos.title": "Todos",
-  "todos.create": "Add todo",
-  "todos.delete": "Delete",
-  "todos.priority.low": "Low",
-  "todos.priority.medium": "Medium",
-  "todos.priority.high": "High",
-  "todos.priority.urgent": "Urgent",
-  "todos.status.pending": "Pending",
-  "todos.status.in_progress": "In Progress",
-  "todos.status.completed": "Completed",
-  "todos.dueDate": "Due date",
-  "todos.noTodos": "No todos",
-  "todos.mockTitle1": "Review pull request #42",
-  "todos.mockTitle2": "Update project dependencies",
 
   // progress stepper
   "progressStepper.label": "Task progress",

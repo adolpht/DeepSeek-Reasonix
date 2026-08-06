@@ -241,7 +241,6 @@ stdio 参考实现（`echo`、`wordcount`、一个 `review` prompt、一个 styl
 | Office | `rexion-plugin-office` | Word 文档读写、Markdown→DOCX、模板渲染 |
 | Sheet | `rexion-plugin-sheet` | 电子表格（xlsx/csv）读写/查询/图表 |
 | Slides | `rexion-plugin-slides` | 幻灯片生成、主题风格、PDF 导出 |
-| Calendar | `rexion-plugin-calendar` | 系统日历事件与待办 |
 | Mail | `rexion-plugin-mail` | 邮件（IMAP/SMTP）、OAuth2、分类 |
 | IM | `rexion-plugin-im` | 即时通讯（钉钉/飞书/企业微信），支持 `/ask` `/plan` `/craft` 远程控制 |
 | Search | `rexion-plugin-search` | 网页搜索、页面抽取、对比表 |

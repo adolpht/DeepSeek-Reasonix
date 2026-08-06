@@ -17,6 +17,7 @@ require (
 	github.com/admpub/conpty v0.2.4
 	github.com/atotto/clipboard v0.1.4
 	github.com/creack/pty v1.1.24
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/minio/selfupdate v0.6.0
 	github.com/wailsapp/wails/v2 v2.12.0

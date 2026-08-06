@@ -246,3 +246,137 @@ func TestMigrateCustomBaseURLWarns(t *testing.T) {
 		}
 	}
 }
+
+// --- brand rename migration (Reasonix -> Rexion) ---
+
+func writeMigrateTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func migrateTestMustExist(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("%s should exist: %v", path, err)
+	}
+}
+
+func migrateTestMustNotExist(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("%s should not exist, stat err = %v", path, err)
+	}
+}
+
+func TestMigrateRenamedDirFreshMove(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "reasonix")
+	dest := filepath.Join(root, "Rexion")
+	writeMigrateTestFile(t, filepath.Join(src, "config.toml"), "[model]\ndefault = \"deepseek\"\n")
+	writeMigrateTestFile(t, filepath.Join(src, "credentials"), "DEEPSEEK_API_KEY=sk-test\n")
+
+	migrateRenamedDir(src, dest, "test")
+
+	migrateTestMustExist(t, filepath.Join(dest, "config.toml"))
+	migrateTestMustExist(t, filepath.Join(dest, "credentials"))
+	migrateTestMustExist(t, filepath.Join(dest, ".migrated-from-reasonix"))
+	migrateTestMustNotExist(t, src)
+}
+
+// TestMigrateRenamedDirMergesIntoTransientDest is the regression test for the
+// reported bug: the desktop app's log init creates %AppData%\Rexion before
+// boot.Build runs the brand migration, so the old config must be merged into
+// the pre-existing (transient-only) destination instead of being skipped.
+func TestMigrateRenamedDirMergesIntoTransientDest(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "reasonix")
+	dest := filepath.Join(root, "Rexion")
+	writeMigrateTestFile(t, filepath.Join(src, "config.toml"), "[model]\ndefault = \"deepseek\"\n")
+	writeMigrateTestFile(t, filepath.Join(dest, "logs", "Rexion.log"), "boot\n")
+
+	migrateRenamedDir(src, dest, "test")
+
+	migrateTestMustExist(t, filepath.Join(dest, "config.toml"))
+	migrateTestMustExist(t, filepath.Join(dest, "logs", "Rexion.log"))
+	migrateTestMustExist(t, filepath.Join(dest, ".migrated-from-reasonix"))
+	migrateTestMustNotExist(t, src)
+}
+
+// TestMigrateRenamedDirRetriesStaleMarker covers users already hit by the bug:
+// the marker was written while the destination held only transient entries, so
+// the migration must be retried and the old config recovered.
+func TestMigrateRenamedDirRetriesStaleMarker(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "reasonix")
+	dest := filepath.Join(root, "Rexion")
+	writeMigrateTestFile(t, filepath.Join(src, "config.toml"), "[model]\ndefault = \"deepseek\"\n")
+	writeMigrateTestFile(t, filepath.Join(dest, ".migrated-from-reasonix"), "stale\n")
+	writeMigrateTestFile(t, filepath.Join(dest, "logs", "Rexion.log"), "boot\n")
+
+	migrateRenamedDir(src, dest, "test")
+
+	migrateTestMustExist(t, filepath.Join(dest, "config.toml"))
+	migrateTestMustNotExist(t, src)
+}
+
+func TestMigrateRenamedDirKeepsExistingDestData(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "reasonix")
+	dest := filepath.Join(root, "Rexion")
+	writeMigrateTestFile(t, filepath.Join(src, "config.toml"), "[model]\ndefault = \"old\"\n")
+	writeMigrateTestFile(t, filepath.Join(dest, "config.toml"), "[model]\ndefault = \"new\"\n")
+
+	migrateRenamedDir(src, dest, "test")
+
+	body, err := os.ReadFile(filepath.Join(dest, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "[model]\ndefault = \"new\"\n" {
+		t.Fatalf("dest config was clobbered: %q", body)
+	}
+	migrateTestMustExist(t, filepath.Join(src, "config.toml"))
+	migrateTestMustExist(t, filepath.Join(dest, ".migrated-from-reasonix"))
+}
+
+func TestMigrateRenamedDirNoSource(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "reasonix")
+	dest := filepath.Join(root, "Rexion")
+
+	migrateRenamedDir(src, dest, "test")
+
+	migrateTestMustNotExist(t, dest)
+	migrateTestMustNotExist(t, filepath.Join(dest, ".migrated-from-reasonix"))
+}
+
+// TestMigrateReasonixIfNeeded drives the full entry point with the desktop-app
+// ordering (destination pre-created by logging) so the regression is covered
+// end to end rather than only at the helper level.
+func TestMigrateReasonixIfNeeded(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("APPDATA", filepath.Join(root, "AppData"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, ".config"))
+	t.Setenv("HOME", root)
+	t.Setenv("USERPROFILE", root)
+
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(configDir, "Reasonix")
+	dest := filepath.Join(configDir, "Rexion")
+	writeMigrateTestFile(t, filepath.Join(src, "config.toml"), "[model]\ndefault = \"deepseek\"\n")
+	writeMigrateTestFile(t, filepath.Join(dest, "logs", "Rexion.log"), "boot\n")
+
+	MigrateReasonixIfNeeded()
+
+	migrateTestMustExist(t, filepath.Join(dest, "config.toml"))
+	migrateTestMustExist(t, filepath.Join(dest, "logs", "Rexion.log"))
+	migrateTestMustNotExist(t, src)
+}

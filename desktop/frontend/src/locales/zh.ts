@@ -125,8 +125,6 @@ export const zh: Record<DictKey, string> = {
   "sidebar.trace": "执行追踪",
   "sidebar.workflow": "流程编排",
   "sidebar.terminal": "终端",
-  "sidebar.assistantSchedule": "日历",
-  "sidebar.assistantTodos": "待办",
   "sidebar.assistantFeed": "信息流",
   "sidebar.assistant": "助手",
   "sidebar.config": "配置",
@@ -489,6 +487,8 @@ export const zh: Record<DictKey, string> = {
   "composer.removeCurrentProjectDisabled": "不能移除当前项目",
   "composer.resize": "拖动调整输入区高度，双击重置",
   "composer.send": "发送（Enter）",
+  "composer.enhance": "AI 优化提示词",
+  "composer.enhancing": "优化中…",
   "composer.stop": "停止（Esc）",
   "composer.stopShort": "停止",
   "composer.pastedLabel": "[已粘贴文本 #{id} · {lines} 行]",
@@ -722,17 +722,14 @@ export const zh: Record<DictKey, string> = {
   // 每日简报
   "sidebar.dailyBrief": "每日简报",
   "dailyBrief.title": "每日简报",
-  "dailyBrief.pendingTodos": "待办事项",
   "dailyBrief.recentMail": "最近邮件",
   "dailyBrief.scheduledTasks": "定时任务",
   "dailyBrief.recentSessions": "最近会话",
-  "dailyBrief.noTodos": "暂无待办。",
   "dailyBrief.noMail": "让智能体帮你查看邮件。",
   "dailyBrief.noTasks": "暂无定时任务。",
   "dailyBrief.noSessions": "暂无最近会话。",
   "dailyBrief.loadError": "加载失败。",
   "dailyBrief.refresh": "刷新",
-  "dailyBrief.completeTodo": "完成",
 
   // IM 会话面板
   "sidebar.imSessions": "IM 会话",
@@ -1065,10 +1062,6 @@ export const zh: Record<DictKey, string> = {
   "settings.langAuto": "自动（跟随系统）",
   "settings.config": "配置文件：{path}",
 
-  // 待办栏
-  "todo.title": "待办",
-  "todo.dismiss": "关闭待办列表",
-  "todo.stale": "进度可能未同步",
 
   // 斜杠菜单标签
   "slash.project": "项目",
@@ -1316,10 +1309,6 @@ export const zh: Record<DictKey, string> = {
   "mock.askQ2Opt2Desc": "查看 desktop/wails.json 与 main.go 来推断入口",
   "mock.askQ2Opt3Label": "我先帮你尝试构建",
   "mock.askQ2Opt3Desc": "先处理 git 冲突，然后尝试本地构建并汇报结果",
-  "mock.todo1": "梳理当前前端结构",
-  "mock.todo2": "优化审批与 Ask 决策条布局",
-  "mock.todo2ActiveForm": "正在调整决策条布局",
-  "mock.todo3": "验证三种预览状态",
   "mock.newSession": "新的会话",
   "mock.memoryBody": "# 用户记忆\n\n始终用中文回复。",
   "mock.changedFile1Prompt": "更新规范草案 v0.3",
@@ -1496,32 +1485,7 @@ export const zh: Record<DictKey, string> = {
   "scheduler.execHistory": "执行历史",
   "scheduler.noExecHistory": "暂无执行记录",
 
-  // 日历面板
-  "calendarPanel.month": "月",
-  "calendarPanel.week": "周",
-  "calendarPanel.day": "日",
-  "calendarPanel.today": "今天",
-  "calendarPanel.addTodo": "添加待办",
-  "calendarPanel.noTodos": "暂无待办",
-  "calendarPanel.priorityHigh": "高",
-  "calendarPanel.priorityMedium": "中",
-  "calendarPanel.priorityLow": "低",
 
-  // 待办
-  "todos.title": "待办",
-  "todos.create": "添加待办",
-  "todos.delete": "删除",
-  "todos.priority.low": "低",
-  "todos.priority.medium": "中",
-  "todos.priority.high": "高",
-  "todos.priority.urgent": "紧急",
-  "todos.status.pending": "待处理",
-  "todos.status.in_progress": "进行中",
-  "todos.status.completed": "已完成",
-  "todos.dueDate": "截止日期",
-  "todos.noTodos": "暂无待办",
-  "todos.mockTitle1": "审查合并请求 #42",
-  "todos.mockTitle2": "更新项目依赖",
 
   // 进度步进条
   "progressStepper.label": "任务进度",

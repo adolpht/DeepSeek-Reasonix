@@ -877,425 +877,6 @@ a[href] {
   white-space: nowrap;
 }
 
-/* ── Calendar Panel (assistant sidebar) ─ */
-.calendar-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 6px 2px;
-  font-size: var(--text-sm);
-  overflow-y: auto;
-}
-.calendar-panel__header {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0 6px 8px;
-}
-.calendar-panel__view-switcher {
-  display: flex;
-  gap: 2px;
-  background: var(--bg-elev);
-  border-radius: 7px;
-  padding: 2px;
-}
-.calendar-panel__view-btn {
-  flex: 1;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg-faint);
-  font: inherit;
-  font-size: var(--text-xs);
-  padding: 3px 0;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-.calendar-panel__view-btn--active {
-  background: var(--bg-elev-2);
-  color: var(--fg);
-}
-.calendar-panel__view-btn:hover:not(.calendar-panel__view-btn--active) {
-  color: var(--fg-dim);
-}
-.calendar-panel__nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-}
-.calendar-panel__nav-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg-faint);
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-.calendar-panel__nav-btn:hover {
-  background: var(--sidebar-hover);
-  color: var(--fg);
-}
-.calendar-panel__nav-label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--fg-dim);
-  font: inherit;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 2px 8px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-.calendar-panel__nav-label:hover {
-  background: var(--sidebar-hover);
-  color: var(--fg);
-}
-.calendar-panel__body {
-  padding: 0 6px;
-}
-.calendar-panel__weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  text-align: center;
-  margin-bottom: 2px;
-}
-.calendar-panel__weekday {
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  color: var(--fg-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 2px 0;
-}
-.calendar-panel__grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
-}
-.calendar-panel__day {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  height: 34px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fg-dim);
-  font: inherit;
-  cursor: pointer;
-  transition: background 0.1s, color 0.1s;
-  position: relative;
-}
-.calendar-panel__day:hover {
-  background: var(--sidebar-hover);
-}
-.calendar-panel__day--other {
-  color: var(--fg-faint);
-  opacity: 0.45;
-}
-.calendar-panel__day--today .calendar-panel__day-num {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.calendar-panel__day--selected {
-  background: var(--accent-soft);
-}
-.calendar-panel__day-num {
-  font-size: var(--text-xs);
-  line-height: 1;
-}
-.calendar-panel__day-dots {
-  display: flex;
-  gap: 2px;
-  height: 4px;
-}
-.calendar-panel__day-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-.calendar-panel__day--today .calendar-panel__day-dot {
-  background: var(--accent-fg);
-}
-/* ── Week view ─ */
-.calendar-panel__week {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 3px;
-}
-.calendar-panel__week-col {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-height: 80px;
-  padding: 4px;
-  border-radius: 6px;
-  background: var(--bg-elev);
-  cursor: pointer;
-  transition: background 0.1s;
-}
-.calendar-panel__week-col:hover {
-  background: var(--bg-elev-2);
-}
-.calendar-panel__week-col--selected {
-  outline: 1.5px solid var(--accent);
-}
-.calendar-panel__week-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  padding-bottom: 3px;
-}
-.calendar-panel__week-wd {
-  font-size: var(--text-2xs);
-  color: var(--fg-faint);
-}
-.calendar-panel__week-date {
-  font-size: var(--text-xs);
-  color: var(--fg-dim);
-}
-.calendar-panel__week-date--today {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-radius: 50%;
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.calendar-panel__week-todos {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.calendar-panel__week-todo {
-  font-size: 9px;
-  line-height: 1.3;
-  padding: 1px 3px;
-  border-radius: 3px;
-  background: var(--bg-soft);
-  color: var(--fg-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  border-left: 2px solid var(--accent);
-}
-.calendar-panel__week-more {
-  font-size: 9px;
-  color: var(--fg-faint);
-  text-align: center;
-}
-/* ── Day view ─ */
-.calendar-panel__day-view {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.calendar-panel__day-view-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--fg);
-  padding-bottom: 4px;
-}
-.calendar-panel__today-badge {
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-radius: 4px;
-  padding: 1px 5px;
-}
-.calendar-panel__empty {
-  text-align: center;
-  color: var(--fg-faint);
-  font-size: var(--text-xs);
-  padding: 16px 0;
-}
-/* ── Todo list area ─ */
-.calendar-panel__todos {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border-top: 1px solid var(--border-soft);
-  padding: 8px 6px 2px;
-  margin-top: 6px;
-}
-.calendar-panel__todos-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 4px;
-}
-.calendar-panel__todos-date {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--fg-dim);
-}
-.calendar-panel__add-btn {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: var(--text-xs);
-  cursor: pointer;
-  padding: 2px 6px;
-  transition: background 0.12s;
-}
-.calendar-panel__add-btn:hover {
-  background: var(--accent-soft);
-}
-.calendar-panel__add-form {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 4px 0;
-}
-.calendar-panel__add-input {
-  width: 100%;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--bg-elev);
-  color: var(--fg);
-  font: inherit;
-  font-size: var(--text-xs);
-  padding: 0 8px;
-  outline: none;
-  transition: border-color 0.12s;
-}
-.calendar-panel__add-input:focus {
-  border-color: var(--accent);
-}
-.calendar-panel__add-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.calendar-panel__add-select {
-  flex: 1;
-  height: 26px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--bg-elev);
-  color: var(--fg-dim);
-  font: inherit;
-  font-size: var(--text-xs);
-  padding: 0 4px;
-  outline: none;
-}
-.calendar-panel__add-select:focus {
-  border-color: var(--accent);
-}
-.calendar-panel__add-submit {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: 5px;
-  background: var(--accent);
-  color: var(--accent-fg);
-  cursor: pointer;
-  transition: opacity 0.12s;
-}
-.calendar-panel__add-submit:hover {
-  opacity: 0.85;
-}
-/* ── Individual todo item ─ */
-.calendar-panel__todo {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border-radius: 5px;
-  transition: background 0.1s;
-}
-.calendar-panel__todo:hover {
-  background: var(--sidebar-hover);
-}
-.calendar-panel__todo--done {
-  opacity: 0.5;
-}
-.calendar-panel__todo-check {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--ok);
-  cursor: pointer;
-  flex-shrink: 0;
-  padding: 0;
-}
-.calendar-panel__todo-circle {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 1.5px solid var(--fg-faint);
-  display: block;
-}
-.calendar-panel__todo--done .calendar-panel__todo-circle {
-  background: var(--ok);
-  border-color: var(--ok);
-}
-.calendar-panel__todo-priority {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.calendar-panel__todo-title {
-  flex: 1 1 auto;
-  font-size: var(--text-xs);
-  color: var(--fg-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.calendar-panel__todo--done .calendar-panel__todo-title {
-  text-decoration: line-through;
-}
-.calendar-panel__todo-due {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: var(--text-2xs);
-  color: var(--fg-faint);
-  flex-shrink: 0;
-}
-
 /* ── Mode Switcher (segmented control in app-chrome__identity) ─ */
 .app-chrome__identity .mode-switcher {
   display: inline-flex;
@@ -3658,6 +3239,29 @@ a[href] {
   color: var(--control-disabled-fg);
   cursor: default;
   transform: none;
+}
+
+/* Prompt enhance button — sits beside send, rewrites the draft via the model. */
+.composer__btn--enhance {
+  color: var(--fg-dim);
+}
+.composer__btn--enhance:not(:disabled):hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.composer__btn--enhance:not(:disabled):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.composer__btn--enhance:disabled {
+  color: var(--control-disabled-fg);
+  cursor: default;
+}
+.composer__btn--enhance-busy {
+  color: var(--accent);
+}
+.composer__enhance-spin {
+  animation: spin 0.9s linear infinite;
 }
 
 /* Voice input button */
@@ -9489,136 +9093,6 @@ a[href] {
   background: var(--bg);
 }
 
-/* ── live task list, pinned above the composer ─────────────────────────────── */
-.todobar {
-  max-width: var(--maxw);
-  margin: 0 auto 8px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--bg-soft);
-  overflow: hidden;
-}
-.todobar__head {
-  display: flex;
-  align-items: center;
-  padding: 0 7px 0 11px;
-}
-.todobar__toggle {
-  --wails-draggable: no-drag;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex: 1;
-  min-width: 0;
-  padding: 7px 0;
-  background: none;
-  border: none;
-  color: var(--fg-dim);
-  font: inherit;
-  text-align: left;
-}
-.todobar__toggle > svg {
-  color: var(--fg-faint);
-  flex-shrink: 0;
-}
-.todobar__close {
-  --wails-draggable: no-drag;
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  padding: 4px;
-  background: none;
-  border: none;
-  color: var(--fg-faint);
-  border-radius: 5px;
-}
-.todobar__close:hover {
-  color: var(--fg);
-  background: var(--bg-elev);
-}
-.todobar__title {
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--fg-dim);
-  flex-shrink: 0;
-}
-.todobar__count {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--fg-faint);
-  flex-shrink: 0;
-}
-.todobar__stale {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  max-width: 160px;
-  overflow: hidden;
-  color: var(--fg-faint);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.todobar__stale > svg {
-  flex: 0 0 auto;
-  opacity: 0.72;
-}
-.todobar__current {
-  margin-left: 4px;
-  font-size: 12px;
-  color: var(--accent);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-.todobar__list {
-  list-style: none;
-  margin: 0;
-  padding: 2px 11px 9px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  max-height: 168px;
-  overflow-y: auto;
-}
-.todobar__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.todobar__ico {
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--fg-faint);
-}
-.todobar__ico--done {
-  color: var(--ok);
-}
-.todobar__ico--active {
-  color: var(--accent);
-}
-.todobar__text {
-  min-width: 0;
-}
-.todobar__item--completed .todobar__text {
-  color: var(--fg-faint);
-  text-decoration: line-through;
-}
-.todobar__item--in_progress .todobar__text {
-  color: var(--fg);
-  font-weight: 500;
-}
-.todobar__item--pending .todobar__text {
-  color: var(--fg-dim);
-}
-.todobar__item--sub {
-  padding-left: 20px;
-}
-
 /* ── progress stepper ──────────────────────────────────────────────────── */
 .progress-stepper {
   max-width: var(--maxw);
@@ -13266,7 +12740,6 @@ a[href] {
 .workbench-dock__body > .context-panel,
 .workbench-dock__body > .preview-panel,
 .workbench-dock__body > .workspace-panel,
-.workbench-dock__body > .calendar-panel,
 .workbench-dock__body > .daily-brief {
   height: 100%;
 }
@@ -16722,17 +16195,18 @@ a[href] {
    ═══════════════════════════════════════════════════════════════════════ */
 .side-chat {
   position: fixed;
-  top: 0;
+  top: var(--topicbar-height, 56px);
   right: 0;
-  width: var(--side-chat-width, 380px);
-  height: 100vh;
-  background: var(--bg-elevated, #1c2128);
-  border-left: 1px solid var(--border, #30363d);
+  bottom: 0;
+  width: var(--side-chat-width, 420px);
+  background: var(--chat-bg, var(--bg));
+  border-left: 1px solid var(--border-soft, var(--border));
   display: flex;
   flex-direction: column;
   z-index: var(--z-local-backdrop);
   animation: side-chat-in 0.18s ease;
   font-family: var(--sans);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
 }
 @keyframes side-chat-in {
   from { opacity: 0; transform: translateX(8px); }
@@ -16761,8 +16235,24 @@ a[href] {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid var(--border, #30363d);
+  border-bottom: 1px solid var(--border-soft, var(--border));
   margin-left: 6px;
+}
+.side-chat__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.side-chat__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: side-chat-pulse 1.2s ease-in-out infinite;
+}
+@keyframes side-chat-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 .side-chat__title {
   font-size: 13px;
@@ -16788,8 +16278,12 @@ a[href] {
   transition: background 0.12s, color 0.12s;
 }
 .side-chat__icon-btn:hover {
-  background: var(--bg-hover, #30363d);
+  background: var(--bg-hover, var(--border-soft));
   color: var(--fg, #e6edf3);
+}
+.side-chat__icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 .side-chat__body {
   flex: 1;
@@ -16809,23 +16303,25 @@ a[href] {
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border, #30363d);
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft, var(--border));
   margin-left: 6px;
+  background: var(--chat-bg, var(--bg));
 }
 .side-chat__input {
   flex: 1;
   resize: none;
-  background: var(--bg-muted, #161b22);
-  border: 1px solid var(--border, #30363d);
-  border-radius: 6px;
+  background: var(--bg-muted, var(--chat-bg));
+  border: 1px solid var(--border-soft, var(--border));
+  border-radius: 8px;
   color: var(--fg, #e6edf3);
-  font-size: 12px;
-  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 12px;
   outline: none;
   font-family: inherit;
-  min-height: 32px;
-  max-height: 80px;
+  min-height: 36px;
+  max-height: 120px;
 }
 .side-chat__input:focus {
   border-color: var(--accent, #58a6ff);
@@ -16853,6 +16349,17 @@ a[href] {
 }
 .side-chat__send-btn:hover:not(:disabled) {
   opacity: 0.85;
+}
+.side-chat__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-local-popover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--chat-bg) 82%, transparent);
+  backdrop-filter: blur(2px);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

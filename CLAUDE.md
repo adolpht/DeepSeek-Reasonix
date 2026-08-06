@@ -61,7 +61,7 @@ pnpm test               # Math-golden test via tsx
 ### Plugins
 
 - **Main-module plugins** (5: office, sheet, mail, im, dws) — built from root `go.mod`, output to `bin/plugins/rexion-plugin-*`
-- **Standalone-module plugins** (6: calendar, slides, search, browser, design, computer) — each has its own `go.mod` under `cmd/rexion-plugin-*/`, built from that directory
+- **Standalone-module plugins** (5: slides, search, browser, design, computer) — each has its own `go.mod` under `cmd/rexion-plugin-*/`, built from that directory
 
 ### Cache hit guard (CI/release gating)
 

@@ -59,20 +59,42 @@ func migrateLegacyEnv(oldName, newName string) {
 	}
 }
 
-// migrateRenamedDir moves srcDir to destDir if: srcDir exists, destDir does not
-// exist, and the migration marker is absent. On success a marker file is written
-// inside destDir so the migration never runs again.
+// migrateRenamedDir moves srcDir to destDir when srcDir exists. On success a
+// marker file is written inside destDir so the migration never runs again.
+//
+// The move is skipped (and the marker recorded) when destDir already holds user
+// data - the user may have intentionally kept both directories. But when destDir
+// exists with only app-created transient entries (logs/, cache/, a stale marker
+// from a pre-rename run), the old contents are merged in instead: the desktop
+// app creates its log directory (and the memory scaffold) before boot.Build runs
+// this migration, so a naive "dest exists -> skip" check would strand the user's
+// config in the old directory and the app would boot with defaults.
 func migrateRenamedDir(srcDir, destDir, label string) {
 	marker := filepath.Join(destDir, ".migrated-from-reasonix")
-	if _, err := os.Stat(marker); err == nil {
-		return // already migrated
-	}
 	if info, err := os.Stat(srcDir); err != nil || !info.IsDir() {
 		return // source does not exist
 	}
+	if _, err := os.Stat(marker); err == nil && hasUserData(destDir) {
+		return // already migrated and user data is in place
+	}
 	if _, err := os.Stat(destDir); err == nil {
-		// dest already exists — don't clobber, just mark as done
+		if hasUserData(destDir) {
+			// dest already holds real data — don't clobber, just mark as done
+			writeMigrationMarker(marker, label)
+			return
+		}
+		// dest exists but only holds transient app-created entries (logs/cache)
+		// and possibly a stale marker: merge the old contents in. Existing files
+		// always win, so nothing in dest is overwritten.
+		if err := copyMissing(srcDir, destDir); err != nil {
+			slog.Warn("brand migration: merge failed", "from", srcDir, "to", destDir, "err", err)
+			return
+		}
+		if err := os.RemoveAll(srcDir); err != nil {
+			slog.Warn("brand migration: could not remove old dir", "path", srcDir, "err", err)
+		}
 		writeMigrationMarker(marker, label)
+		slog.Info("brand migration: merged data directory", "label", label)
 		return
 	}
 	// Copy directory tree (rename fails across filesystems on some setups).
@@ -95,6 +117,32 @@ func writeMigrationMarker(marker, label string) {
 	_ = os.WriteFile(marker, []byte("Migrated by Rexion from Reasonix: "+label+"\n"), 0o644)
 }
 
+// transientEntries are top-level names the app itself creates before the brand
+// migration runs (log dir, cache dir, the migration marker). Their presence in
+// destDir does not count as user data, so they must not block the migration.
+var transientEntries = map[string]bool{
+	"logs":                    true,
+	"cache":                   true,
+	".migrated-from-reasonix": true,
+}
+
+// hasUserData reports whether dir contains anything beyond the app-created
+// transient entries (logs/, cache/, migration marker). An empty or
+// transient-only directory means the migration can still run into it.
+func hasUserData(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if transientEntries[e.Name()] {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // copyDir recursively copies a directory tree from src to dst.
 func copyDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
@@ -108,6 +156,29 @@ func copyDir(src, dst string) error {
 		target := filepath.Join(dst, rel)
 		if info.IsDir() {
 			return os.MkdirAll(target, info.Mode())
+		}
+		return copyFile(path, target, info.Mode())
+	})
+}
+
+// copyMissing copies src's tree into dst, skipping any path that already exists
+// in dst so pre-existing files always win. Used when the destination directory
+// was created by the app itself (log/cache dirs) before the migration ran.
+func copyMissing(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		if _, err := os.Stat(target); err == nil {
+			return nil // existing file wins
 		}
 		return copyFile(path, target, info.Mode())
 	})

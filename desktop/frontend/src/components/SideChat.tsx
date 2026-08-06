@@ -2,20 +2,29 @@ import { useCallback, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { X, ArrowUpFromLine, Send } from "lucide-react";
 import { useT } from "../lib/i18n";
-import type { Item } from "../lib/useController";
+import type { Item, LiveStream } from "../lib/useController";
+import type { QuestionAnswer, WireApproval, WireAsk } from "../lib/types";
 import { Transcript } from "./Transcript";
+import { ApprovalModal } from "./ApprovalModal";
+import { AskCard } from "./AskCard";
 
 export interface SideChatProps {
   visible: boolean;
-  contextItems: Item[];
+  items: Item[];
+  live?: LiveStream;
+  running: boolean;
+  approval?: WireApproval;
+  ask?: WireAsk;
   onSend: (text: string) => void;
   onClose: () => void;
-  onPromoteToMain: (text: string) => void;
+  onPromote: () => void;
+  onApprove: (id: string, allow: boolean, session: boolean, persist: boolean) => void;
+  onAnswer: (id: string, answers: QuestionAnswer[]) => void;
 }
 
-const SIDE_CHAT_MIN_WIDTH = 280;
-const SIDE_CHAT_DEFAULT_WIDTH = 380;
-const SIDE_CHAT_MAX_WIDTH = 600;
+const SIDE_CHAT_MIN_WIDTH = 320;
+const SIDE_CHAT_DEFAULT_WIDTH = 420;
+const SIDE_CHAT_MAX_WIDTH = 640;
 
 function clampWidth(w: number): number {
   return Math.min(SIDE_CHAT_MAX_WIDTH, Math.max(SIDE_CHAT_MIN_WIDTH, Math.round(w)));
@@ -37,10 +46,16 @@ function saveWidth(w: number): void {
 
 export function SideChat({
   visible,
-  contextItems,
+  items,
+  live,
+  running,
+  approval,
+  ask,
   onSend,
   onClose,
-  onPromoteToMain,
+  onPromote,
+  onApprove,
+  onAnswer,
 }: SideChatProps) {
   const t = useT();
   const [width, setWidth] = useState(loadWidth);
@@ -95,10 +110,13 @@ export function SideChat({
 
   if (!visible) return null;
 
+  const hasContent = items.length > 0 || Boolean(live?.text || live?.reasoning);
+
   return (
     <aside
       className={`side-chat${resizing ? " side-chat--resizing" : ""}`}
       style={{ "--side-chat-width": `${width}px` } as React.CSSProperties}
+      aria-label={t("sideChat.title")}
     >
       <div
         className="side-chat__resizer"
@@ -111,15 +129,17 @@ export function SideChat({
           saveWidth(next);
         }}
       />
-      <div className="side-chat__header">
-        <span className="side-chat__title">{t("sideChat.title")}</span>
+      <header className="side-chat__header">
+        <div className="side-chat__heading">
+          <span className="side-chat__title">{t("sideChat.title")}</span>
+          {running && <span className="side-chat__dot" aria-hidden="true" />}
+        </div>
         <div className="side-chat__header-actions">
           <button
             className="side-chat__icon-btn"
-            onClick={() => {
-              if (input.trim()) onPromoteToMain(input.trim());
-            }}
+            onClick={onPromote}
             title={t("sideChat.promoteToMain")}
+            disabled={!hasContent}
           >
             <ArrowUpFromLine size={14} />
           </button>
@@ -127,15 +147,35 @@ export function SideChat({
             <X size={14} />
           </button>
         </div>
-      </div>
+      </header>
       <div className="side-chat__body">
-        {contextItems.length === 0 ? (
-          <div className="side-chat__empty">{t("sideChat.placeholder")}</div>
+        {hasContent ? (
+          <Transcript items={items} live={live} onPrompt={() => {}} questionNavigator={false} />
         ) : (
-          <Transcript items={contextItems} onPrompt={() => {}} questionNavigator={false} />
+          <div className="side-chat__empty">{t("sideChat.placeholder")}</div>
         )}
       </div>
-      <div className="side-chat__footer">
+
+      {approval && (
+        <div className="side-chat__overlay">
+          <ApprovalModal
+            approval={approval}
+            onAnswer={(allow, session, persist) => onApprove(approval.id, allow, session, persist)}
+            onExitPlan={() => onApprove(approval.id, false, false, false)}
+          />
+        </div>
+      )}
+      {ask && (
+        <div className="side-chat__overlay">
+          <AskCard
+            ask={ask}
+            onAnswer={onAnswer}
+            onDismiss={() => onAnswer(ask.id, [])}
+          />
+        </div>
+      )}
+
+      <footer className="side-chat__footer">
         <textarea
           ref={inputRef}
           className="side-chat__input"
@@ -153,7 +193,7 @@ export function SideChat({
         >
           <Send size={14} />
         </button>
-      </div>
+      </footer>
     </aside>
   );
 }

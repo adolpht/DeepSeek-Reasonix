@@ -13,7 +13,6 @@ import {
   Search,
   FileText,
   Languages,
-  CalendarCheck,
   Lightbulb,
   Clock,
   Zap,
@@ -50,7 +49,6 @@ const QUICK_ACTIONS: Record<WorkspaceType, QuickAction[]> = {
     { key: "searchResearch", icon: <Search size={20} />, color: "blue", skillCommand: "research-report" },
     { key: "summarizeArticle", icon: <FileText size={20} />, color: "green", skillCommand: "" },
     { key: "translateContent", icon: <Languages size={20} />, color: "purple", skillCommand: "" },
-    { key: "scheduleManage", icon: <CalendarCheck size={20} />, color: "orange", skillCommand: "" },
   ],
 };
 

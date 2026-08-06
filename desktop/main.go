@@ -21,6 +21,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
+	"rexion/internal/config"
+
 	// Blank imports wire compile-time built-ins into their registries, exactly as
 	// cmd/Rexion does — boot.Build resolves providers/tools from these registries.
 	_ "rexion/internal/provider/anthropic"
@@ -42,6 +44,13 @@ var assets embed.FS
 var version = "dev"
 
 func main() {
+	// Brand migration first: the Reasonix → Rexion rename must run before
+	// initLogging/EnsureMemoryDir create %AppData%\Rexion or ~/.rexion. Those
+	// directories otherwise exist by the time boot.Build runs the migration, and
+	// the old %AppData%\reasonix config would be stranded (the app would boot
+	// with defaults and show onboarding again).
+	config.MigrateReasonixIfNeeded()
+
 	// Set up dual-output logging: write to both stderr (for console/wails dev)
 	// and a log file (for production diagnostics). The log file lives at
 	//   Windows: %AppData%\Rexion\logs\Rexion.log

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { MessageSquare, Mail, Calendar, FileText, Table, Presentation, Search, Cloud } from "lucide-react";
+import { MessageSquare, Mail, FileText, Table, Presentation, Search, Cloud } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app, openExternal } from "../lib/bridge";
 import { useI18n, useT, type Locale } from "../lib/i18n";
@@ -1805,18 +1805,6 @@ const OFFICE_PLUGINS: OfficePluginDef[] = [
 			{ key: "MAIL_SMTP_USER", label: { zh: "SMTP 用户名", en: "SMTP username" } },
 			{ key: "MAIL_SMTP_PASS", label: { zh: "SMTP 密码", en: "SMTP password" }, secret: true },
 		],
-	},
-	{
-		id: "calendar",
-		command: "Rexion-plugin-calendar",
-		icon: <Calendar size={16} />,
-		color: "purple",
-		title: { zh: "日历与待办", en: "Calendar & Todo" },
-		desc: {
-			zh: "读写日历事件与管理待办事项(Windows 调用 Outlook,macOS 调用日历)。",
-			en: "Read/write calendar events and manage todos (Outlook on Windows, Calendar on macOS).",
-		},
-		envVars: [],
 	},
 	{
 		id: "office",

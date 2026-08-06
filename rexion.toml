@@ -64,6 +64,6 @@ network = true
 
 # External MCP servers. type: "stdio" (default, a subprocess) | "http" | "sse".
 # ${VAR} / ${VAR:-default} are expanded from the environment in command/args/env/url/headers.
-# NOTE: Common MCP plugins (office, sheet, slides, search, calendar, mail, browser,
+# NOTE: Common MCP plugins (office, sheet, slides, search, mail, browser,
 # design, computer) are configured globally in ~/.config/Rexion/config.toml so they
 # are available across all projects.

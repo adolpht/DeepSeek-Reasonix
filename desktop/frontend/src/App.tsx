@@ -12,7 +12,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
   TerminalSquare,
-  Calendar,
   Newspaper,
   MessageSquare,
 } from "lucide-react";
@@ -22,7 +21,6 @@ import { useController, type Item, type LiveStream } from "./lib/useController";
 import { app, onProjectTreeChanged, onTabsChanged } from "./lib/bridge";
 import { Transcript, type TranscriptHandle } from "./components/Transcript";
 import { Composer } from "./components/Composer";
-import { TodoPanel } from "./components/TodoPanel";
 import { ApprovalModal } from "./components/ApprovalModal";
 import { AskCard } from "./components/AskCard";
 import { StatusBar } from "./components/StatusBar";
@@ -46,7 +44,6 @@ import { DesignPanel } from "./components/DesignPanel";
 import { SessionSync } from "./components/SessionSync";
 import { SupervisionOverlay } from "./components/SupervisionOverlay";
 import type { SupervisionAction } from "./components/SupervisionOverlay";
-import { CalendarPanel } from "./components/CalendarPanel";
 import { SideChat } from "./components/SideChat";
 import { IMSessionsPanel } from "./components/IMSessionsPanel";
 import { SchedulerPanel } from "./components/SchedulerPanel";
@@ -61,8 +58,7 @@ import { ProgressStepper } from "./components/ProgressStepper";
 import type { Step as ProgressStep } from "./components/ProgressStepper";
 import { CommandPalette, type PaletteItem } from "./components/CommandPalette";
 import { NotificationCenter, NotificationBell } from "./components/NotificationCenter";
-import { diffsFor, docExportPath, parseTodos } from "./lib/tools";
-import { shouldShowTodoPanel } from "./lib/todoVisibility";
+import { diffsFor, docExportPath } from "./lib/tools";
 import type { ComposerInsertRequest, Mode, SessionMeta, SettingsTab, SkillView, TabMeta, WorkflowView, WorkspaceType } from "./lib/types";
 import { loadLayoutSize, saveLayoutSize } from "./lib/layoutPreferences";
 import {
@@ -95,7 +91,7 @@ const RIGHT_DOCK_DEFAULT_WIDTH = 380;
 const RIGHT_DOCK_DEFAULT_RATIO = 0.25;
 const RIGHT_DOCK_MAX_WIDTH = 860;
 
-type RightDockMode = "preview" | "files" | "changed" | "context" | "calendar" | "dailyBrief" | "imSessions";
+type RightDockMode = "preview" | "files" | "changed" | "context" | "dailyBrief" | "imSessions";
 const SHOW_CONTEXT_DOCK = true;
 
 type HistoryScopeFilter = { scope: "global" | "project"; workspaceRoot: string };
@@ -346,6 +342,7 @@ export default function App() {
     activeTabId,
     send,
     runShell,
+    enhancePrompt,
     notice,
     cancel,
     approve,
@@ -375,6 +372,8 @@ export default function App() {
     syncActiveTab,
     intentClassified,
     clearIntentClassified,
+    // SideChat (旁路对话)
+    sideTabId, sideState, openSideChat, closeSideChat, sendSide, promoteSide, approveSide, answerSide,
   } = useController();
   const { locale, setPref: setLocalePref } = useI18n();
   const t = useT();
@@ -751,59 +750,6 @@ export default function App() {
     if (state.meta?.ready !== true || mode === "normal") return;
     void syncModeToController(mode);
   }, [state.meta, mode, syncModeToController]);
-
-  // The live task list pinned above the composer comes from the most recent
-  // successful top-level todo_write result; failed or still-running attempts do
-  // not advance the canonical panel state. It stays visible through the final
-  // all-completed update, and can be dismissed by the user (the ✕). A dismissal
-  // is keyed to that list's id, so a fresh accepted todo_write brings the panel
-  // back.
-  const todoEntry = useMemo(() => {
-    for (let i = state.items.length - 1; i >= 0; i--) {
-      const it = state.items[i];
-      if (it.kind === "tool" && it.name === "todo_write" && !it.parentId && it.status === "done" && !it.error) {
-        return { item: it, index: i };
-      }
-    }
-    return null;
-  }, [state.items]);
-  const todoItem = todoEntry?.item ?? null;
-  const todos = useMemo(() => (todoItem ? parseTodos(todoItem.args) : []), [todoItem]);
-  const [dismissedTodo, setDismissedTodo] = useState<string | null>(null);
-  const showTodos = shouldShowTodoPanel(todoItem?.id, dismissedTodo, todos);
-  const [todoNow, setTodoNow] = useState(() => Date.now());
-  const todoSeenRef = useRef<{ id: string; at: number } | null>(null);
-
-  useEffect(() => {
-    if (!todoItem) {
-      todoSeenRef.current = null;
-      return;
-    }
-    if (todoSeenRef.current?.id !== todoItem.id) {
-      todoSeenRef.current = { id: todoItem.id, at: Date.now() };
-      setTodoNow(Date.now());
-    }
-  }, [todoItem]);
-
-  useEffect(() => {
-    if (!showTodos) return;
-    const id = window.setInterval(() => setTodoNow(Date.now()), 15000);
-    return () => window.clearInterval(id);
-  }, [showTodos]);
-
-  const todoStale = useMemo(() => {
-    if (!showTodos || !todoEntry) return false;
-    const after = state.items.slice(todoEntry.index + 1);
-    const completedToolsAfter = after.filter(
-      (it) => it.kind === "tool" && it.name !== "todo_write" && !it.parentId && (it.status === "done" || it.status === "error"),
-    ).length;
-    const finalAssistantAfter = after.some((it) => it.kind === "assistant" && !it.streaming && it.text.trim() !== "");
-    const readinessNoticeAfter = after.some(
-      (it) => it.kind === "notice" && /final-answer readiness|todo_write|complete_step/i.test(it.text),
-    );
-    const staleByTime = state.running && todoSeenRef.current?.id === todoEntry.item.id && todoNow - todoSeenRef.current.at > 90_000;
-    return completedToolsAfter >= 2 || finalAssistantAfter || readinessNoticeAfter || staleByTime;
-  }, [showTodos, state.items, state.running, todoEntry, todoNow]);
 
   // useDeferredValue lets React prioritise Composer input (high-priority) over
   // Transcript re-renders (low-priority) during streaming. When a keystroke
@@ -1515,7 +1461,6 @@ export default function App() {
     // Navigation group — jump to a sidebar-driven view.
     const nav: Array<[string, string]> = [
       ["home", t("sidebar.home")],
-      ["calendar", t("sidebar.assistantSchedule")],
       ["dailyBrief", t("sidebar.dailyBrief")],
       ["scheduled", t("sidebar.scheduledTasks")],
       ["terminal", t("sidebar.terminal")],
@@ -1537,7 +1482,7 @@ export default function App() {
           }
           else if (page === "scheduled") setSchedulerOpen(true);
           else if (page === "trace") setTraceOpen(true);
-          else if (page === "calendar" || page === "dailyBrief") openRightDockMode(page);
+          else if (page === "dailyBrief") openRightDockMode(page);
           else setNavPage(page);
         },
       });
@@ -1812,7 +1757,7 @@ export default function App() {
               setDesignPanelModalOpen(true);
             } else if (page === "sessionSync") {
               setSessionSyncModalOpen(true);
-            } else if (page === "calendar" || page === "dailyBrief") {
+            } else if (page === "dailyBrief") {
               openRightDockMode(page);
             } else {
               setNavPage(page);
@@ -1933,7 +1878,14 @@ export default function App() {
                 <button
                   className={`topicbar__action-btn topicbar__action-btn--icon${sideChatOpen ? " is-active" : ""}`}
                   type="button"
-                  onClick={() => setSideChatOpen((v) => !v)}
+                  onClick={() => {
+                    if (sideChatOpen) {
+                      closeSideChat();
+                      setSideChatOpen(false);
+                    } else {
+                      openSideChat().then((id) => { if (id) setSideChatOpen(true); });
+                    }
+                  }}
                   aria-label={t("sideChat.title")}
                   aria-pressed={sideChatOpen}
                 >
@@ -2021,7 +1973,6 @@ export default function App() {
           </main>
 
           <footer className="footer" ref={footerRef}>
-            {showTodos && <TodoPanel todos={todos} stale={todoStale} onDismiss={() => setDismissedTodo(todoItem!.id)} />}
             {state.approval && (
               <ApprovalModal
                 approval={state.approval}
@@ -2095,6 +2046,7 @@ export default function App() {
               effort={state.effort}
               onSend={handleSend}
               onCancel={cancel}
+              onEnhance={enhancePrompt}
               onCycleMode={cycleMode}
               onSetMode={applyMode}
               onSwitchModel={switchModel}
@@ -2196,16 +2148,6 @@ export default function App() {
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={rightDockMode === "calendar"}
-                  className={`workbench-dock__tab${rightDockMode === "calendar" ? " workbench-dock__tab--active" : ""}`}
-                  onClick={() => openRightDockMode("calendar")}
-                >
-                  <Calendar size={13} />
-                  <span className="workbench-dock__tab-label">{t("sidebar.assistantSchedule")}</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
                   aria-selected={rightDockMode === "files"}
                   className={`workbench-dock__tab${rightDockMode === "files" ? " workbench-dock__tab--active" : ""}`}
                   onClick={() => openRightDockMode("files")}
@@ -2258,8 +2200,6 @@ export default function App() {
                 <DailyBriefPanel />
               ) : rightDockMode === "imSessions" ? (
                 <IMSessionsPanel />
-              ) : rightDockMode === "calendar" ? (
-                <CalendarPanel tabId={activeTabId} />
               ) : (
                 <WorkspacePanel
                   open={workspacePanelRenderable}
@@ -2485,11 +2425,17 @@ export default function App() {
         onClose={() => setNotificationCenterOpen(false)}
       />
       <SideChat
-        visible={sideChatOpen}
-        contextItems={state.items}
-        onSend={(text) => send(text)}
-        onClose={() => setSideChatOpen(false)}
-        onPromoteToMain={(text) => { send(text); setSideChatOpen(false); }}
+        visible={sideChatOpen && Boolean(sideTabId)}
+        items={sideState.items}
+        live={sideState.live}
+        running={sideState.running}
+        approval={sideState.approval}
+        ask={sideState.ask}
+        onSend={(text) => sendSide(text)}
+        onClose={() => { closeSideChat(); setSideChatOpen(false); }}
+        onPromote={() => { promoteSide().then(() => setSideChatOpen(false)); }}
+        onApprove={approveSide}
+        onAnswer={answerSide}
       />
     </div>
     </ShellExpandProvider>

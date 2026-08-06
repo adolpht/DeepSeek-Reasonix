@@ -815,18 +815,6 @@ export interface TerminalOutput {
   err?: string;
 }
 
-export interface TodoView {
-  id: string;
-  title: string;
-  description: string;
-  dueDate: string; // ISO date (YYYY-MM-DD) or empty
-  priority: "low" | "medium" | "high" | "urgent";
-  status: "pending" | "in_progress" | "completed";
-  source: "user" | "agent" | "scheduled";
-  createdAt: number; // unix ms
-  updatedAt: number; // unix ms
-}
-
 export interface NotificationView {
   id: string;
   kind: "task_complete" | "reminder" | "error";

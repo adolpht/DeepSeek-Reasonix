@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  CheckCircle2,
   Mail,
   Clock,
   MessageSquare,
@@ -12,12 +11,6 @@ import { useT } from "../lib/i18n";
 import type { ScheduledTaskView, SessionMeta } from "../lib/types";
 
 // ── Data types ────────────────────────────────────────────────
-interface TodoItem {
-  id: string;
-  title: string;
-  due?: string;
-}
-
 interface MailItem {
   from: string;
   subject: string;
@@ -27,33 +20,11 @@ interface MailItem {
 // ── Component ─────────────────────────────────────────────────
 export function DailyBriefPanel() {
   const t = useT();
-  const [todos, setTodos] = useState<TodoItem[]>([]);
   const [mails, setMails] = useState<MailItem[]>([]);
   const [tasks, setTasks] = useState<ScheduledTaskView[]>([]);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const loadTodos = useCallback(async () => {
-    setLoading((p) => ({ ...p, todos: true }));
-    setErrors((p) => ({ ...p, todos: "" }));
-    try {
-      // CalendarPanel uses a dedicated method; for the brief we just
-      // call the same backend. ListTodos returns a flat list.
-      const result = await (app as any).ListTodos?.() ?? [];
-      const pending = (result as any[]).filter((t: any) => t.status === "pending" || !t.completed);
-      setTodos(pending.slice(0, 5).map((t: any) => ({
-        id: t.id ?? t.name,
-        title: t.title ?? t.name ?? t.text ?? "",
-        due: t.due ?? t.dueDate,
-      })));
-    } catch {
-      setTodos([]);
-      setErrors((p) => ({ ...p, todos: t("dailyBrief.loadError") as string }));
-    } finally {
-      setLoading((p) => ({ ...p, todos: false }));
-    }
-  }, [t]);
 
   const loadMails = useCallback(async () => {
     setLoading((p) => ({ ...p, mails: true }));
@@ -107,18 +78,10 @@ export function DailyBriefPanel() {
   }, []);
 
   useEffect(() => {
-    void loadTodos();
     void loadMails();
     void loadTasks();
     void loadSessions();
-  }, [loadTodos, loadMails, loadTasks, loadSessions]);
-
-  const completeTodo = async (id: string) => {
-    try {
-      await (app as any).CompleteTodo?.(id);
-      setTodos((prev) => prev.filter((t) => t.id !== id));
-    } catch { /* ignore */ }
-  };
+  }, [loadMails, loadTasks, loadSessions]);
 
   const Section = ({
     icon,
@@ -156,35 +119,6 @@ export function DailyBriefPanel() {
           {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
         </span>
       </header>
-
-      <Section
-        icon={<CheckCircle2 size={16} />}
-        title={t("dailyBrief.pendingTodos") as string}
-        loading={loading.todos}
-        error={errors.todos}
-        onRefresh={loadTodos}
-      >
-        {todos.length === 0 ? (
-          <div className="daily-brief__empty">{t("dailyBrief.noTodos") as string}</div>
-        ) : (
-          <ul className="daily-brief__list">
-            {todos.map((todo) => (
-              <li key={todo.id} className="daily-brief__item">
-                <span className="daily-brief__item-text">{todo.title}</span>
-                {todo.due && <span className="daily-brief__item-meta">{todo.due}</span>}
-                <button
-                  className="daily-brief__item-action"
-                  onClick={() => void completeTodo(todo.id)}
-                  type="button"
-                  title={t("dailyBrief.completeTodo") as string}
-                >
-                  <CheckCircle2 size={14} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Section>
 
       <Section
         icon={<Mail size={16} />}

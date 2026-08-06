@@ -896,6 +896,7 @@ func Build(ctx context.Context, opts Options) (*control.Controller, error) {
 		Hooks:            hookRunner,
 		Memory:           mem,
 		Cleanup:          cleanup,
+		Enhancer:         control.NewProviderPromptEnhancer(execProv),
 		BalanceURL:       entry.BalanceURL,
 		BalanceKey:       entry.APIKey(),
 		BalanceClient:    balanceClient,

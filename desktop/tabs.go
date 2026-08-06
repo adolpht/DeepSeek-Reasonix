@@ -60,6 +60,16 @@ type WorkspaceTab struct {
 	workspaceType string // "coding" | "office" | "assistant"; coding is default
 	disabledMCP   map[string]ServerView
 	mcpOrder      []string
+
+	// Hidden marks a transient tab that never appears in the TabBar and is not
+	// persisted. SideChat (旁路对话) uses hidden tabs: each open side
+	// conversation is a full controller branched from the main tab's context,
+	// kept off-screen until promoted or closed.
+	Hidden bool
+
+	// SideChatSource, for hidden side-chat tabs only, is the visible tab ID
+	// this side chat was branched from. Lets CloseSideChat/Promote find it.
+	SideChatSource string
 }
 
 type readFileRecord struct {
@@ -358,12 +368,14 @@ func (a *App) tabMeta(tab *WorkspaceTab, active bool) TabMeta {
 }
 
 // ListTabs returns every open tab's metadata for the frontend TabBar.
+// Hidden tabs (SideChat branches) are excluded — they are transient and have
+// no representation in the tab strip.
 func (a *App) ListTabs() []TabMeta {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	out := make([]TabMeta, 0, len(a.tabs))
 	for _, id := range a.orderedTabIDsLocked() {
-		if tab := a.tabs[id]; tab != nil {
+		if tab := a.tabs[id]; tab != nil && !tab.Hidden {
 			out = append(out, a.tabMeta(tab, tab.ID == a.activeTabID))
 		}
 	}
@@ -389,6 +401,7 @@ func (a *App) OpenProjectTab(workspaceRoot, topicID string) (TabMeta, error) {
 			meta := a.tabMeta(tab, true)
 			a.saveTabsLocked()
 			a.mu.Unlock()
+			a.syncWorkspaceWatcher()
 			return meta, nil
 		}
 	}
@@ -414,6 +427,7 @@ func (a *App) OpenProjectTab(workspaceRoot, topicID string) (TabMeta, error) {
 
 	a.startTabControllerBuild(tab)
 	wruntime.EventsEmit(a.ctx, "tabs:changed")
+	a.syncWorkspaceWatcher()
 	return a.tabMeta(tab, true), nil
 }
 
@@ -432,6 +446,7 @@ func (a *App) OpenGlobalTab(topicID string) (TabMeta, error) {
 			meta := a.tabMeta(tab, true)
 			a.saveTabsLocked()
 			a.mu.Unlock()
+			a.syncWorkspaceWatcher()
 			return meta, nil
 		}
 	}
@@ -457,6 +472,7 @@ func (a *App) OpenGlobalTab(topicID string) (TabMeta, error) {
 
 	a.startTabControllerBuild(tab)
 	wruntime.EventsEmit(a.ctx, "tabs:changed")
+	a.syncWorkspaceWatcher()
 	return a.tabMeta(tab, true), nil
 }
 
@@ -474,6 +490,7 @@ func (a *App) SetActiveTab(tabID string) error {
 	a.activeTabID = tabID
 	a.saveTabsLocked()
 	wruntime.EventsEmit(a.ctx, "tabs:changed")
+	a.syncWorkspaceWatcher()
 	return nil
 }
 
@@ -525,6 +542,19 @@ func (a *App) CloseTab(tabID string) error {
 			break
 		}
 	}
+	// Collect hidden side-chat tabs branched from this tab so they are torn
+	// down together with their source. Hidden tabs are never "active" and
+	// never count toward the "last tab" guard below.
+	var sideTabs []*WorkspaceTab
+	for _, id := range a.tabOrder {
+		if t := a.tabs[id]; t != nil && t.Hidden && t.SideChatSource == tabID {
+			sideTabs = append(sideTabs, t)
+			delete(a.tabs, id)
+		}
+	}
+	for _, t := range sideTabs {
+		a.removeTabOrderLocked(t.ID)
+	}
 	delete(a.tabs, tabID)
 	a.removeTabOrderLocked(tabID)
 	wasActive := a.activeTabID == tabID
@@ -559,6 +589,22 @@ func (a *App) CloseTab(tabID string) error {
 	}
 	if tab.sink != nil {
 		tab.sink.ctx = nil // stop further emissions (nil ctx → Emit becomes no-op)
+	}
+	// Tear down side-chat tabs branched from this tab.
+	for _, t := range sideTabs {
+		if t.Ctrl != nil {
+			t.Ctrl.Cancel()
+			_ = t.Ctrl.Snapshot()
+			if !t.Ctrl.SessionHasContent() {
+				if path := t.Ctrl.SessionPath(); path != "" {
+					_ = os.Remove(path + ".meta")
+				}
+			}
+			t.Ctrl.Close()
+		}
+		if t.sink != nil {
+			t.sink.ctx = nil
+		}
 	}
 	wruntime.EventsEmit(a.ctx, "tabs:changed")
 	return nil
@@ -1005,7 +1051,7 @@ func (a *App) saveTabsLocked() {
 	os.MkdirAll(dir, 0o755)
 	var entries []desktopTabEntry
 	for _, id := range a.orderedTabIDsLocked() {
-		if tab := a.tabs[id]; tab != nil {
+		if tab := a.tabs[id]; tab != nil && !tab.Hidden {
 			entries = append(entries, desktopTabEntry{
 				ID:            tab.ID,
 				Scope:         tab.Scope,
@@ -2575,4 +2621,179 @@ func findTopicSession(dir, topicID string) string {
 		}
 	}
 	return bestPath
+}
+
+// --- SideChat (旁路对话) ---------------------------------------------------
+//
+// SideChat opens a hidden tab branched from the active tab's current context.
+// The branch shares the main conversation's history (read-only snapshot at
+// open time) but runs in an independent controller, so messages sent in the
+// side chat never pollute the main thread. When the user is satisfied with a
+// side-chat conclusion, PromoteSideChatLastReply ships the last assistant
+// reply into the main tab as a user message. Closing the side chat tears down
+// the hidden tab and its controller.
+
+// OpenSideChat creates a hidden tab branched from the active tab's current
+// session and returns its ID. If a side-chat tab already exists for the
+// active tab, it is reused (the context is NOT re-branched — call
+// CloseSideChat first to force a fresh branch). Returns "" if no active tab
+// or branching is unavailable.
+func (a *App) OpenSideChat() (string, error) {
+	a.mu.RLock()
+	sourceTab := a.activeTabLocked()
+	ctrl := a.activeCtrlLocked()
+	if sourceTab == nil || ctrl == nil {
+		a.mu.RUnlock()
+		return "", nil
+	}
+	// Reuse an existing side-chat tab for this source tab, if any.
+	for _, id := range a.tabOrder {
+		t := a.tabs[id]
+		if t != nil && t.Hidden && t.SideChatSource == sourceTab.ID {
+			a.mu.RUnlock()
+			return t.ID, nil
+		}
+	}
+	scope := sourceTab.Scope
+	workspaceRoot := sourceTab.WorkspaceRoot
+	model := sourceTab.model
+	effort := cloneStringPtr(sourceTab.effort)
+	mode := currentTabMode(sourceTab)
+	disabledMCP := cloneServerViewMap(sourceTab.disabledMCP)
+	mcpOrder := append([]string(nil), sourceTab.mcpOrder...)
+	a.mu.RUnlock()
+
+	// Branch the current conversation: copies all messages to a new session
+	// file without switching the source controller. If the source has no
+	// content yet (fresh session), we still create an empty branch so the
+	// side chat is usable.
+	newPath, err := ctrl.Branch("")
+	if err != nil {
+		// Fall back to a fresh session path if branching fails (e.g. no
+		// session dir configured). The side chat still works, just without
+		// inherited context.
+		newPath = ""
+	}
+
+	a.mu.Lock()
+	tabID := a.newUniqueTabIDLocked()
+	tab := &WorkspaceTab{
+		ID:             tabID,
+		Scope:          scope,
+		WorkspaceRoot:  workspaceRoot,
+		TopicID:        newTopicID(),
+		TopicTitle:     "side-chat",
+		SessionPath:    newPath,
+		model:          model,
+		effort:         effort,
+		mode:           mode,
+		disabledMCP:    disabledMCP,
+		mcpOrder:       mcpOrder,
+		Hidden:         true,
+		SideChatSource: sourceTab.ID,
+	}
+	tab.sink = &tabEventSink{tabID: tabID, app: a}
+	a.tabs[tabID] = tab
+	a.tabOrder = append(a.tabOrder, tabID)
+	// Do NOT change activeTabID — the side chat is off-screen.
+	a.mu.Unlock()
+
+	a.startTabControllerBuild(tab)
+	return tabID, nil
+}
+
+// CloseSideChat tears down the hidden side-chat tab and its controller. If
+// tabID is empty, the side-chat tab for the active tab (if any) is closed.
+// Closing is idempotent and never switches the active tab.
+func (a *App) CloseSideChat(tabID string) error {
+	if tabID == "" {
+		a.mu.RLock()
+		active := a.activeTabLocked()
+		if active != nil {
+			for _, id := range a.tabOrder {
+				if t := a.tabs[id]; t != nil && t.Hidden && t.SideChatSource == active.ID {
+					tabID = id
+					break
+				}
+			}
+		}
+		a.mu.RUnlock()
+		if tabID == "" {
+			return nil
+		}
+	}
+	a.mu.Lock()
+	tab, ok := a.tabs[tabID]
+	if !ok {
+		a.mu.Unlock()
+		return nil
+	}
+	delete(a.tabs, tabID)
+	a.removeTabOrderLocked(tabID)
+	a.mu.Unlock()
+
+	// Tear down controller outside the lock.
+	if tab.Ctrl != nil {
+		tab.Ctrl.Cancel()
+		_ = tab.Ctrl.Snapshot()
+		if !tab.Ctrl.SessionHasContent() {
+			if path := tab.Ctrl.SessionPath(); path != "" {
+				_ = os.Remove(path + ".meta")
+			}
+		}
+		tab.Ctrl.Close()
+	}
+	if tab.sink != nil {
+		tab.sink.ctx = nil
+	}
+	return nil
+}
+
+// PromoteSideChatLastReply sends the side-chat's last assistant text into the
+// main tab as a user message, then closes the side chat. If the side chat has
+// no assistant reply yet, it promotes the pending input text instead (same
+// as the legacy "promote draft" behavior). Returns the promoted text, or ""
+// if nothing to promote.
+func (a *App) PromoteSideChatLastReply(tabID string) (string, error) {
+	a.mu.RLock()
+	sideTab := a.tabByIDLocked(tabID)
+	if sideTab == nil || !sideTab.Hidden {
+		// Fall back: find side chat for active tab.
+		active := a.activeTabLocked()
+		if active != nil {
+			for _, id := range a.tabOrder {
+				if t := a.tabs[id]; t != nil && t.Hidden && t.SideChatSource == active.ID {
+					sideTab = t
+					tabID = id
+					break
+				}
+			}
+		}
+	}
+	if sideTab == nil {
+		a.mu.RUnlock()
+		return "", nil
+	}
+	sourceID := sideTab.SideChatSource
+	sideCtrl := sideTab.Ctrl
+	a.mu.RUnlock()
+
+	// Extract the last assistant message text from the side chat's history.
+	promoted := ""
+	if sideCtrl != nil {
+		for _, m := range sideCtrl.History() {
+			if m.Role == provider.RoleAssistant && strings.TrimSpace(m.Content) != "" {
+				promoted = strings.TrimSpace(m.Content)
+			}
+		}
+	}
+
+	// Ship the promoted text to the main tab.
+	if promoted != "" && sourceID != "" {
+		a.SubmitToTab(sourceID, promoted)
+	}
+
+	// Tear down the side-chat tab.
+	_ = a.CloseSideChat(tabID)
+	return promoted, nil
 }

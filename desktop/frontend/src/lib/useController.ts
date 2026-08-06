@@ -690,6 +690,19 @@ export function useController() {
     app.RunShellForTab(activeTabId, command).catch(() => {});
   }, [activeTabId, dispatchTo]);
 
+  // enhancePrompt asks the tab's single-turn enhancer to rewrite a draft prompt.
+  // Resolves to the rewritten text, or the draft unchanged when enhancement is
+  // unavailable (no enhancer, empty draft, or an error).
+  const enhancePrompt = useCallback(async (draft: string): Promise<string> => {
+    if (!activeTabId) return draft;
+    try {
+      const out = await app.EnhancePromptForTab(activeTabId, draft);
+      return typeof out === "string" && out.trim() ? out : draft;
+    } catch {
+      return draft;
+    }
+  }, [activeTabId]);
+
   const notice = useCallback((text: string, level: "info" | "warn" = "info") => {
     if (!activeTabId) return;
     dispatchTo(activeTabId, { type: "local_notice", level, text });
@@ -900,15 +913,93 @@ export function useController() {
     } catch { /* ignore */ }
   }, []);
 
+  // --- SideChat (旁路对话) ---
+  // A side chat is a hidden tab branched from the active tab's context. Its
+  // events arrive on the same onEvent stream tagged with the side tab's ID,
+  // so dispatchTo routes them into an isolated state slot in statesRef —
+  // exactly like a normal tab, just never shown in the TabBar.
+  const [sideTabId, setSideTabId] = useState<string | undefined>();
+  const sideTabIdRef = useRef<string | undefined>(undefined);
+  sideTabIdRef.current = sideTabId;
+  const sideState = sideTabId ? getOrCreateState(statesRef.current, sideTabId) : initialState;
+
+  const openSideChat = useCallback(async (): Promise<string | undefined> => {
+    // If already open for the active tab, reuse it.
+    if (sideTabIdRef.current) return sideTabIdRef.current;
+    try {
+      const id = await app.OpenSideChat();
+      if (id) {
+        setSideTabId(id);
+        // Seed the side tab's state so the panel renders immediately.
+        dispatchTo(id, { type: "reset" });
+      }
+      return id;
+    } catch { return undefined; }
+  }, [dispatchTo]);
+
+  const closeSideChat = useCallback(() => {
+    const id = sideTabIdRef.current;
+    if (!id) return;
+    setSideTabId(undefined);
+    statesRef.current.delete(id);
+    bump();
+    app.CloseSideChat(id).catch(() => {});
+  }, [bump]);
+
+  const sendSide = useCallback((displayText: string, submitText = displayText) => {
+    const id = sideTabIdRef.current;
+    if (!id) return;
+    const seq = getOrCreateState(statesRef.current, id).seq;
+    dispatchTo(id, { type: "user", text: displayText, seq });
+    const display = displayText.trim(); const submit = submitText.trim();
+    (display !== submit ? app.SubmitDisplayToTab(id, display, submit) : app.SubmitToTab(id, submit)).catch(() => {});
+  }, [dispatchTo]);
+
+  const promoteSide = useCallback(async (): Promise<string> => {
+    const id = sideTabIdRef.current;
+    if (!id) return "";
+    try {
+      const promoted = await app.PromoteSideChatLastReply(id);
+      setSideTabId(undefined);
+      statesRef.current.delete(id);
+      bump();
+      return promoted;
+    } catch { return ""; }
+  }, [bump]);
+
+  const approveSide = useCallback((approvalId: string, allow: boolean, session: boolean, persist: boolean) => {
+    const id = sideTabIdRef.current;
+    if (!id) return;
+    dispatchTo(id, { type: "clearApproval" });
+    app.ApproveTab(id, approvalId, allow, session, persist).catch(() => {});
+  }, [dispatchTo]);
+
+  const answerSide = useCallback((askId: string, answers: QuestionAnswer[]) => {
+    const id = sideTabIdRef.current;
+    if (!id) return;
+    dispatchTo(id, { type: "clearAsk" });
+    app.AnswerQuestionForTab(id, askId, answers).catch(() => {});
+  }, [dispatchTo]);
+
+  // If the active tab changes, close any open side chat — the side chat is
+  // bound to the previous tab's context and should not follow the user to a
+  // different conversation.
+  useEffect(() => {
+    if (sideTabIdRef.current) closeSideChat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
+
   return {
     state: activeState,
     activeTabId,
-    send, runShell, notice, cancel, approve, answerQuestion, answerAutoLearn, setControllerMode,
+    send, runShell, enhancePrompt, notice, cancel, approve, answerQuestion, answerAutoLearn, setControllerMode,
     newSession, listSessions, listTrashedSessions, resumeSession, previewSession, deleteSession, restoreSession, purgeTrashedSession, renameSession,
     refreshMeta, pickWorkspace, switchWorkspace, compact, rewind, setModel, setEffort,
     fetchMemory, remember, forget, saveDoc,
     switchTab, openProjectTab, openGlobalTab, closeTab, reorderTabs,
     syncActiveTab: syncActiveTabFromBackend,
     intentClassified, clearIntentClassified,
+    // SideChat
+    sideTabId, sideState, openSideChat, closeSideChat, sendSide, promoteSide, approveSide, answerSide,
   };
 }

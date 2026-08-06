@@ -88,15 +88,6 @@ export function diffsFor(name: string, args: string): ToolDiff[] {
   return [];
 }
 
-export type TodoStatus = "pending" | "in_progress" | "completed";
-
-export interface Todo {
-  content: string;
-  status: TodoStatus | string;
-  activeForm?: string;
-  level?: number; // 0 = phase, 1 = sub-step of the phase above it
-}
-
 // docExportPath returns the absolute path to render via DocPreviewer inline,
 // or "" if this tool call isn't a doc-emitting one. Two paths produce a path:
 //   - the office plugin's write_docx/write_sheet tools return a path in their
@@ -124,16 +115,6 @@ export function docExportPath(name: string, args: string, output?: string): stri
     return str(a, "output_path") || str(a, "rel_path") || str(a, "path");
   }
   return "";
-}
-
-// parseTodos pulls the task list out of a todo_write call's args.
-export function parseTodos(args: string): Todo[] {
-  try {
-    const a = JSON.parse(args) as { todos?: Todo[] };
-    return Array.isArray(a.todos) ? a.todos : [];
-  } catch {
-    return [];
-  }
 }
 
 function plusMinus(original: string, modified: string): { add: number; del: number } {

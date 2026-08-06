@@ -255,7 +255,6 @@ resource) you can copy.
 | Office | `rexion-plugin-office` | Word document read/write, Markdown→DOCX, template rendering |
 | Sheet | `rexion-plugin-sheet` | Spreadsheet (xlsx/csv) read/write/query/chart |
 | Slides | `rexion-plugin-slides` | PowerPoint generation, themes, PDF export |
-| Calendar | `rexion-plugin-calendar` | System calendar events & todo items |
 | Mail | `rexion-plugin-mail` | Email via IMAP/SMTP, OAuth2, classification |
 | IM | `rexion-plugin-im` | Instant messaging (DingTalk / Feishu / WeCom) with `/ask` `/plan` `/craft` remote control |
 | Search | `rexion-plugin-search` | Web search, page extraction, comparison tables |

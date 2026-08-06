@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ClipboardEvent, DragEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { AlertTriangle, ArrowUp, Check, ChevronDown, Eye, FileText, Folder, FolderGit2, FolderPlus, List, Loader2, Mic, Paperclip, Search, Square, Trash2, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowUp, Check, ChevronDown, Eye, FileText, Folder, FolderGit2, FolderPlus, List, Loader2, Mic, Paperclip, Search, Sparkles, Square, Trash2, X, Zap } from "lucide-react";
 import { asArray } from "../lib/array";
 import { app, onFilesDropped } from "../lib/bridge";
 import { SPINNER_WORDS, useI18n } from "../lib/i18n";
@@ -162,6 +162,7 @@ export function Composer({
   retry,
   workspaceRefreshSignal,
   workspaceType,
+  onEnhance,
 }: {
   running: boolean;
   mode: Mode;
@@ -170,6 +171,10 @@ export function Composer({
   tabId?: string;
   effort?: EffortInfo;
   onSend: (displayText: string, submitText?: string) => void;
+  // onEnhance rewrites the current draft via the model (single-turn, no agent
+  // loop); resolves to the rewritten text, or the draft unchanged when
+  // enhancement is unavailable. Undefined hides the enhance button.
+  onEnhance?: (draft: string) => Promise<string>;
   // Returns the un-sent text when cancelling before the server replied (so it can
   // be restored to the input); undefined for a normal cancel.
   onCancel: () => string | undefined;
@@ -212,6 +217,9 @@ export function Composer({
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [workspaceQuery, setWorkspaceQuery] = useState("");
   const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([]);
+  // enhanceBusy is true while the model rewrites the draft; the enhance button
+  // shows a spinner and stays disabled so a second click can't stack requests.
+  const [enhanceBusy, setEnhanceBusy] = useState(false);
   // Two-click delete: the first click on the trash icon moves the row into a
   // "Confirm?" state and shows a real label ("Delete?") on the icon; the
   // second click (within ~3s) actually fires the removal. A click anywhere
@@ -601,6 +609,25 @@ export function Composer({
     setAttachments([]);
     setWorkspaceRefs([]);
     setSkillRefs([]);
+  };
+
+  // handleEnhance asks the model to rewrite the current draft, replacing the
+  // composer text on success. The draft is kept when enhancement is
+  // unavailable (onEnhance absent, empty text, or a failed call).
+  const handleEnhance = async () => {
+    if (!onEnhance || enhanceBusy || running || disabled) return;
+    const draft = text.trim();
+    if (!draft) return;
+    setEnhanceBusy(true);
+    try {
+      const enhanced = await onEnhance(draft);
+      if (enhanced && enhanced.trim() && enhanced.trim() !== draft) {
+        setText(enhanced.trim());
+        requestAnimationFrame(() => taRef.current?.focus());
+      }
+    } finally {
+      setEnhanceBusy(false);
+    }
   };
 
   const readFileAsDataURL = (file: File) =>
@@ -1390,6 +1417,19 @@ export function Composer({
             rows={1}
             disabled={disabled}
           />
+          {!running && onEnhance && (
+            <Tooltip label={t(enhanceBusy ? "composer.enhancing" : "composer.enhance")}>
+              <button
+                className={`composer__btn composer__btn--enhance${enhanceBusy ? " composer__btn--enhance-busy" : ""}`}
+                type="button"
+                onClick={handleEnhance}
+                disabled={disabled || running || enhanceBusy || !text.trim()}
+                aria-label={t(enhanceBusy ? "composer.enhancing" : "composer.enhance")}
+              >
+                {enhanceBusy ? <Loader2 size={16} className="composer__enhance-spin" /> : <Sparkles size={16} />}
+              </button>
+            </Tooltip>
+          )}
           {!running && (
             <Tooltip label={t("composer.send")}>
               <button

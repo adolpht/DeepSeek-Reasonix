@@ -115,7 +115,6 @@ Write-Host "  CLI + main-module plugins done" -ForegroundColor Green
 if (-not $SkipPlugins) {
     Write-Host "[2/5] Building standalone-module plugins..." -ForegroundColor Yellow
     $standalonePlugins = @(
-        "rexion-plugin-calendar",
         "rexion-plugin-slides",
         "rexion-plugin-search",
         "rexion-plugin-browser"
@@ -165,7 +164,6 @@ $allPlugins = @(
     "rexion-plugin-office",
     "rexion-plugin-sheet",
     "rexion-plugin-search",
-    "rexion-plugin-calendar",
     "rexion-plugin-slides",
     "rexion-plugin-mail",
     "rexion-plugin-im",

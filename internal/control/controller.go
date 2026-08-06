@@ -75,6 +75,7 @@ type Controller struct {
 	cleanup      func()
 	autoPlan     string
 	classifier   autoPlanClassifier
+	enhancer     enhanceProvider
 	startedOnce  bool              // guards the one-shot SessionStart hook on first turn
 	onRemember   func(rule string) // set via Options; invoked when user picks "always allow"
 
@@ -219,6 +220,9 @@ type Options struct {
 	WorkspaceRoot string
 	AutoPlan      string
 	Classifier    autoPlanClassifier
+	// Enhancer rewrites a user's draft prompt before send (single-turn
+	// completion, no agent loop). Nil disables the composer's enhance button.
+	Enhancer enhanceProvider
 	// OnRemember, when set, is invoked with a new allow rule the user chose to
 	// persist to disk (e.g. "bash(go build*)"). The callback is wired into the
 	// permission Gate on EnableInteractiveApproval.
@@ -260,6 +264,7 @@ func New(opts Options) *Controller {
 		cleanup:          opts.Cleanup,
 		autoPlan:         normalizeAutoPlan(opts.AutoPlan),
 		classifier:       classifier,
+		enhancer:         opts.Enhancer,
 		onRemember:       opts.OnRemember,
 		balanceURL:       opts.BalanceURL,
 		balanceKey:       opts.BalanceKey,
@@ -1183,6 +1188,23 @@ func (c *Controller) runRefTurn(input, display string) {
 // notice emits an informational Notice event.
 func (c *Controller) notice(text string) {
 	c.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: text})
+}
+
+// EnhancePrompt rewrites a user's draft prompt via the session's single-turn
+// enhancer (no agent loop, no tool calls). The result is meant to replace the
+// draft in the composer. An empty draft or a missing enhancer yields "" with a
+// nil error, so frontends can disable the button without a dedicated probe.
+func (c *Controller) EnhancePrompt(ctx context.Context, draft string) (string, error) {
+	if strings.TrimSpace(draft) == "" {
+		return "", nil
+	}
+	c.mu.Lock()
+	enhancer := c.enhancer
+	c.mu.Unlock()
+	if nilutil.IsNil(enhancer) {
+		return "", nil
+	}
+	return enhancer.EnhancePrompt(ctx, draft)
 }
 
 // Notice emits an informational Notice event to the session's event stream.
